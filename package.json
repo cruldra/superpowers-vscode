@@ -1,20 +1,19 @@
 {
-  "publisher": "superpowers",
+  "publisher": "cruldra",
   "name": "superpowers-vscode",
   "displayName": "Superpowers",
   "version": "0.1.0",
-  "private": true,
   "packageManager": "pnpm@10.27.0",
   "description": "Superpowers specs and plans explorer",
-  "author": "Superpowers",
+  "author": "cruldra",
   "license": "MIT",
-  "homepage": "https://github.com/superpowers/superpowers-vscode#readme",
+  "homepage": "https://github.com/cruldra/superpowers-vscode#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/superpowers/superpowers-vscode"
+    "url": "https://github.com/cruldra/superpowers-vscode"
   },
   "bugs": {
-    "url": "https://github.com/superpowers/superpowers-vscode/issues"
+    "url": "https://github.com/cruldra/superpowers-vscode/issues"
   },
   "categories": [
     "Other"
