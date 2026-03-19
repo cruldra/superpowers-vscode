@@ -642,8 +642,6 @@ git commit -m "✨ feat: 创建 TreeView Provider"
 git add package.json
 git commit -m "✨ feat: 更新 package.json 元数据和贡献点"
 ```
-git commit -m "✨ feat: 更新 package.json 元数据和贡献点"
-```
 
 ---
 
