@@ -20,7 +20,7 @@ src/
 ├── index.ts              # 插件入口，注册扩展
 ├── treeView.ts           # 左侧 TreeView 实现
 ├── webview/
-│   ├── provider.ts       # WebviewProvider 实现
+│   ├── panel.ts          # WebviewPanel 实现
 │   ├── panel.html        # Webview HTML 模板
 │   └── styles.css        # Webview 样式
 ├── scanner.ts            # 文件扫描逻辑
@@ -46,13 +46,17 @@ const TREE_VIEW_ID = 'superpowers-explorer';
 - 点击后打开/聚焦 Webview 面板
 - Webview 关闭后，可再次点击重新打开
 
-#### 2. Webview Provider (webview/provider.ts)
+#### 2. Webview Panel (webview/panel.ts)
 
-实现 `WebviewViewProvider` 接口，管理 Webview 生命周期和内容更新。
+使用 `WebviewPanel` API 在编辑器区域创建独立面板，展示 specs 和 plans 数据。
 
 ```typescript
-class SuperpowersWebviewProvider implements WebviewViewProvider {
-  private _view?: WebviewView;
+class SuperpowersPanel {
+  public static currentPanel: SuperpowersPanel | undefined;
+  private readonly _panel: WebviewPanel;
+  
+  // 创建或显示面板
+  public static createOrShow(extensionUri: Uri): SuperpowersPanel;
   
   // 加载 HTML 内容
   private _getHtmlContent(webview: Webview): string;
@@ -62,6 +66,9 @@ class SuperpowersWebviewProvider implements WebviewViewProvider {
   
   // 处理来自 Webview 的消息
   private _handleMessage(message: any): void;
+  
+  // 销毁面板
+  public dispose(): void;
 }
 ```
 
@@ -108,17 +115,19 @@ class SuperpowersScanner {
 ### 数据流
 
 ```
-工作区打开
+用户点击左侧 TreeView 的 Superpowers 图标
     ↓
-TreeView 初始化
+触发 superpowers.openPanel 命令
+    ↓
+创建/显示 WebviewPanel（在编辑区）
     ↓
 触发文件扫描
     ↓
 解析 specs 和 plans
     ↓
-发送数据到 Webview
+发送数据到 WebviewPanel
     ↓
-渲染面板
+渲染面板内容
 ```
 
 ### 文件扫描触发条件
@@ -130,6 +139,8 @@ TreeView 初始化
 ## UI 设计
 
 ### Webview 布局
+
+在编辑器区域打开的面板，分两栏展示 specs 和 plans：
 
 ```
 ┌─────────────────────────────────────┐
