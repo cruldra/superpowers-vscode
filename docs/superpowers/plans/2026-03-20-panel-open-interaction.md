@@ -1,4 +1,4 @@
-# Superpowers 面板首次点击打开交互 Implementation Plan
+# Superpowers 面板首次点击打开交互实施计划
 
 > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
 
