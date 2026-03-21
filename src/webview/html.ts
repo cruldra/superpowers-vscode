@@ -17,75 +17,134 @@ export function getSuperpowersPanelHtmlContent(): string {
       background: var(--vscode-editor-background);
       padding: 16px;
     }
-    h2 {
-      font-size: 14px;
-      font-weight: 600;
-      margin-bottom: 12px;
+    .tabs {
       display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    h2 .count {
-      font-weight: normal;
-      color: var(--vscode-descriptionForeground);
-    }
-    .section {
-      margin-bottom: 24px;
-    }
-    .date-group {
+      border-bottom: 1px solid var(--vscode-panel-border);
       margin-bottom: 16px;
     }
-    .date-header {
-      font-size: 12px;
-      color: var(--vscode-descriptionForeground);
-      padding: 4px 8px;
-      background: var(--vscode-list-hoverBackground);
-      border-radius: 4px;
-      margin-bottom: 8px;
-    }
-    .file-list {
-      list-style: none;
-    }
-    .file-item {
-      padding: 8px 12px;
+    .tab {
+      padding: 8px 16px;
       cursor: pointer;
-      border-radius: 4px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 2px;
+      font-size: 13px;
+      color: var(--vscode-tab-inactiveForeground);
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
     }
-    .file-item:hover {
-      background: var(--vscode-list-hoverBackground);
+    .tab:hover {
+      color: var(--vscode-tab-activeForeground);
     }
-    .file-item.completed .file-title {
-      color: var(--vscode-testing-iconPassed);
+    .tab.active {
+      color: var(--vscode-tab-activeForeground);
+      border-bottom-color: var(--vscode-tab-activeBorder);
     }
-    .file-item.needs-testing .file-title {
-      color: var(--vscode-testing-iconQueued);
+    .tab .count {
+      font-weight: normal;
+      margin-left: 4px;
     }
-    .file-title {
+    .tab-content {
+      display: none;
+    }
+    .tab-content.active {
+      display: block;
+    }
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
       font-size: 13px;
     }
-    .progress {
-      font-size: 12px;
+    .data-table th {
+      text-align: left;
+      padding: 8px 12px;
+      font-weight: 500;
+      color: var(--vscode-descriptionForeground);
+      border-bottom: 1px solid var(--vscode-panel-border);
+    }
+    .data-table td {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--vscode-list-inactiveSelectionBackground);
+    }
+    .data-table tr:hover td {
+      background: var(--vscode-list-hoverBackground);
+    }
+    .data-table .name {
+      cursor: pointer;
+    }
+    .data-table .name:hover {
+      color: var(--vscode-textLink-foreground);
+    }
+    .data-table .date {
       color: var(--vscode-descriptionForeground);
     }
-    .progress.complete {
-      color: var(--vscode-testing-iconPassed);
+    .data-table .progress {
+      color: var(--vscode-descriptionForeground);
     }
-    .progress.needs-testing {
-      color: var(--vscode-testing-iconQueued);
+    .data-table .progress.complete {
+      color: #4ec9b0;
+    }
+    .data-table .action {
+      color: var(--vscode-textLink-foreground);
+      cursor: pointer;
+    }
+    .data-table .action:hover {
+      text-decoration: underline;
+    }
+    .status-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      cursor: pointer;
+      border: 1px solid transparent;
+    }
+    .status-badge:hover {
+      opacity: 0.9;
+    }
+    .status-badge.completed {
+      background: #1a5f1a;
+      color: #4ec9b0;
+      border-color: #4ec9b0;
+    }
+    .status-badge.needsTesting {
+      background: #5f3d00;
+      color: #ce9178;
+      border-color: #ce9178;
+    }
+    .status-badge.default {
+      background: #3d3d3d;
+      color: #cccccc;
+      border-color: #888888;
+    }
+    .status-dropdown {
+      position: absolute;
+      background: var(--vscode-dropdown-background);
+      border: 1px solid var(--vscode-dropdown-border);
+      border-radius: 4px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      z-index: 1000;
+      min-width: 120px;
+      display: none;
+    }
+    .status-dropdown.show {
+      display: block;
+    }
+    .status-dropdown-item {
+      padding: 6px 12px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .status-dropdown-item:hover {
+      background: var(--vscode-list-hoverBackground);
     }
     .empty {
       color: var(--vscode-descriptionForeground);
       font-size: 13px;
-      padding: 8px 12px;
+      padding: 16px;
+      text-align: center;
     }
     .toolbar {
       display: flex;
       justify-content: flex-end;
-      margin-bottom: 16px;
+      margin-bottom: 12px;
     }
     .refresh-btn {
       background: var(--vscode-button-secondaryBackground);
@@ -99,33 +158,6 @@ export function getSuperpowersPanelHtmlContent(): string {
     .refresh-btn:hover {
       background: var(--vscode-button-secondaryHoverBackground);
     }
-    .context-menu {
-      position: fixed;
-      z-index: 1000;
-      min-width: 160px;
-      background: var(--vscode-menu-background);
-      border: 1px solid var(--vscode-menu-border, var(--vscode-panel-border));
-      border-radius: 6px;
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
-      padding: 4px 0;
-    }
-    .context-menu.hidden {
-      display: none;
-    }
-    .context-menu-item {
-      width: 100%;
-      border: none;
-      background: transparent;
-      color: var(--vscode-menu-foreground);
-      text-align: left;
-      padding: 8px 12px;
-      cursor: pointer;
-      font-size: 12px;
-    }
-    .context-menu-item:hover {
-      background: var(--vscode-menu-selectionBackground);
-      color: var(--vscode-menu-selectionForeground);
-    }
   </style>
 </head>
 <body>
@@ -133,155 +165,60 @@ export function getSuperpowersPanelHtmlContent(): string {
     <button class="refresh-btn" onclick="refresh()">刷新</button>
   </div>
 
-  <div class="section">
-    <h2>📋 Specs <span class="count" id="specs-count">(0)</span></h2>
-    <div id="specs-content"></div>
+  <div class="tabs">
+    <div class="tab active" data-tab="specs" onclick="switchTab('specs')">
+      Specs<span class="count" id="specs-count">(0)</span>
+    </div>
+    <div class="tab" data-tab="plans" onclick="switchTab('plans')">
+      Plans<span class="count" id="plans-count">(0)</span>
+    </div>
   </div>
 
-  <div class="section">
-    <h2>📋 Plans <span class="count" id="plans-count">(0)</span></h2>
-    <div id="plans-content"></div>
+  <div class="tab-content active" id="specs-tab">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>名称</th>
+          <th>日期</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody id="specs-body"></tbody>
+    </table>
   </div>
 
-  <div id="context-menu" class="context-menu hidden">
-    <button id="needs-testing-plan-action" class="context-menu-item" type="button">标记为需要测试</button>
-    <button id="complete-plan-action" class="context-menu-item" type="button">标记为已完成</button>
+  <div class="tab-content" id="plans-tab">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>名称</th>
+          <th>日期</th>
+          <th>进度</th>
+          <th>状态</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody id="plans-body"></tbody>
+    </table>
+  </div>
+
+  <div class="status-dropdown" id="status-dropdown">
+    <div class="status-dropdown-item" data-status="completed" onclick="selectStatus('completed')">已完成</div>
+    <div class="status-dropdown-item" data-status="needsTesting" onclick="selectStatus('needsTesting')">需要测试</div>
+    <div class="status-dropdown-item" data-status="default" onclick="selectStatus('default')">进行中</div>
   </div>
 
   <script>
     const vscode = acquireVsCodeApi();
-    const contextMenu = document.getElementById('context-menu');
-    const needsTestingPlanAction = document.getElementById('needs-testing-plan-action');
-    const completePlanAction = document.getElementById('complete-plan-action');
-    let contextMenuPlanPath = null;
-    let contextMenuPlanStatus = 'default';
+    const statusDropdown = document.getElementById('status-dropdown');
+    let currentPlanPath = null;
+    let currentStatus = null;
 
-    function hideContextMenu() {
-      contextMenu.classList.add('hidden');
-      contextMenuPlanPath = null;
-      contextMenuPlanStatus = 'default';
-    }
-
-    function getPlanContextMenuVisibility(status) {
-      return {
-        showNeedsTesting: status !== 'needsTesting',
-        showCompleted: status !== 'completed',
-      };
-    }
-
-    function syncContextMenuActions() {
-      const visibility = getPlanContextMenuVisibility(contextMenuPlanStatus);
-      needsTestingPlanAction.style.display = visibility.showNeedsTesting ? 'block' : 'none';
-      completePlanAction.style.display = visibility.showCompleted ? 'block' : 'none';
-    }
-
-    function showContextMenu(event, path, status) {
-      event.preventDefault();
-      event.stopPropagation();
-      contextMenuPlanPath = path;
-      contextMenuPlanStatus = status || 'default';
-      syncContextMenuActions();
-      contextMenu.style.left = event.clientX + 'px';
-      contextMenu.style.top = event.clientY + 'px';
-      contextMenu.classList.remove('hidden');
-    }
-
-    needsTestingPlanAction.addEventListener('click', () => {
-      if (!contextMenuPlanPath)
-        return;
-
-      vscode.postMessage({ command: 'markPlanNeedsTesting', path: contextMenuPlanPath });
-      hideContextMenu();
-    });
-
-    completePlanAction.addEventListener('click', () => {
-      if (!contextMenuPlanPath)
-        return;
-
-      vscode.postMessage({ command: 'completePlan', path: contextMenuPlanPath });
-      hideContextMenu();
-    });
-
-    document.addEventListener('click', hideContextMenu);
-    window.addEventListener('blur', hideContextMenu);
-    window.addEventListener('resize', hideContextMenu);
-
-    function renderFiles(files, containerId, type) {
-      const container = document.getElementById(containerId);
-      const countEl = document.getElementById(containerId.replace('-content', '-count'));
-
-      if (!files || files.length === 0) {
-        container.innerHTML = '<div class="empty">暂无文件</div>';
-        countEl.textContent = '(0)';
-        return;
-      }
-
-      countEl.textContent = '(' + files.length + ')';
-
-      const groups = {};
-      files.forEach(file => {
-        const date = file.date || '未知日期';
-        if (!groups[date]) {
-          groups[date] = [];
-        }
-        groups[date].push(file);
-      });
-
-      let html = '';
-      Object.keys(groups).sort().reverse().forEach(date => {
-        html += '<div class="date-group">';
-        html += '<div class="date-header">' + date + '</div>';
-        html += '<ul class="file-list">';
-        groups[date].forEach(file => {
-          const isCompleted = type === 'plan' && file.status === 'completed';
-          const isNeedsTesting = type === 'plan' && file.status === 'needsTesting';
-          const classes = ['file-item'];
-          if (type === 'plan') {
-            classes.push('plan-item');
-          }
-          if (isCompleted) {
-            classes.push('completed');
-          }
-          else if (isNeedsTesting) {
-            classes.push('needs-testing');
-          }
-          const encodedPath = encodeURIComponent(file.path);
-          html += '<li class="' + classes.join(' ') + '" onclick="openFile(\\'' + file.path + '\\')"';
-          if (type === 'plan') {
-            html += ' data-plan-path="' + encodedPath + '"';
-            html += ' data-plan-status="' + file.status + '"';
-          }
-          html += '>';
-          html += '<span class="file-title">' + file.title + '</span>';
-          if (type === 'plan' && file.progress) {
-            let cls = 'progress';
-            if (isCompleted) {
-              cls += ' complete';
-            }
-            else if (isNeedsTesting) {
-              cls += ' needs-testing';
-            }
-            html += '<span class="' + cls + '">[' + file.progress.completed + '/' + file.progress.total + ']</span>';
-          }
-          html += '</li>';
-        });
-        html += '</ul></div>';
-      });
-
-      container.innerHTML = html;
-
-      if (type === 'plan') {
-        container.querySelectorAll('.plan-item').forEach(item => {
-          item.addEventListener('contextmenu', event => {
-            const encodedPath = item.getAttribute('data-plan-path');
-            const planStatus = item.getAttribute('data-plan-status') || 'default';
-            if (!encodedPath)
-              return;
-
-            showContextMenu(event, decodeURIComponent(encodedPath), planStatus);
-          });
-        });
-      }
+    function switchTab(tabName) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      document.querySelector('[data-tab="' + tabName + '"]').classList.add('active');
+      document.getElementById(tabName + '-tab').classList.add('active');
     }
 
     function openFile(path) {
@@ -292,12 +229,96 @@ export function getSuperpowersPanelHtmlContent(): string {
       vscode.postMessage({ command: 'refresh' });
     }
 
+    function showStatusDropdown(event, path, status) {
+      event.stopPropagation();
+      currentPlanPath = path;
+      currentStatus = status;
+      
+      // 隐藏当前状态的选项
+      document.querySelectorAll('.status-dropdown-item').forEach(item => {
+        item.style.display = item.dataset.status === status ? 'none' : 'block';
+      });
+      
+      statusDropdown.style.left = event.clientX + 'px';
+      statusDropdown.style.top = (event.clientY + 20) + 'px';
+      statusDropdown.classList.add('show');
+    }
+
+    function hideStatusDropdown() {
+      statusDropdown.classList.remove('show');
+      currentPlanPath = null;
+      currentStatus = null;
+    }
+
+    function selectStatus(status) {
+      if (currentPlanPath && status !== currentStatus) {
+        vscode.postMessage({ command: 'setPlanStatus', path: currentPlanPath, status });
+      }
+      hideStatusDropdown();
+    }
+
+    document.addEventListener('click', hideStatusDropdown);
+
+    function getStatusText(status) {
+      switch (status) {
+        case 'completed': return '已完成';
+        case 'needsTesting': return '需要测试';
+        default: return '进行中';
+      }
+    }
+
+    function renderSpecs(specs) {
+      const tbody = document.getElementById('specs-body');
+      document.getElementById('specs-count').textContent = '(' + specs.length + ')';
+
+      if (specs.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="3" class="empty">暂无 Specs</td></tr>';
+        return;
+      }
+
+      let html = '';
+      specs.forEach(spec => {
+        html += '<tr>';
+        html += '<td class="name" onclick="openFile(\\'' + spec.path + '\\')">' + spec.title + '</td>';
+        html += '<td class="date">' + spec.date + '</td>';
+        html += '<td class="action" onclick="openFile(\\'' + spec.path + '\\')">打开</td>';
+        html += '</tr>';
+      });
+      tbody.innerHTML = html;
+    }
+
+    function renderPlans(plans) {
+      const tbody = document.getElementById('plans-body');
+      document.getElementById('plans-count').textContent = '(' + plans.length + ')';
+
+      if (plans.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty">暂无 Plans</td></tr>';
+        return;
+      }
+
+      let html = '';
+      plans.forEach(plan => {
+        const progressText = plan.progress.completed + '/' + plan.progress.total;
+        const progressClass = plan.status === 'completed' ? 'complete' : '';
+        const statusClass = plan.status || 'default';
+        const statusText = getStatusText(plan.status);
+
+        html += '<tr>';
+        html += '<td class="name" onclick="openFile(\\'' + plan.path + '\\')">' + plan.title + '</td>';
+        html += '<td class="date">' + plan.date + '</td>';
+        html += '<td class="progress ' + progressClass + '">' + progressText + '</td>';
+        html += '<td><span class="status-badge ' + statusClass + '" onclick="showStatusDropdown(event, \\'' + plan.path + '\\', \\'' + statusClass + '\\')">' + statusText + ' ▾</span></td>';
+        html += '<td class="action" onclick="openFile(\\'' + plan.path + '\\')">打开</td>';
+        html += '</tr>';
+      });
+      tbody.innerHTML = html;
+    }
+
     window.addEventListener('message', event => {
       const message = event.data;
       if (message.type === 'updateData') {
-        hideContextMenu();
-        renderFiles(message.data.specs, 'specs-content', 'spec');
-        renderFiles(message.data.plans, 'plans-content', 'plan');
+        renderSpecs(message.data.specs);
+        renderPlans(message.data.plans);
       }
     });
   </script>
