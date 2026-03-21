@@ -66,7 +66,7 @@ git commit -m "✨ feat: 添加类型定义"
 
 ```typescript
 // test/scanner.test.ts
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { SuperpowersScanner } from '../src/scanner'
 
 describe('SuperpowersScanner', () => {
@@ -131,11 +131,11 @@ Expected: 测试失败，因为 scanner.ts 不存在
 - [ ] **Step 3: 实现扫描器**
 
 ```typescript
+import type { PlanFile, SpecFile, SuperpowersData } from './types'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 // src/scanner.ts
 import * as vscode from 'vscode'
-import * as path from 'path'
-import * as fs from 'fs'
-import type { SpecFile, PlanFile, SuperpowersData } from './types'
 
 export class SuperpowersScanner {
   private readonly specsDir = 'docs/superpowers/specs'
@@ -171,7 +171,8 @@ export class SuperpowersScanner {
           title: parsed.title,
           path: filePath,
         })
-      } else {
+      }
+      else {
         const parsed = this.parsePlan(content, file)
         results.push({
           name: file.replace('.md', ''),
@@ -194,7 +195,7 @@ export class SuperpowersScanner {
     }
   }
 
-  parsePlan(content: string, fileName: string): { title: string; progress: { completed: number; total: number } } {
+  parsePlan(content: string, fileName: string): { title: string, progress: { completed: number, total: number } } {
     const titleMatch = content.match(/^# (.+)$/m)
     const completed = (content.match(/^- \[x\]/gim) || []).length
     const total = (content.match(/^- \[[ x]\]/gim) || []).length
@@ -237,9 +238,9 @@ git commit -m "✨ feat: 实现文件扫描器"
 - [ ] **Step 1: 创建 WebviewPanel 类**
 
 ```typescript
+import type { PlanFile, SpecFile, SuperpowersData } from '../types'
 // src/webview/panel.ts
 import * as vscode from 'vscode'
-import type { SuperpowersData, SpecFile, PlanFile } from '../types'
 
 export class SuperpowersPanel {
   public static currentPanel: SuperpowersPanel | undefined
@@ -399,12 +400,12 @@ export class SuperpowersPanel {
   <div class="toolbar">
     <button class="refresh-btn" onclick="refresh()">刷新</button>
   </div>
-  
+
   <div class="section">
     <h2>📋 Specs <span class="count" id="specs-count">(0)</span></h2>
     <div id="specs-content"></div>
   </div>
-  
+
   <div class="section">
     <h2>📋 Plans <span class="count" id="plans-count">(0)</span></h2>
     <div id="plans-content"></div>
@@ -412,19 +413,19 @@ export class SuperpowersPanel {
 
   <script>
     const vscode = acquireVsCodeApi();
-    
+
     function renderFiles(files, containerId, type) {
       const container = document.getElementById(containerId);
       const countEl = document.getElementById(containerId.replace('-content', '-count'));
-      
+
       if (!files || files.length === 0) {
         container.innerHTML = '<div class="empty">暂无文件</div>';
         countEl.textContent = '(0)';
         return;
       }
-      
+
       countEl.textContent = '(' + files.length + ')';
-      
+
       // 按日期分组
       const groups = {};
       files.forEach(file => {
@@ -434,7 +435,7 @@ export class SuperpowersPanel {
         }
         groups[date].push(file);
       });
-      
+
       let html = '';
       Object.keys(groups).sort().reverse().forEach(date => {
         html += '<div class="date-group">';
@@ -451,18 +452,18 @@ export class SuperpowersPanel {
         });
         html += '</ul></div>';
       });
-      
+
       container.innerHTML = html;
     }
-    
+
     function openFile(path) {
       vscode.postMessage({ command: 'openFile', path });
     }
-    
+
     function refresh() {
       vscode.postMessage({ command: 'refresh' });
     }
-    
+
     window.addEventListener('message', event => {
       const message = event.data;
       if (message.type === 'updateData') {
@@ -656,9 +657,9 @@ git commit -m "✨ feat: 更新 package.json 元数据和贡献点"
 // src/index.ts
 import { defineExtension } from 'reactive-vscode'
 import * as vscode from 'vscode'
+import { SuperpowersScanner } from './scanner'
 import { SuperpowersTreeDataProvider } from './treeView'
 import { SuperpowersPanel } from './webview/panel'
-import { SuperpowersScanner } from './scanner'
 
 export const { activate, deactivate } = defineExtension(() => {
   const scanner = new SuperpowersScanner()
@@ -673,7 +674,7 @@ export const { activate, deactivate } = defineExtension(() => {
   // 注册命令
   vscode.commands.registerCommand('superpowers.openPanel', async () => {
     const panel = SuperpowersPanel.createOrShow(vscode.extensions.getExtension('superpowers.superpowers-vscode')!.extensionUri)
-    
+
     // 扫描并更新数据
     const workspaceFolders = vscode.workspace.workspaceFolders
     if (workspaceFolders && workspaceFolders.length > 0) {

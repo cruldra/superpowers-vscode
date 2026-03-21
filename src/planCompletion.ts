@@ -34,7 +34,7 @@ function removeNeedsTestingMarker(content: string): string {
  */
 export function setPlanContentStatus(content: string, status: 'completed' | 'needsTesting' | 'default'): string {
   // 先清除现有状态标记
-  let updated = content.replace(/^> \*\*Status:\*\* .+\n/m, '')
+  const updated = content.replace(/^> \*\*Status:\*\* .+\n/m, '')
 
   if (status === 'default') {
     return updated

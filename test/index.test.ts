@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { markPlanContentAsCompleted, markPlanContentAsNeedsTesting } from '../src/planCompletion'
 import { getPlanContextMenuVisibility, shouldAutoOpenPanel } from '../src/panelOpenInteraction'
+import { markPlanContentAsCompleted, markPlanContentAsNeedsTesting } from '../src/planCompletion'
 
 describe('shouldAutoOpenPanel', () => {
   it('在新的可见切换时返回 true', () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { SuperpowersScanner } from '../src/scanner'
 
-describe('SuperpowersScanner', () => {
+describe('superpowersScanner', () => {
   const scanner = new SuperpowersScanner()
 
   describe('parseSpec', () => {

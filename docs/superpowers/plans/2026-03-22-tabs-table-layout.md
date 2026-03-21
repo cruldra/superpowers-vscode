@@ -33,27 +33,27 @@
 ```typescript
 export function setPlanContentStatus(content: string, status: 'completed' | 'needsTesting' | 'default'): string {
   // 先清除现有状态标记
-  let updated = content.replace(/^> \*\*Status:\*\* .+\n/m, '')
-  
+  const updated = content.replace(/^> \*\*Status:\*\* .+\n/m, '')
+
   if (status === 'default') {
     return updated
   }
-  
+
   // 添加新状态标记到文件开头（在第一个 # 之后）
   const lines = updated.split('\n')
   let insertIndex = 1 // 默认插在第一行（标题）之后
-  
+
   for (let i = 0; i < lines.length; i++) {
     if (lines[i].startsWith('# ')) {
       insertIndex = i + 1
       break
     }
   }
-  
+
   const statusText = status === 'completed' ? 'completed' : 'needs-testing'
   const statusLine = `> **Status:** ${statusText}`
   lines.splice(insertIndex, 0, statusLine)
-  
+
   return lines.join('\n')
 }
 ```
@@ -363,12 +363,12 @@ export function getSuperpowersPanelHtmlContent(): string {
       event.stopPropagation();
       currentPlanPath = path;
       currentStatus = status;
-      
+
       // 隐藏当前状态的选项
       document.querySelectorAll('.status-dropdown-item').forEach(item => {
         item.style.display = item.dataset.status === status ? 'none' : 'block';
       });
-      
+
       statusDropdown.style.left = event.clientX + 'px';
       statusDropdown.style.top = (event.clientY + 20) + 'px';
       statusDropdown.classList.add('show');

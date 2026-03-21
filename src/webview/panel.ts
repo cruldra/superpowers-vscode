@@ -1,5 +1,5 @@
-import * as vscode from 'vscode'
 import type { SuperpowersData } from '../types'
+import * as vscode from 'vscode'
 import { getSuperpowersPanelHtmlContent } from './html'
 
 export class SuperpowersPanel {
@@ -52,24 +52,24 @@ export class SuperpowersPanel {
   }
 
   private _handleMessage(message: any): void {
-      switch (message.command) {
-        case 'openFile':
-          vscode.commands.executeCommand('vscode.open', vscode.Uri.file(message.path))
-          break
-        case 'markPlanNeedsTesting':
-          vscode.commands.executeCommand('superpowers.markPlanNeedsTesting', message.path)
-          break
-        case 'completePlan':
-          vscode.commands.executeCommand('superpowers.completePlan', message.path)
-          break
-        case 'setPlanStatus':
-          vscode.commands.executeCommand('superpowers.setPlanStatus', message.path, message.status)
-          break
-        case 'refresh':
-          vscode.commands.executeCommand('superpowers.refresh')
-          break
-      }
+    switch (message.command) {
+      case 'openFile':
+        vscode.commands.executeCommand('vscode.open', vscode.Uri.file(message.path))
+        break
+      case 'markPlanNeedsTesting':
+        vscode.commands.executeCommand('superpowers.markPlanNeedsTesting', message.path)
+        break
+      case 'completePlan':
+        vscode.commands.executeCommand('superpowers.completePlan', message.path)
+        break
+      case 'setPlanStatus':
+        vscode.commands.executeCommand('superpowers.setPlanStatus', message.path, message.status)
+        break
+      case 'refresh':
+        vscode.commands.executeCommand('superpowers.refresh')
+        break
     }
+  }
 
   public dispose(): void {
     SuperpowersPanel.currentPanel = undefined

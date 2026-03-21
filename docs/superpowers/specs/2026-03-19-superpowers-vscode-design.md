@@ -35,10 +35,10 @@ src/
 
 ```typescript
 // 视图容器 ID
-const VIEW_CONTAINER_ID = 'superpowers-explorer';
+const VIEW_CONTAINER_ID = 'superpowers-explorer'
 
 // 树视图 ID（用于激活 Webview）
-const TREE_VIEW_ID = 'superpowers-explorer';
+const TREE_VIEW_ID = 'superpowers-explorer'
 ```
 
 **功能**:
@@ -52,23 +52,23 @@ const TREE_VIEW_ID = 'superpowers-explorer';
 
 ```typescript
 class SuperpowersPanel {
-  public static currentPanel: SuperpowersPanel | undefined;
-  private readonly _panel: WebviewPanel;
-  
+  public static currentPanel: SuperpowersPanel | undefined
+  private readonly _panel: WebviewPanel
+
   // 创建或显示面板
-  public static createOrShow(extensionUri: Uri): SuperpowersPanel;
-  
+  public static createOrShow(extensionUri: Uri): SuperpowersPanel
+
   // 加载 HTML 内容
-  private _getHtmlContent(webview: Webview): string;
-  
+  private _getHtmlContent(webview: Webview): string
+
   // 更新面板数据
-  public updateData(data: SuperpowersData): void;
-  
+  public updateData(data: SuperpowersData): void
+
   // 处理来自 Webview 的消息
-  private _handleMessage(message: any): void;
-  
+  private _handleMessage(message: any): void
+
   // 销毁面板
-  public dispose(): void;
+  public dispose(): void
 }
 ```
 
@@ -78,37 +78,37 @@ class SuperpowersPanel {
 
 ```typescript
 interface SpecFile {
-  name: string;           // 文件名
-  date: string;           // 日期 (YYYY-MM-DD)
-  title: string;          // 从文件内容提取的标题
-  path: string;           // 完整路径
+  name: string // 文件名
+  date: string // 日期 (YYYY-MM-DD)
+  title: string // 从文件内容提取的标题
+  path: string // 完整路径
 }
 
 interface PlanFile {
-  name: string;           // 文件名
-  date: string;           // 日期 (YYYY-MM-DD)
-  title: string;          // 从文件内容提取的标题
-  path: string;           // 完整路径
+  name: string // 文件名
+  date: string // 日期 (YYYY-MM-DD)
+  title: string // 从文件内容提取的标题
+  path: string // 完整路径
   progress: {
-    completed: number;    // 已完成任务数
-    total: number;        // 总任务数
-  };
+    completed: number // 已完成任务数
+    total: number // 总任务数
+  }
 }
 
 interface SuperpowersData {
-  specs: SpecFile[];
-  plans: PlanFile[];
+  specs: SpecFile[]
+  plans: PlanFile[]
 }
 
 class SuperpowersScanner {
   // 扫描指定目录
-  public async scan(rootPath: string): Promise<SuperpowersData>;
-  
+  public async scan(rootPath: string): Promise<SuperpowersData>
+
   // 解析 spec 文件，提取标题
-  private _parseSpec(content: string): { title: string };
-  
+  private _parseSpec(content: string): { title: string }
+
   // 解析 plan 文件，提取标题和进度
-  private _parsePlan(content: string): { title: string; progress: { completed: number; total: number } };
+  private _parsePlan(content: string): { title: string, progress: { completed: number, total: number } }
 }
 ```
 
@@ -186,8 +186,8 @@ class SuperpowersScanner {
 
 ```typescript
 // 提取标题: 第一个 H1 标题
-const titleMatch = content.match(/^# (.+)$/m);
-const title = titleMatch ? titleMatch[1] : fileName;
+const titleMatch = content.match(/^# (.+)$/m)
+const title = titleMatch ? titleMatch[1] : fileName
 ```
 
 ### Plan 文件解析
@@ -196,12 +196,12 @@ const title = titleMatch ? titleMatch[1] : fileName;
 
 ```typescript
 // 提取标题: 第一个 H1 标题
-const titleMatch = content.match(/^# (.+)$/m);
-const title = titleMatch ? titleMatch[1] : fileName;
+const titleMatch = content.match(/^# (.+)$/m)
+const title = titleMatch ? titleMatch[1] : fileName
 
 // 计算进度: 统计 `- [x]` 和 `- [ ]` 数量
-const completed = (content.match(/^- \[x\]/gim) || []).length;
-const total = (content.match(/^- \[[ x]\]/gim) || []).length;
+const completed = (content.match(/^- \[x\]/gim) || []).length
+const total = (content.match(/^- \[[ x]\]/gim) || []).length
 ```
 
 ## 扩展点

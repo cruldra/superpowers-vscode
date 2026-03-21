@@ -1,6 +1,6 @@
-import * as fs from 'fs'
-import * as path from 'path'
 import type { PlanFile, SpecFile, SuperpowersData } from './types'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 import { isPlanContentMarkedAsNeedsTesting } from './planCompletion'
 
 export class SuperpowersScanner {
