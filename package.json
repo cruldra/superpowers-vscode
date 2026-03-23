@@ -1,11 +1,11 @@
 {
-  "publisher": "cruldra",
-  "name": "superpowers-vscode",
-  "displayName": "Superpowers",
+  "publisher": "clurdra",
+  "name": "superpowers-vscode-clurdra",
+  "displayName": "Superpowers-clurdra",
   "version": "0.1.3",
   "packageManager": "pnpm@10.27.0",
   "description": "Superpowers specs and plans explorer",
-  "author": "cruldra",
+  "author": "clurdra",
   "license": "MIT",
   "homepage": "https://github.com/cruldra/superpowers-vscode#readme",
   "repository": {
