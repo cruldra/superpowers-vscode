@@ -266,6 +266,10 @@ export function getSuperpowersPanelHtmlContent(): string {
       vscode.postMessage({ command: 'deleteFile', path, type });
     }
 
+    function runPlan(path) {
+      vscode.postMessage({ command: 'runPlan', path });
+    }
+
     function refresh() {
       vscode.postMessage({ command: 'refresh' });
     }
@@ -439,7 +443,7 @@ export function getSuperpowersPanelHtmlContent(): string {
         html += '<td class="date">' + plan.date + '</td>';
         html += '<td class="progress ' + progressClass + '">' + progressText + '</td>';
         html += '<td><span class="status-badge ' + statusClass + '" onclick="showStatusDropdown(event, \\'' + plan.path + '\\', \\'' + statusClass + '\\')">' + statusText + ' ▾</span></td>';
-        html += '<td class="action delete" onclick="deleteFile(\\'' + plan.path + '\\', \\'plan\\')">删除</td>';
+        html += '<td><span class="action" onclick="runPlan(\\'' + plan.path + '\\')">运行</span> <span class="action delete" onclick="deleteFile(\\'' + plan.path + '\\', \\'plan\\')">删除</span></td>';
         html += '</tr>';
       });
       tbody.innerHTML = html;

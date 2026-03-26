@@ -59,6 +59,9 @@ export class SuperpowersPanel {
       case 'deleteFile':
         vscode.commands.executeCommand('superpowers.deleteFile', message.path, message.type)
         break
+      case 'runPlan':
+        vscode.commands.executeCommand('superpowers.runPlan', message.path)
+        break
       case 'markPlanNeedsTesting':
         vscode.commands.executeCommand('superpowers.markPlanNeedsTesting', message.path)
         break

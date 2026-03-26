@@ -6,8 +6,10 @@ import { resolveExtensionUri } from './extensionRuntime'
 import { extensionId } from './generated/meta'
 import { shouldAutoOpenPanel } from './panelOpenInteraction'
 import { markPlanContentAsCompleted, markPlanContentAsNeedsTesting, setPlanContentStatus } from './planCompletion'
+import { buildRunPlanCommand, DEFAULT_RUN_AGENT, DEFAULT_RUN_MESSAGE_TEMPLATE, DEFAULT_RUN_MODEL } from './runPlan'
 import { SuperpowersScanner } from './scanner'
 import { SuperpowersTreeDataProvider } from './treeView'
+import { buildEnsureWorktreeCommands, buildFeatureBranchName, buildWorktreePath, DEFAULT_WORKTREE_DIRECTORY_TEMPLATE, getFeatureNameFromBranchName, getProjectName } from './worktree'
 import { SuperpowersPanel } from './webview/panel'
 
 export const { activate, deactivate } = defineExtension(() => {
@@ -169,6 +171,52 @@ export const { activate, deactivate } = defineExtension(() => {
     }
 
     await vscode.commands.executeCommand('superpowers.refresh')
+  })
+
+  vscode.commands.registerCommand('superpowers.runPlan', async (planPath?: string) => {
+    if (!planPath)
+      return
+
+    const workspaceFolders = vscode.workspace.workspaceFolders
+    if (!workspaceFolders || workspaceFolders.length === 0) {
+      await vscode.window.showErrorMessage('运行 Plan 需要先打开一个工作区')
+      return
+    }
+
+    const workspaceRoot = workspaceFolders[0].uri.fsPath
+    const runConfig = vscode.workspace.getConfiguration('superpowers')
+    const messageTemplate = runConfig.get<string>('runMessage', DEFAULT_RUN_MESSAGE_TEMPLATE)
+    const model = runConfig.get<string>('runModel', DEFAULT_RUN_MODEL)
+    const agent = runConfig.get<string>('runAgent', DEFAULT_RUN_AGENT)
+    const worktreeDirectoryTemplate = runConfig.get<string>('worktreeDirectory', DEFAULT_WORKTREE_DIRECTORY_TEMPLATE)
+    const runCommand = buildRunPlanCommand({
+      planPath,
+      workspaceRoot,
+      messageTemplate,
+      model,
+      agent,
+    })
+    const branchName = buildFeatureBranchName(path.basename(planPath))
+    const featureName = getFeatureNameFromBranchName(branchName)
+    const worktreePath = buildWorktreePath({
+      workspaceRoot,
+      projectName: getProjectName(workspaceRoot),
+      featureName,
+      template: worktreeDirectoryTemplate,
+    })
+    const command = buildEnsureWorktreeCommands({
+      branchName,
+      worktreePath,
+      runCommand,
+    })
+
+    // 新开终端先创建 worktree，再进入隔离目录执行命令。
+    const terminal = vscode.window.createTerminal({
+      name: `Superpowers Run: ${path.basename(planPath)}`,
+      cwd: workspaceRoot,
+    })
+    terminal.show(true)
+    terminal.sendText(command, true)
   })
 
   // TreeView 点击事件

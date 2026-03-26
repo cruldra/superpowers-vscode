@@ -58,6 +58,10 @@
       {
         "command": "superpowers.refresh",
         "title": "Refresh Superpowers Data"
+      },
+      {
+        "command": "superpowers.runPlan",
+        "title": "Run Superpowers Plan"
       }
     ],
     "menus": {
@@ -72,7 +76,28 @@
     "configuration": {
       "type": "object",
       "title": "Superpowers",
-      "properties": {}
+      "properties": {
+        "superpowers.runMessage": {
+          "type": "string",
+          "default": "实施 $plan_relative_path",
+          "description": "运行 Plan 时传给 opencode run 的消息模板，支持 $plan_relative_path 或 ${plan_relative_path}。"
+        },
+        "superpowers.runModel": {
+          "type": "string",
+          "default": "alibaba-coding-plan-cn/glm-5",
+          "description": "运行 Plan 时传给 opencode run 的 --model 参数。"
+        },
+        "superpowers.runAgent": {
+          "type": "string",
+          "default": "build",
+          "description": "运行 Plan 时传给 opencode run 的 --agent 参数。"
+        },
+        "superpowers.worktreeDirectory": {
+          "type": "string",
+          "default": "$project_root.worktrees/$feature_name",
+          "description": "运行 Plan 前创建 worktree 的目录模板，支持 $project_root、$project_name、$feature_name。"
+        }
+      }
     }
   },
   "scripts": {

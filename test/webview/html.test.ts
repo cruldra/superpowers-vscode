@@ -24,6 +24,12 @@ describe('getSuperpowersPanelHtmlContent', () => {
     expect(html).toContain('data-status="default"')
   })
 
+  it('Plans 操作列包含运行按钮', () => {
+    const html = getSuperpowersPanelHtmlContent()
+    expect(html).toContain('>运行</')
+    expect(html).toContain("command: 'runPlan'")
+  })
+
   it('包含 switchTab 函数', () => {
     const html = getSuperpowersPanelHtmlContent()
     expect(html).toContain('function switchTab')
