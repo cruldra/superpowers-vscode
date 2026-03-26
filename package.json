@@ -2,7 +2,7 @@
   "publisher": "clurdra",
   "name": "superpowers-vscode-clurdra",
   "displayName": "Superpowers-clurdra",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "packageManager": "pnpm@10.27.0",
   "description": "Superpowers specs and plans explorer",
   "author": "clurdra",
