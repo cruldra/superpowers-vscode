@@ -1,4 +1,5 @@
 export type PlanStatus = 'default' | 'needsTesting' | 'completed'
+export type PlanTaskStatus = 'running' | 'completed' | 'failed'
 
 export interface SpecFile {
   name: string
@@ -13,6 +14,7 @@ export interface PlanFile {
   title: string
   path: string
   status: PlanStatus
+  taskStatus?: PlanTaskStatus
   progress: {
     completed: number
     total: number

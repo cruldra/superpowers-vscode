@@ -30,6 +30,24 @@ describe('getSuperpowersPanelHtmlContent', () => {
     expect(html).toContain("command: 'runPlan'")
   })
 
+  it('任务状态与文档状态分离渲染，使用独立任务状态文案', () => {
+    const html = getSuperpowersPanelHtmlContent()
+
+    expect(html).toContain('function getTaskStatusText')
+    expect(html).toContain("case 'running': return '运行中'")
+    expect(html).toContain("case 'completed': return '已完成'")
+    expect(html).toContain("case 'failed': return '失败'")
+    expect(html).toContain('plan.taskStatus')
+  })
+
+  it('根据 taskStatus 控制运行按钮显隐', () => {
+    const html = getSuperpowersPanelHtmlContent()
+
+    expect(html).toContain("plan.taskStatus === 'running'")
+    expect(html).toContain("const runActionHtml = plan.taskStatus === 'running'")
+    expect(html).toContain("'<span class=\"action\" onclick=\"runPlan(\\'' + plan.path + '\\')\">运行</span> '")
+  })
+
   it('包含 switchTab 函数', () => {
     const html = getSuperpowersPanelHtmlContent()
     expect(html).toContain('function switchTab')

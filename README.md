@@ -29,12 +29,12 @@ docs/
 
 1. 根据 plan 文件名生成 `feature/...` 分支名
 2. 按配置创建 git worktree
-3. 在 worktree 目录执行 `opencode run`
+3. 用 `systemd-run --user` 在 worktree 目录后台执行 `opencode run`
 
 默认执行命令等价于：
 
 ```bash
-opencode run '实施 docs/superpowers/plans/xxx.md' --model 'alibaba-coding-plan-cn/glm-5' --agent 'build'
+systemd-run --user --unit=opencode-plan-xxx --working-directory '/path/to/worktree' zsh -c 'opencode run '\''实施 docs/superpowers/plans/xxx.md'\'' --model '\''alibaba-coding-plan-cn/glm-5'\'' --agent '\''build'\''' 
 ```
 
 ## 配置项

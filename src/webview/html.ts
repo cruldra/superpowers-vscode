@@ -222,6 +222,7 @@ export function getSuperpowersPanelHtmlContent(): string {
           <th class="sortable" onclick="sortPlans('date')">日期<span class="sort-icon"></span></th>
           <th class="sortable" onclick="sortPlans('progress')">进度<span class="sort-icon"></span></th>
           <th class="sortable" onclick="sortPlans('status')">状态<span class="sort-icon"></span></th>
+          <th>任务状态</th>
           <th>操作</th>
         </tr>
       </thead>
@@ -309,6 +310,15 @@ export function getSuperpowersPanelHtmlContent(): string {
         case 'completed': return '已完成';
         case 'needsTesting': return '需要测试';
         default: return '进行中';
+      }
+    }
+
+    function getTaskStatusText(taskStatus) {
+      switch (taskStatus) {
+        case 'running': return '运行中';
+        case 'completed': return '已完成';
+        case 'failed': return '失败';
+        default: return '';
       }
     }
     
@@ -427,7 +437,7 @@ export function getSuperpowersPanelHtmlContent(): string {
       document.getElementById('plans-count').textContent = '(' + plans.length + ')';
 
       if (plans.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="empty">暂无 Plans</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="empty">暂无 Plans</td></tr>';
         return;
       }
 
@@ -437,13 +447,18 @@ export function getSuperpowersPanelHtmlContent(): string {
         const progressClass = plan.status === 'completed' ? 'complete' : '';
         const statusClass = plan.status || 'default';
         const statusText = getStatusText(plan.status);
+        const taskStatusText = getTaskStatusText(plan.taskStatus);
+        const runActionHtml = plan.taskStatus === 'running'
+          ? ''
+          : '<span class="action" onclick="runPlan(\\'' + plan.path + '\\')">运行</span> ';
 
         html += '<tr>';
         html += '<td class="name" onclick="openFile(\\'' + plan.path + '\\')">' + plan.title + '</td>';
         html += '<td class="date">' + plan.date + '</td>';
         html += '<td class="progress ' + progressClass + '">' + progressText + '</td>';
         html += '<td><span class="status-badge ' + statusClass + '" onclick="showStatusDropdown(event, \\'' + plan.path + '\\', \\'' + statusClass + '\\')">' + statusText + ' ▾</span></td>';
-        html += '<td><span class="action" onclick="runPlan(\\'' + plan.path + '\\')">运行</span> <span class="action delete" onclick="deleteFile(\\'' + plan.path + '\\', \\'plan\\')">删除</span></td>';
+        html += '<td>' + taskStatusText + '</td>';
+        html += '<td>' + runActionHtml + '<span class="action delete" onclick="deleteFile(\\'' + plan.path + '\\', \\'plan\\')">删除</span></td>';
         html += '</tr>';
       });
       tbody.innerHTML = html;

@@ -10,6 +10,7 @@ export interface BuildWorktreePathOptions {
 }
 
 export interface BuildEnsureWorktreeCommandsOptions {
+  workspaceRoot: string
   branchName: string
   worktreePath: string
   runCommand: string
@@ -19,8 +20,11 @@ export function buildFeatureBranchName(planFileName: string): string {
   const featureName = planFileName
     .replace(/\.md$/i, '')
     .replace(/^\d{4}-\d{2}-\d{2}-/, '')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase()
 
-  return `feature/${featureName}`
+  return `feature/${featureName || 'plan'}`
 }
 
 export function buildWorktreePath(options: BuildWorktreePathOptions): string {
@@ -34,10 +38,14 @@ export function buildWorktreePath(options: BuildWorktreePathOptions): string {
 }
 
 export function buildEnsureWorktreeCommands(options: BuildEnsureWorktreeCommandsOptions): string {
+  const quotedWorkspaceRoot = shellEscape(options.workspaceRoot)
   const quotedWorktreePath = shellEscape(options.worktreePath)
   const quotedBranchName = shellEscape(options.branchName)
+  const quotedWorktreeGlob = shellEscape(`${options.worktreePath}/*`)
+  const copyEnvCommand = `find ${quotedWorkspaceRoot} \\( -path ${quotedWorktreePath} -o -path ${quotedWorktreeGlob} \\) -prune -o -name '.env' -type f -exec sh -c 'for source_path do relative_path=\${source_path#"$1"/}; target_path="$2/$relative_path"; mkdir -p "$(dirname "$target_path")" && cp "$source_path" "$target_path"; done' sh ${quotedWorkspaceRoot} ${quotedWorktreePath} {} +`
+  const ensureWorktreeCommand = `if git worktree list --porcelain | grep -Fxq "worktree ${options.worktreePath}"; then [ "$(git -C ${quotedWorktreePath} branch --show-current)" = ${quotedBranchName} ]; elif git show-ref --verify --quiet refs/heads/${options.branchName}; then git worktree add ${quotedWorktreePath} ${quotedBranchName}; else git worktree add ${quotedWorktreePath} -b ${quotedBranchName}; fi`
 
-  return `git worktree add ${quotedWorktreePath} -b ${quotedBranchName} && cd ${quotedWorktreePath} && ${options.runCommand}`
+  return `${ensureWorktreeCommand} && ${copyEnvCommand} && cd ${quotedWorktreePath} && ${options.runCommand}`
 }
 
 export function getFeatureNameFromBranchName(branchName: string): string {

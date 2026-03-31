@@ -1,16 +1,183 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import { exec } from 'node:child_process'
+import { promisify } from 'node:util'
 import { defineExtension } from 'reactive-vscode'
 import * as vscode from 'vscode'
 import { resolveExtensionUri } from './extensionRuntime'
 import { extensionId } from './generated/meta'
 import { shouldAutoOpenPanel } from './panelOpenInteraction'
 import { markPlanContentAsCompleted, markPlanContentAsNeedsTesting, setPlanContentStatus } from './planCompletion'
-import { buildRunPlanCommand, DEFAULT_RUN_AGENT, DEFAULT_RUN_MESSAGE_TEMPLATE, DEFAULT_RUN_MODEL } from './runPlan'
+import { buildRunPlanCommand, buildRunPlanUnitName, DEFAULT_RUN_AGENT, DEFAULT_RUN_MESSAGE_TEMPLATE, DEFAULT_RUN_MODEL } from './runPlan'
 import { SuperpowersScanner } from './scanner'
 import { SuperpowersTreeDataProvider } from './treeView'
+import type { PlanFile, PlanTaskStatus, SuperpowersData } from './types'
 import { buildEnsureWorktreeCommands, buildFeatureBranchName, buildWorktreePath, DEFAULT_WORKTREE_DIRECTORY_TEMPLATE, getFeatureNameFromBranchName, getProjectName } from './worktree'
 import { SuperpowersPanel } from './webview/panel'
+
+const execAsync = promisify(exec)
+const TASK_STATUS_POLL_INTERVAL = 30_000
+
+export interface PlanTaskRecord {
+  planPath: string
+  unitName: string
+  taskStatus: PlanTaskStatus
+}
+
+export interface CreatePlanTaskRecordOptions {
+  planPath: string
+  workspaceRoot: string
+}
+
+export interface StartPlanTaskOptions extends CreatePlanTaskRecordOptions {
+  command: string
+  execCommand: (command: string, options: { cwd: string }) => Promise<{ stdout: string, stderr: string }>
+}
+
+export function createPlanTaskRecord(options: CreatePlanTaskRecordOptions): PlanTaskRecord {
+  return {
+    planPath: options.planPath,
+    unitName: getPlanTaskUnitName(options),
+    taskStatus: 'running',
+  }
+}
+
+export function upsertPlanTaskRecord(records: PlanTaskRecord[], nextRecord: PlanTaskRecord): PlanTaskRecord[] {
+  const nextRecords = records.filter(record => record.planPath !== nextRecord.planPath)
+  nextRecords.push(nextRecord)
+  return nextRecords
+}
+
+export function mergePlanTaskStatus(plans: PlanFile[], records: PlanTaskRecord[]): PlanFile[] {
+  return plans.map((plan) => {
+    const taskRecord = records.find(record => record.planPath === plan.path)
+    return taskRecord ? { ...plan, taskStatus: taskRecord.taskStatus } : plan
+  })
+}
+
+export function resolveTaskStatusFromSystemctlStatus(output: string, previousStatus?: PlanTaskStatus): PlanTaskStatus | undefined {
+  if (output.includes('Active: active'))
+    return 'running'
+
+  const hasSuccessExit = output.includes('inactive (dead)') && (output.includes('status=0/SUCCESS') || output.includes('code=exited, status=0'))
+  if (hasSuccessExit)
+    return 'completed'
+
+  const hasMissingUnit = output.includes('could not be found')
+  if (hasMissingUnit && previousStatus === 'running')
+    return 'completed'
+
+  const hasFailure = output.includes('failed')
+    || output.includes('Result: signal')
+    || output.includes('code=killed')
+    || /status=[1-9]\d*(?:\/|\))/.test(output)
+  if (hasFailure)
+    return 'failed'
+
+  return previousStatus
+}
+
+export function getPlanTaskViewState(taskStatus?: PlanTaskStatus): 'running' | 'rerunnable' {
+  return taskStatus === 'running' ? 'running' : 'rerunnable'
+}
+
+function getPlanTaskUnitName(options: CreatePlanTaskRecordOptions): string {
+  return buildRunPlanUnitName({
+    planPath: options.planPath,
+    workspaceRoot: options.workspaceRoot,
+  })
+}
+
+export async function startPlanTask(options: StartPlanTaskOptions): Promise<PlanTaskRecord> {
+  const unitName = getPlanTaskUnitName(options)
+
+  try {
+    await options.execCommand(`systemctl --user reset-failed ${unitName}`, { cwd: options.workspaceRoot })
+  }
+  catch {
+  }
+
+  await options.execCommand(options.command, { cwd: options.workspaceRoot })
+
+  return {
+    planPath: options.planPath,
+    unitName,
+    taskStatus: 'running',
+  }
+}
+
+export function mergePolledPlanTaskRecords(currentRecords: PlanTaskRecord[], polledRecords: PlanTaskRecord[]): PlanTaskRecord[] {
+  const nextRecords = [...currentRecords]
+
+  for (const polledRecord of polledRecords) {
+    const index = nextRecords.findIndex(record => record.planPath === polledRecord.planPath)
+    if (index >= 0)
+      nextRecords[index] = polledRecord
+  }
+
+  return nextRecords
+}
+
+async function collectPanelData(scanner: SuperpowersScanner, workspaceRoot: string, planTaskRecords: PlanTaskRecord[]): Promise<SuperpowersData> {
+  const data = await scanner.scan(workspaceRoot)
+  return {
+    ...data,
+    plans: mergePlanTaskStatus(data.plans, planTaskRecords),
+  }
+}
+
+async function refreshPanelData(scanner: SuperpowersScanner, workspaceRoot: string, planTaskRecords: PlanTaskRecord[]): Promise<void> {
+  const data = await collectPanelData(scanner, workspaceRoot, planTaskRecords)
+  if (SuperpowersPanel.currentPanel) {
+    SuperpowersPanel.currentPanel.updateData(data)
+  }
+}
+
+async function pollRunningPlanTasks(planTaskRecords: PlanTaskRecord[]): Promise<PlanTaskRecord[]> {
+  const polledRecords = [...planTaskRecords]
+
+  for (const [index, record] of planTaskRecords.entries()) {
+    if (record.taskStatus !== 'running')
+      continue
+
+    try {
+      const { stdout, stderr } = await execAsync(`systemctl --user status ${shellEscapeForDoubleQuotes(record.unitName)}`)
+      const nextStatus = resolveTaskStatusFromSystemctlStatus(`${stdout}\n${stderr}`, record.taskStatus)
+      if (nextStatus && nextStatus !== record.taskStatus) {
+        polledRecords[index] = {
+          ...record,
+          taskStatus: nextStatus,
+        }
+      }
+    }
+    catch (error) {
+      const commandError = error as { stdout?: string, stderr?: string }
+      const nextStatus = resolveTaskStatusFromSystemctlStatus(`${commandError.stdout || ''}\n${commandError.stderr || ''}`, record.taskStatus)
+      if (nextStatus && nextStatus !== record.taskStatus) {
+        polledRecords[index] = {
+          ...record,
+          taskStatus: nextStatus,
+        }
+      }
+    }
+  }
+
+  return polledRecords
+}
+
+function didPlanTaskRecordsChange(previousRecords: PlanTaskRecord[], nextRecords: PlanTaskRecord[]): boolean {
+  if (previousRecords.length !== nextRecords.length)
+    return true
+
+  return previousRecords.some((record, index) => {
+    const nextRecord = nextRecords[index]
+    return !nextRecord || nextRecord.planPath !== record.planPath || nextRecord.unitName !== record.unitName || nextRecord.taskStatus !== record.taskStatus
+  })
+}
+
+function shellEscapeForDoubleQuotes(value: string): string {
+  return `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`
+}
 
 export const { activate, deactivate } = defineExtension(() => {
   const scanner = new SuperpowersScanner()
@@ -27,6 +194,9 @@ export const { activate, deactivate } = defineExtension(() => {
     showCollapseAll: false,
   })
   let wasTreeViewVisible = treeView.visible
+  let planTaskRecords: PlanTaskRecord[] = []
+  let pollTimer: NodeJS.Timeout | undefined
+  let isPollingPlanTasks = false
 
   const openPanel = async (): Promise<void> => {
     const panel = SuperpowersPanel.createOrShow(extensionUri)
@@ -34,9 +204,37 @@ export const { activate, deactivate } = defineExtension(() => {
     // 扫描并更新数据
     const workspaceFolders = vscode.workspace.workspaceFolders
     if (workspaceFolders && workspaceFolders.length > 0) {
-      const data = await scanner.scan(workspaceFolders[0].uri.fsPath)
+      const data = await collectPanelData(scanner, workspaceFolders[0].uri.fsPath, planTaskRecords)
       panel.updateData(data)
     }
+  }
+
+  const ensureTaskStatusPoller = (): void => {
+    if (pollTimer)
+      return
+
+    pollTimer = setInterval(async () => {
+      if (isPollingPlanTasks)
+        return
+
+      const workspaceFolders = vscode.workspace.workspaceFolders
+      if (!workspaceFolders || workspaceFolders.length === 0)
+        return
+
+      isPollingPlanTasks = true
+      try {
+        const currentRecords = planTaskRecords
+        const polledRecords = await pollRunningPlanTasks(currentRecords)
+        const nextRecords = mergePolledPlanTaskRecords(planTaskRecords, polledRecords)
+        if (didPlanTaskRecordsChange(planTaskRecords, nextRecords)) {
+          planTaskRecords = nextRecords
+          await refreshPanelData(scanner, workspaceFolders[0].uri.fsPath, planTaskRecords)
+        }
+      }
+      finally {
+        isPollingPlanTasks = false
+      }
+    }, TASK_STATUS_POLL_INTERVAL)
   }
 
   const openPanelFromActivityBar = async (): Promise<void> => {
@@ -81,7 +279,7 @@ export const { activate, deactivate } = defineExtension(() => {
   vscode.commands.registerCommand('superpowers.refresh', async () => {
     const workspaceFolders = vscode.workspace.workspaceFolders
     if (workspaceFolders && workspaceFolders.length > 0) {
-      const data = await scanner.scan(workspaceFolders[0].uri.fsPath)
+      const data = await collectPanelData(scanner, workspaceFolders[0].uri.fsPath, planTaskRecords)
       if (SuperpowersPanel.currentPanel) {
         SuperpowersPanel.currentPanel.updateData(data)
       }
@@ -189,13 +387,6 @@ export const { activate, deactivate } = defineExtension(() => {
     const model = runConfig.get<string>('runModel', DEFAULT_RUN_MODEL)
     const agent = runConfig.get<string>('runAgent', DEFAULT_RUN_AGENT)
     const worktreeDirectoryTemplate = runConfig.get<string>('worktreeDirectory', DEFAULT_WORKTREE_DIRECTORY_TEMPLATE)
-    const runCommand = buildRunPlanCommand({
-      planPath,
-      workspaceRoot,
-      messageTemplate,
-      model,
-      agent,
-    })
     const branchName = buildFeatureBranchName(path.basename(planPath))
     const featureName = getFeatureNameFromBranchName(branchName)
     const worktreePath = buildWorktreePath({
@@ -204,23 +395,48 @@ export const { activate, deactivate } = defineExtension(() => {
       featureName,
       template: worktreeDirectoryTemplate,
     })
+    const runCommand = buildRunPlanCommand({
+      planPath,
+      workspaceRoot,
+      worktreePath,
+      messageTemplate,
+      model,
+      agent,
+    })
     const command = buildEnsureWorktreeCommands({
+      workspaceRoot,
       branchName,
       worktreePath,
       runCommand,
     })
-
-    // 新开终端先创建 worktree，再进入隔离目录执行命令。
-    const terminal = vscode.window.createTerminal({
-      name: `Superpowers Run: ${path.basename(planPath)}`,
-      cwd: workspaceRoot,
-    })
-    terminal.show(true)
-    terminal.sendText(command, true)
+    try {
+      const taskRecord = await startPlanTask({
+        command,
+        planPath,
+        workspaceRoot,
+        execCommand: (nextCommand, options) => execAsync(nextCommand, options),
+      })
+      planTaskRecords = upsertPlanTaskRecord(planTaskRecords, taskRecord)
+      ensureTaskStatusPoller()
+      await refreshPanelData(scanner, workspaceRoot, planTaskRecords)
+    }
+    catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      await vscode.window.showErrorMessage(`启动 Plan 失败: ${message}`)
+    }
   })
 
   // TreeView 点击事件
   vscode.commands.registerCommand('superpowers.root', () => {
     vscode.commands.executeCommand('superpowers.openPanel')
   })
+
+  return {
+    dispose() {
+      if (pollTimer) {
+        clearInterval(pollTimer)
+        pollTimer = undefined
+      }
+    },
+  }
 })
