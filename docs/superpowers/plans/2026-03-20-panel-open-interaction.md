@@ -35,7 +35,7 @@
 - Modify: `test/index.test.ts`
 - Create: `src/panelOpenInteraction.ts`
 
-- [ ] **Step 1: 在 `test/index.test.ts` 写失败测试，先约束基础判定函数存在**
+- [x] **Step 1: 在 `test/index.test.ts` 写失败测试，先约束基础判定函数存在**
 
 ```typescript
 import { describe, expect, it } from 'vitest'
@@ -53,12 +53,12 @@ describe('shouldAutoOpenPanel', () => {
 })
 ```
 
-- [ ] **Step 2: 运行测试，确认失败**
+- [x] **Step 2: 运行测试，确认失败**
 
 Run: `pnpm test test/index.test.ts`
 Expected: FAIL，提示 `../src/panelOpenInteraction` 或 `shouldAutoOpenPanel` 不存在
 
-- [ ] **Step 3: 创建 `src/panelOpenInteraction.ts`，只写通过当前测试所需的最小实现**
+- [x] **Step 3: 创建 `src/panelOpenInteraction.ts`，只写通过当前测试所需的最小实现**
 
 ```typescript
 export interface AutoOpenDecisionInput {
@@ -73,12 +73,12 @@ export function shouldAutoOpenPanel(input: AutoOpenDecisionInput): boolean {
 }
 ```
 
-- [ ] **Step 4: 运行测试，确认通过**
+- [x] **Step 4: 运行测试，确认通过**
 
 Run: `pnpm test test/index.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/panelOpenInteraction.ts test/index.test.ts
@@ -93,7 +93,7 @@ git commit -m "✅ test(interaction): 建立自动打开判定入口"
 - Modify: `test/index.test.ts`
 - Modify: `src/panelOpenInteraction.ts`
 
-- [ ] **Step 1: 写失败测试，约束 `allowAutoOpen` 为 `false` 时不自动打开**
+- [x] **Step 1: 写失败测试，约束 `allowAutoOpen` 为 `false` 时不自动打开**
 
 ```typescript
 it('未授权自动打开时返回 false', () => {
@@ -106,7 +106,7 @@ it('未授权自动打开时返回 false', () => {
 })
 ```
 
-- [ ] **Step 2: 写失败测试，约束“已可见时不重复自动打开”**
+- [x] **Step 2: 写失败测试，约束“已可见时不重复自动打开”**
 
 ```typescript
 it('视图已可见时返回 false', () => {
@@ -119,7 +119,7 @@ it('视图已可见时返回 false', () => {
 })
 ```
 
-- [ ] **Step 3: 写失败测试，约束“自动流程执行中不再次自动打开”**
+- [x] **Step 3: 写失败测试，约束“自动流程执行中不再次自动打开”**
 
 ```typescript
 it('自动流程执行中返回 false', () => {
@@ -132,7 +132,7 @@ it('自动流程执行中返回 false', () => {
 })
 ```
 
-- [ ] **Step 4: 写失败测试，约束“视图不可见时不自动打开”**
+- [x] **Step 4: 写失败测试，约束“视图不可见时不自动打开”**
 
 ```typescript
 it('视图不可见时返回 false', () => {
@@ -145,12 +145,12 @@ it('视图不可见时返回 false', () => {
 })
 ```
 
-- [ ] **Step 5: 运行测试，确认失败**
+- [x] **Step 5: 运行测试，确认失败**
 
 Run: `pnpm test test/index.test.ts`
 Expected: FAIL，新增断言至少一项失败
 
-- [ ] **Step 6: 只按测试需求完善 `shouldAutoOpenPanel()`**
+- [x] **Step 6: 只按测试需求完善 `shouldAutoOpenPanel()`**
 
 ```typescript
 export function shouldAutoOpenPanel(input: AutoOpenDecisionInput): boolean {
@@ -170,12 +170,12 @@ export function shouldAutoOpenPanel(input: AutoOpenDecisionInput): boolean {
 }
 ```
 
-- [ ] **Step 7: 运行测试，确认通过**
+- [x] **Step 7: 运行测试，确认通过**
 
 Run: `pnpm test test/index.test.ts`
 Expected: PASS
 
-- [ ] **Step 8: 提交**
+- [x] **Step 8: 提交**
 
 ```bash
 git add src/panelOpenInteraction.ts test/index.test.ts
@@ -190,7 +190,7 @@ git commit -m "✅ test(interaction): 覆盖自动打开判定边界"
 - Modify: `test/index.test.ts`
 - Modify: `src/panelOpenInteraction.ts`
 
-- [ ] **Step 1: 写失败测试，约束通用入口只负责打开和刷新面板**
+- [x] **Step 1: 写失败测试，约束通用入口只负责打开和刷新面板**
 
 ```typescript
 import { vi } from 'vitest'
@@ -214,7 +214,7 @@ it('通用 openPanel 入口不会切回 Explorer', async () => {
 })
 ```
 
-- [ ] **Step 2: 写失败测试，约束无 workspace 数据时不会调用 `updateData`**
+- [x] **Step 2: 写失败测试，约束无 workspace 数据时不会调用 `updateData`**
 
 ```typescript
 it('无 workspace 数据时不会调用 updateData', async () => {
@@ -230,12 +230,12 @@ it('无 workspace 数据时不会调用 updateData', async () => {
 })
 ```
 
-- [ ] **Step 3: 运行测试，确认失败**
+- [x] **Step 3: 运行测试，确认失败**
 
 Run: `pnpm test test/index.test.ts`
 Expected: FAIL，提示 `createOpenPanelHandler` 不存在或新增断言失败
 
-- [ ] **Step 4: 在 `src/panelOpenInteraction.ts` 中实现最小通用入口处理函数**
+- [x] **Step 4: 在 `src/panelOpenInteraction.ts` 中实现最小通用入口处理函数**
 
 ```typescript
 export interface OpenPanelDeps<TData> {
@@ -254,12 +254,12 @@ export function createOpenPanelHandler<TData>(deps: OpenPanelDeps<TData>) {
 }
 ```
 
-- [ ] **Step 5: 运行测试，确认通过**
+- [x] **Step 5: 运行测试，确认通过**
 
 Run: `pnpm test test/index.test.ts`
 Expected: PASS
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add src/panelOpenInteraction.ts test/index.test.ts
@@ -274,7 +274,7 @@ git commit -m "✅ test(interaction): 锁定通用入口契约与空数据边界
 - Modify: `test/index.test.ts`
 - Modify: `src/panelOpenInteraction.ts`
 
-- [ ] **Step 1: 写失败测试，约束自动入口会先打开面板再尝试切回 Explorer**
+- [x] **Step 1: 写失败测试，约束自动入口会先打开面板再尝试切回 Explorer**
 
 ```typescript
 import { createActivityBarAutoOpenHandler } from '../src/panelOpenInteraction'
@@ -295,12 +295,12 @@ it('自动入口在 openPanel 成功后尝试切回 Explorer', async () => {
 })
 ```
 
-- [ ] **Step 2: 运行测试，确认失败**
+- [x] **Step 2: 运行测试，确认失败**
 
 Run: `pnpm test test/index.test.ts`
 Expected: FAIL，提示 `createActivityBarAutoOpenHandler` 不存在
 
-- [ ] **Step 3: 在 `src/panelOpenInteraction.ts` 中实现最小自动入口流程**
+- [x] **Step 3: 在 `src/panelOpenInteraction.ts` 中实现最小自动入口流程**
 
 ```typescript
 export interface ActivityBarAutoOpenDeps {
@@ -319,12 +319,12 @@ export function createActivityBarAutoOpenHandler(deps: ActivityBarAutoOpenDeps) 
 }
 ```
 
-- [ ] **Step 4: 运行测试，确认通过**
+- [x] **Step 4: 运行测试，确认通过**
 
 Run: `pnpm test test/index.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/panelOpenInteraction.ts test/index.test.ts
@@ -339,7 +339,7 @@ git commit -m "✅ test(interaction): 补自动入口主流程"
 - Modify: `test/index.test.ts`
 - Modify: `src/panelOpenInteraction.ts`
 
-- [ ] **Step 1: 写失败测试，约束自动流程执行中再次触发会被忽略**
+- [x] **Step 1: 写失败测试，约束自动流程执行中再次触发会被忽略**
 
 ```typescript
 it('自动流程执行中再次触发会被忽略', async () => {
@@ -358,7 +358,7 @@ it('自动流程执行中再次触发会被忽略', async () => {
 })
 ```
 
-- [ ] **Step 2: 写失败测试，约束自动入口异常后会清理防重入状态**
+- [x] **Step 2: 写失败测试，约束自动入口异常后会清理防重入状态**
 
 ```typescript
 it('自动入口在 openPanel 抛错后仍会清理防重入状态', async () => {
@@ -377,7 +377,7 @@ it('自动入口在 openPanel 抛错后仍会清理防重入状态', async () =>
 })
 ```
 
-- [ ] **Step 3: 写失败测试，约束切回 Explorer 失败时不影响主流程**
+- [x] **Step 3: 写失败测试，约束切回 Explorer 失败时不影响主流程**
 
 ```typescript
 it('切回 Explorer 失败时不影响主流程完成', async () => {
@@ -393,7 +393,7 @@ it('切回 Explorer 失败时不影响主流程完成', async () => {
 })
 ```
 
-- [ ] **Step 4: 写失败测试，约束切回 Explorer 失败时会记录调试日志**
+- [x] **Step 4: 写失败测试，约束切回 Explorer 失败时会记录调试日志**
 
 ```typescript
 it('切回 Explorer 失败时记录调试日志', async () => {
@@ -412,12 +412,12 @@ it('切回 Explorer 失败时记录调试日志', async () => {
 })
 ```
 
-- [ ] **Step 5: 运行测试，确认失败**
+- [x] **Step 5: 运行测试，确认失败**
 
 Run: `pnpm test test/index.test.ts`
 Expected: FAIL，新增断言至少一项失败
 
-- [ ] **Step 6: 在 `src/panelOpenInteraction.ts` 中补上防重入、`try/finally` 和 best-effort 回退**
+- [x] **Step 6: 在 `src/panelOpenInteraction.ts` 中补上防重入、`try/finally` 和 best-effort 回退**
 
 ```typescript
 export function createActivityBarAutoOpenHandler(deps: ActivityBarAutoOpenDeps) {
@@ -442,12 +442,12 @@ export function createActivityBarAutoOpenHandler(deps: ActivityBarAutoOpenDeps) 
 }
 ```
 
-- [ ] **Step 7: 运行测试，确认通过**
+- [x] **Step 7: 运行测试，确认通过**
 
 Run: `pnpm test test/index.test.ts`
 Expected: PASS
 
-- [ ] **Step 8: 提交**
+- [x] **Step 8: 提交**
 
 ```bash
 git add src/panelOpenInteraction.ts test/index.test.ts
@@ -462,7 +462,7 @@ git commit -m "✅ test(interaction): 固定自动入口状态与降级行为"
 - Modify: `test/index.test.ts`
 - Create: `src/panelOpenWiring.ts`
 
-- [ ] **Step 1: 写失败测试，约束新的可见切换会触发自动入口**
+- [x] **Step 1: 写失败测试，约束新的可见切换会触发自动入口**
 
 ```typescript
 import { createPanelOpenWiring } from '../src/panelOpenWiring'
@@ -482,7 +482,7 @@ it('新的可见切换会触发自动入口', async () => {
 })
 ```
 
-- [ ] **Step 2: 写失败测试，约束程序化不允许自动打开时不会触发自动入口**
+- [x] **Step 2: 写失败测试，约束程序化不允许自动打开时不会触发自动入口**
 
 ```typescript
 it('不允许自动打开时不会触发自动入口', async () => {
@@ -500,7 +500,7 @@ it('不允许自动打开时不会触发自动入口', async () => {
 })
 ```
 
-- [ ] **Step 3: 写失败测试，约束初始已可见时会自动打开一次**
+- [x] **Step 3: 写失败测试，约束初始已可见时会自动打开一次**
 
 ```typescript
 it('初始已可见时会自动打开一次', async () => {
@@ -518,7 +518,7 @@ it('初始已可见时会自动打开一次', async () => {
 })
 ```
 
-- [ ] **Step 4: 写失败测试，约束初始已可见只处理一次**
+- [x] **Step 4: 写失败测试，约束初始已可见只处理一次**
 
 ```typescript
 it('初始已可见只处理一次', async () => {
@@ -537,7 +537,7 @@ it('初始已可见只处理一次', async () => {
 })
 ```
 
-- [ ] **Step 5: 写失败测试，约束初始已可见但不允许自动打开时不会触发自动入口**
+- [x] **Step 5: 写失败测试，约束初始已可见但不允许自动打开时不会触发自动入口**
 
 ```typescript
 it('初始已可见但不允许自动打开时不会触发自动入口', async () => {
@@ -555,7 +555,7 @@ it('初始已可见但不允许自动打开时不会触发自动入口', async (
 })
 ```
 
-- [ ] **Step 6: 写失败测试，约束初始已可见但自动流程进行中时不会触发自动入口**
+- [x] **Step 6: 写失败测试，约束初始已可见但自动流程进行中时不会触发自动入口**
 
 ```typescript
 it('初始已可见但自动流程进行中时不会触发自动入口', async () => {
@@ -573,12 +573,12 @@ it('初始已可见但自动流程进行中时不会触发自动入口', async (
 })
 ```
 
-- [ ] **Step 7: 运行测试，确认失败**
+- [x] **Step 7: 运行测试，确认失败**
 
 Run: `pnpm test test/index.test.ts`
 Expected: FAIL，提示 `../src/panelOpenWiring` 或 `createPanelOpenWiring` 不存在
 
-- [ ] **Step 8: 创建 `src/panelOpenWiring.ts`，只实现通过当前测试所需的最小逻辑**
+- [x] **Step 8: 创建 `src/panelOpenWiring.ts`，只实现通过当前测试所需的最小逻辑**
 
 ```typescript
 import { shouldAutoOpenPanel } from './panelOpenInteraction'
@@ -629,12 +629,12 @@ export function createPanelOpenWiring(deps: PanelOpenWiringDeps) {
 }
 ```
 
-- [ ] **Step 9: 运行测试，确认通过**
+- [x] **Step 9: 运行测试，确认通过**
 
 Run: `pnpm test test/index.test.ts`
 Expected: PASS
 
-- [ ] **Step 10: 提交**
+- [x] **Step 10: 提交**
 
 ```bash
 git add src/panelOpenInteraction.ts src/panelOpenWiring.ts test/index.test.ts
@@ -649,7 +649,7 @@ git commit -m "✅ test(wiring): 建立可见性桥接与初始可见装配层"
 - Modify: `test/index.test.ts`
 - Modify: `src/panelOpenWiring.ts`
 
-- [ ] **Step 1: 写失败测试，约束首次显示后第二次可见事件不会重复打开**
+- [x] **Step 1: 写失败测试，约束首次显示后第二次可见事件不会重复打开**
 
 ```typescript
 it('首次显示后第二次可见事件不会重复打开', async () => {
@@ -668,7 +668,7 @@ it('首次显示后第二次可见事件不会重复打开', async () => {
 })
 ```
 
-- [ ] **Step 2: 写失败测试，约束隐藏后再次显示会重新触发自动入口**
+- [x] **Step 2: 写失败测试，约束隐藏后再次显示会重新触发自动入口**
 
 ```typescript
 it('隐藏后再次显示会重新触发自动入口', async () => {
@@ -688,12 +688,12 @@ it('隐藏后再次显示会重新触发自动入口', async () => {
 })
 ```
 
-- [ ] **Step 3: 运行测试，确认失败**
+- [x] **Step 3: 运行测试，确认失败**
 
 Run: `pnpm test test/index.test.ts`
 Expected: FAIL，新增断言至少一项失败
 
-- [ ] **Step 4: 只按测试需求调整 `src/panelOpenWiring.ts` 的状态更新顺序**
+- [x] **Step 4: 只按测试需求调整 `src/panelOpenWiring.ts` 的状态更新顺序**
 
 ```typescript
 const shouldOpen = shouldAutoOpenPanel(...)
@@ -704,12 +704,12 @@ if (!shouldOpen)
 await deps.openFromActivityBar()
 ```
 
-- [ ] **Step 5: 运行测试，确认通过**
+- [x] **Step 5: 运行测试，确认通过**
 
 Run: `pnpm test test/index.test.ts`
 Expected: PASS
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add src/panelOpenWiring.ts test/index.test.ts
@@ -724,7 +724,7 @@ git commit -m "✅ test(wiring): 固定可见性事件顺序"
 - Modify: `test/index.test.ts`
 - Create: `src/indexBindings.ts`
 
-- [ ] **Step 1: 写失败测试，约束入口绑定会注册可见性监听并触发初始检查**
+- [x] **Step 1: 写失败测试，约束入口绑定会注册可见性监听并触发初始检查**
 
 ```typescript
 import { createIndexBindings } from '../src/indexBindings'
@@ -751,12 +751,12 @@ it('入口绑定会注册可见性监听并触发初始检查', async () => {
 })
 ```
 
-- [ ] **Step 2: 运行测试，确认失败**
+- [x] **Step 2: 运行测试，确认失败**
 
 Run: `pnpm test test/index.test.ts`
 Expected: FAIL，提示 `../src/indexBindings` 或 `createIndexBindings` 不存在
 
-- [ ] **Step 3: 写失败测试，约束入口绑定会把最新可见状态传给 wiring**
+- [x] **Step 3: 写失败测试，约束入口绑定会把最新可见状态传给 wiring**
 
 ```typescript
 it('入口绑定会把最新可见状态传给 wiring', async () => {
@@ -784,12 +784,12 @@ it('入口绑定会把最新可见状态传给 wiring', async () => {
 })
 ```
 
-- [ ] **Step 4: 运行测试，确认失败**
+- [x] **Step 4: 运行测试，确认失败**
 
 Run: `pnpm test test/index.test.ts`
 Expected: FAIL，新增断言至少一项失败
 
-- [ ] **Step 5: 创建 `src/indexBindings.ts`，只实现通过当前测试所需的最小逻辑**
+- [x] **Step 5: 创建 `src/indexBindings.ts`，只实现通过当前测试所需的最小逻辑**
 
 ```typescript
 export interface IndexBindingTreeView {
@@ -822,12 +822,12 @@ export function createIndexBindings(deps: IndexBindingDeps) {
 }
 ```
 
-- [ ] **Step 6: 运行测试，确认通过**
+- [x] **Step 6: 运行测试，确认通过**
 
 Run: `pnpm test test/index.test.ts`
 Expected: PASS
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```bash
 git add src/indexBindings.ts test/index.test.ts
@@ -841,7 +841,7 @@ git commit -m "✅ test(bindings): 建立扩展入口绑定 seam"
 **Files:**
 - Modify: `src/index.ts`
 
-- [ ] **Step 1: 在 `src/index.ts` 引入纯函数模块、装配 seam 和入口绑定函数**
+- [x] **Step 1: 在 `src/index.ts` 引入纯函数模块、装配 seam 和入口绑定函数**
 
 ```typescript
 import { createIndexBindings } from './indexBindings'
@@ -852,7 +852,7 @@ import {
 import { createPanelOpenWiring } from './panelOpenWiring'
 ```
 
-- [ ] **Step 2: 抽出共享扫描函数，供通用入口复用**
+- [x] **Step 2: 抽出共享扫描函数，供通用入口复用**
 
 ```typescript
 async function scanWorkspaceData() {
@@ -864,7 +864,7 @@ async function scanWorkspaceData() {
 }
 ```
 
-- [ ] **Step 3: 用 `createOpenPanelHandler()` 装配 `superpowers.openPanel` 命令**
+- [x] **Step 3: 用 `createOpenPanelHandler()` 装配 `superpowers.openPanel` 命令**
 
 ```typescript
 const openPanel = createOpenPanelHandler({
@@ -875,7 +875,7 @@ const openPanel = createOpenPanelHandler({
 vscode.commands.registerCommand('superpowers.openPanel', openPanel)
 ```
 
-- [ ] **Step 4: 用 `createActivityBarAutoOpenHandler()` 装配自动入口**
+- [x] **Step 4: 用 `createActivityBarAutoOpenHandler()` 装配自动入口**
 
 ```typescript
 let isAutoOpeningPanel = false
@@ -890,7 +890,7 @@ const openPanelFromActivityBar = createActivityBarAutoOpenHandler({
 })
 ```
 
-- [ ] **Step 5: 用 `createIndexBindings()` 和 `createPanelOpenWiring()` 装配 TreeView**
+- [x] **Step 5: 用 `createIndexBindings()` 和 `createPanelOpenWiring()` 装配 TreeView**
 
 ```typescript
 createIndexBindings({
@@ -907,11 +907,11 @@ createIndexBindings({
 }).register()
 ```
 
-- [ ] **Step 6: 明确产品预期：无 workspace 时仍打开空面板，但不更新数据**
+- [x] **Step 6: 明确产品预期：无 workspace 时仍打开空面板，但不更新数据**
 
 这个预期已经由 `createOpenPanelHandler()` 的空数据测试锁定，接线层不要额外拦截。
 
-- [ ] **Step 7: 保留树节点兜底入口，不改命令名**
+- [x] **Step 7: 保留树节点兜底入口，不改命令名**
 
 ```typescript
 vscode.commands.registerCommand('superpowers.root', () => {
@@ -919,12 +919,12 @@ vscode.commands.registerCommand('superpowers.root', () => {
 })
 ```
 
-- [ ] **Step 8: 运行测试，确认接入后纯函数、装配和绑定测试仍通过**
+- [x] **Step 8: 运行测试，确认接入后纯函数、装配和绑定测试仍通过**
 
 Run: `pnpm test test/index.test.ts`
 Expected: PASS
 
-- [ ] **Step 9: 提交**
+- [x] **Step 9: 提交**
 
 ```bash
 git add src/index.ts
@@ -939,31 +939,31 @@ git commit -m "✨ feat(index): 接入面板首次点击自动打开流程"
 - Modify: `src/index.ts`
 - Test: `test/index.test.ts`
 
-- [ ] **Step 1: 在 Extension Host 中最小验证 `workbench.view.explorer` 命令不会阻断主流程**
+- [x] **Step 1: 在 Extension Host 中最小验证 `workbench.view.explorer` 命令不会阻断主流程**
 
 手动触发一次自动入口，确认即使 Explorer 未按预期切回，也不会阻止编辑区面板出现。
 
-- [ ] **Step 2: 运行新增测试文件**
+- [x] **Step 2: 运行新增测试文件**
 
 Run: `pnpm test test/index.test.ts`
 Expected: PASS
 
-- [ ] **Step 3: 运行完整测试集**
+- [x] **Step 3: 运行完整测试集**
 
 Run: `pnpm test`
 Expected: PASS
 
-- [ ] **Step 4: 运行类型检查**
+- [x] **Step 4: 运行类型检查**
 
 Run: `pnpm typecheck`
 Expected: PASS
 
-- [ ] **Step 5: 运行构建**
+- [x] **Step 5: 运行构建**
 
 Run: `pnpm build`
 Expected: PASS
 
-- [ ] **Step 6: 在 Extension Host 中手动验证真实交互**
+- [x] **Step 6: 在 Extension Host 中手动验证真实交互**
 
 手动检查：
 
@@ -979,16 +979,16 @@ Expected: PASS
 
 ## 完成检查
 
-- [ ] 纯函数测试不依赖 `vscode` 运行时
-- [ ] `superpowers.openPanel` 仍然是纯通用入口，不包含切回 Explorer 副作用
-- [ ] 自动入口通过 `getAllowAutoOpen()` 显式控制是否允许自动打开
-- [ ] 初始已可见场景只会自动打开一次
-- [ ] 初始已可见场景也会经过自动打开判定，而不是绕过 `allowAutoOpen`
-- [ ] 自动入口发生异常后会正确清理防重入状态
-- [ ] 切回 Explorer 失败时不会影响面板成功打开
-- [ ] 无 workspace 时会打开空面板，但不会调用 `updateData`
-- [ ] 树节点兜底入口仍可正常打开面板
-- [ ] `pnpm test` 通过
-- [ ] `pnpm typecheck` 通过
-- [ ] `pnpm build` 通过
-- [ ] 手动交互验证通过
+- [x] 纯函数测试不依赖 `vscode` 运行时
+- [x] `superpowers.openPanel` 仍然是纯通用入口，不包含切回 Explorer 副作用
+- [x] 自动入口通过 `getAllowAutoOpen()` 显式控制是否允许自动打开
+- [x] 初始已可见场景只会自动打开一次
+- [x] 初始已可见场景也会经过自动打开判定，而不是绕过 `allowAutoOpen`
+- [x] 自动入口发生异常后会正确清理防重入状态
+- [x] 切回 Explorer 失败时不会影响面板成功打开
+- [x] 无 workspace 时会打开空面板，但不会调用 `updateData`
+- [x] 树节点兜底入口仍可正常打开面板
+- [x] `pnpm test` 通过
+- [x] `pnpm typecheck` 通过
+- [x] `pnpm build` 通过
+- [x] 手动交互验证通过

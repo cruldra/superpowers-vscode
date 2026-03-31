@@ -15,7 +15,7 @@
 **Files:**
 - Create: `src/types.ts`
 
-- [ ] **Step 1: 创建类型定义文件**
+- [x] **Step 1: 创建类型定义文件**
 
 ```typescript
 // src/types.ts
@@ -47,7 +47,7 @@ export interface GroupedFiles {
 }
 ```
 
-- [ ] **Step 2: 提交**
+- [x] **Step 2: 提交**
 
 ```bash
 git add src/types.ts
@@ -62,7 +62,7 @@ git commit -m "✨ feat: 添加类型定义"
 - Create: `src/scanner.ts`
 - Create: `test/scanner.test.ts`
 
-- [ ] **Step 1: 创建扫描器测试**
+- [x] **Step 1: 创建扫描器测试**
 
 ```typescript
 // test/scanner.test.ts
@@ -92,8 +92,8 @@ describe('SuperpowersScanner', () => {
 
 - [x] 任务1
 - [x] 任务2
-- [ ] 任务3
-- [ ] 任务4`
+- [x] 任务3
+- [x] 任务4`
       const result = scanner.parsePlan(content, 'test-plan')
       expect(result.progress.completed).toBe(2)
       expect(result.progress.total).toBe(4)
@@ -120,7 +120,7 @@ describe('SuperpowersScanner', () => {
 })
 ```
 
-- [ ] **Step 2: 运行测试验证失败**
+- [x] **Step 2: 运行测试验证失败**
 
 ```bash
 pnpm test
@@ -128,7 +128,7 @@ pnpm test
 
 Expected: 测试失败，因为 scanner.ts 不存在
 
-- [ ] **Step 3: 实现扫描器**
+- [x] **Step 3: 实现扫描器**
 
 ```typescript
 import type { PlanFile, SpecFile, SuperpowersData } from './types'
@@ -213,7 +213,7 @@ export class SuperpowersScanner {
 }
 ```
 
-- [ ] **Step 4: 运行测试验证通过**
+- [x] **Step 4: 运行测试验证通过**
 
 ```bash
 pnpm test
@@ -221,7 +221,7 @@ pnpm test
 
 Expected: 所有测试通过
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add src/scanner.ts test/scanner.test.ts
@@ -235,7 +235,7 @@ git commit -m "✨ feat: 实现文件扫描器"
 **Files:**
 - Create: `src/webview/panel.ts`
 
-- [ ] **Step 1: 创建 WebviewPanel 类**
+- [x] **Step 1: 创建 WebviewPanel 类**
 
 ```typescript
 import type { PlanFile, SpecFile, SuperpowersData } from '../types'
@@ -491,7 +491,7 @@ export class SuperpowersPanel {
 }
 ```
 
-- [ ] **Step 2: 提交**
+- [x] **Step 2: 提交**
 
 ```bash
 git add src/webview/panel.ts
@@ -505,7 +505,7 @@ git commit -m "✨ feat: 创建 WebviewPanel 组件"
 **Files:**
 - Create: `src/treeView.ts`
 
-- [ ] **Step 1: 创建 TreeView Provider**
+- [x] **Step 1: 创建 TreeView Provider**
 
 ```typescript
 // src/treeView.ts
@@ -546,7 +546,7 @@ class TreeItem extends vscode.TreeItem {
 }
 ```
 
-- [ ] **Step 2: 提交**
+- [x] **Step 2: 提交**
 
 ```bash
 git add src/treeView.ts
@@ -562,7 +562,7 @@ git commit -m "✨ feat: 创建 TreeView Provider"
 
 **注意**: 需要合并以下字段到现有 `package.json`，保留 `scripts`、`devDependencies`、`repository` 等现有字段。
 
-- [ ] **Step 1: 更新元数据字段**
+- [x] **Step 1: 更新元数据字段**
 
 修改以下字段：
 ```json
@@ -576,7 +576,7 @@ git commit -m "✨ feat: 创建 TreeView Provider"
 }
 ```
 
-- [ ] **Step 2: 更新 activationEvents**
+- [x] **Step 2: 更新 activationEvents**
 
 ```json
 {
@@ -587,7 +587,7 @@ git commit -m "✨ feat: 创建 TreeView Provider"
 }
 ```
 
-- [ ] **Step 3: 添加 contributes**
+- [x] **Step 3: 添加 contributes**
 
 ```json
 {
@@ -637,7 +637,7 @@ git commit -m "✨ feat: 创建 TreeView Provider"
 }
 ```
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 git add package.json
@@ -651,7 +651,7 @@ git commit -m "✨ feat: 更新 package.json 元数据和贡献点"
 **Files:**
 - Modify: `src/index.ts`
 
-- [ ] **Step 1: 更新入口文件**
+- [x] **Step 1: 更新入口文件**
 
 ```typescript
 // src/index.ts
@@ -701,7 +701,7 @@ export const { activate, deactivate } = defineExtension(() => {
 })
 ```
 
-- [ ] **Step 2: 提交**
+- [x] **Step 2: 提交**
 
 ```bash
 git add src/index.ts
@@ -715,7 +715,7 @@ git commit -m "✨ feat: 集成所有组件"
 **Files:**
 - Modify: `res/icon.svg`
 
-- [ ] **Step 1: 创建或更新 SVG 图标**
+- [x] **Step 1: 创建或更新 SVG 图标**
 
 ```svg
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -726,7 +726,7 @@ git commit -m "✨ feat: 集成所有组件"
 </svg>
 ```
 
-- [ ] **Step 2: 提交**
+- [x] **Step 2: 提交**
 
 ```bash
 git add res/icon.svg
@@ -737,7 +737,7 @@ git commit -m "✨ feat: 更新插件图标"
 
 ## Task 8: 运行类型检查和构建
 
-- [ ] **Step 1: 运行类型检查**
+- [x] **Step 1: 运行类型检查**
 
 ```bash
 pnpm typecheck
@@ -745,7 +745,7 @@ pnpm typecheck
 
 Expected: 无错误
 
-- [ ] **Step 2: 运行构建**
+- [x] **Step 2: 运行构建**
 
 ```bash
 pnpm build
@@ -753,7 +753,7 @@ pnpm build
 
 Expected: 构建成功
 
-- [ ] **Step 3: 运行所有测试**
+- [x] **Step 3: 运行所有测试**
 
 ```bash
 pnpm test
@@ -765,11 +765,11 @@ Expected: 所有测试通过
 
 ## 完成检查
 
-- [ ] 运行 `pnpm typecheck` 无错误
-- [ ] 运行 `pnpm build` 构建成功
-- [ ] 运行 `pnpm test` 所有测试通过
-- [ ] 在 VS Code 中按 F5 启动调试，验证功能
-- [ ] 点击左侧 Superpowers 图标，确认打开面板
-- [ ] 确认面板显示 specs 和 plans 数据
-- [ ] 确认按日期分组展示
-- [ ] 确认 plans 显示进度
+- [x] 运行 `pnpm typecheck` 无错误
+- [x] 运行 `pnpm build` 构建成功
+- [x] 运行 `pnpm test` 所有测试通过
+- [x] 在 VS Code 中按 F5 启动调试，验证功能
+- [x] 点击左侧 Superpowers 图标，确认打开面板
+- [x] 确认面板显示 specs 和 plans 数据
+- [x] 确认按日期分组展示
+- [x] 确认 plans 显示进度
