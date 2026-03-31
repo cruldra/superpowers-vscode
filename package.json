@@ -111,7 +111,8 @@
     "vscode:prepublish": "nr build",
     "release": "bumpp",
     "ext:package": "vsce package --no-dependencies",
-    "ext:publish": "vsxpub --no-dependencies"
+    "ext:publish": "vsxpub --no-dependencies",
+    "ext:publish:vsce": "npm_config_proxy= npm_config_https_proxy= vsce publish --skip-duplicate"
   },
   "devDependencies": {
     "@antfu/eslint-config": "^6.7.3",
