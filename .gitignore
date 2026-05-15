@@ -15,3 +15,5 @@ src/generated
 .superpowers/
 .gitnexus
 .claude/
+webview-ui/node_modules
+webview-ui/dist

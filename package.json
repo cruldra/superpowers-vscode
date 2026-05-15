@@ -2,9 +2,9 @@
   "publisher": "clurdra",
   "name": "superpowers-vscode-clurdra",
   "displayName": "Superpowers-clurdra",
-  "version": "0.1.6",
+  "version": "0.2.0",
   "packageManager": "pnpm@10.27.0",
-  "description": "Superpowers specs and plans explorer",
+  "description": "Superpowers specs and plans Kanban explorer",
   "author": "clurdra",
   "license": "MIT",
   "homepage": "https://github.com/cruldra/superpowers-vscode#readme",
@@ -22,114 +22,73 @@
   "icon": "res/icon.png",
   "files": [
     "LICENSE.md",
-    "dist/*",
+    "dist/**/*",
     "res/*"
   ],
   "engines": {
     "vscode": "^1.97.0"
   },
   "activationEvents": [
-    "onView:superpowers-explorer",
-    "onCommand:superpowers.refresh"
+    "onView:superpowers.kanban"
   ],
   "contributes": {
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "superpowers-explorer",
+          "id": "superpowers",
           "title": "Superpowers",
           "icon": "res/icon.svg"
         }
       ]
     },
     "views": {
-      "superpowers-explorer": [
+      "superpowers": [
         {
-          "id": "superpowers-explorer",
-          "name": "Superpowers"
+          "id": "superpowers.kanban",
+          "name": "Kanban",
+          "type": "webview"
         }
       ]
     },
     "commands": [
       {
-        "command": "superpowers.openPanel",
-        "title": "Open Superpowers Explorer"
-      },
-      {
         "command": "superpowers.refresh",
-        "title": "Refresh Superpowers Data"
-      },
-      {
-        "command": "superpowers.runPlan",
-        "title": "Run Superpowers Plan"
+        "title": "Refresh Superpowers Kanban"
       }
     ],
     "menus": {
       "view/title": [
         {
           "command": "superpowers.refresh",
-          "when": "view == superpowers-explorer",
+          "when": "view == superpowers.kanban",
           "group": "navigation"
         }
       ]
-    },
-    "configuration": {
-      "type": "object",
-      "title": "Superpowers",
-      "properties": {
-        "superpowers.runMessage": {
-          "type": "string",
-          "default": "实施 $plan_relative_path",
-          "description": "运行 Plan 时传给 opencode run 的消息模板，支持 $plan_relative_path 或 ${plan_relative_path}。"
-        },
-        "superpowers.runModel": {
-          "type": "string",
-          "default": "alibaba-coding-plan-cn/glm-5",
-          "description": "运行 Plan 时传给 opencode run 的 --model 参数。"
-        },
-        "superpowers.runAgent": {
-          "type": "string",
-          "default": "build",
-          "description": "运行 Plan 时传给 opencode run 的 --agent 参数。"
-        },
-        "superpowers.worktreeDirectory": {
-          "type": "string",
-          "default": "$project_root.worktrees/$feature_name",
-          "description": "运行 Plan 前创建 worktree 的目录模板，支持 $project_root、$project_name、$feature_name。"
-        }
-      }
     }
   },
   "scripts": {
-    "build": "tsdown src/index.ts --external vscode",
-    "dev": "nr build --watch --sourcemap",
-    "prepare": "nr update",
-    "update": "vscode-ext-gen --output src/generated/meta.ts",
+    "build": "pnpm --filter webview-ui build && node esbuild.mjs --production",
+    "dev": "concurrently \"pnpm --filter webview-ui dev\" \"node esbuild.mjs --watch\"",
+    "typecheck": "tsc --noEmit && pnpm --filter webview-ui typecheck",
     "lint": "eslint .",
     "test": "vitest",
-    "typecheck": "tsc --noEmit",
-    "vscode:prepublish": "nr build",
+    "vscode:prepublish": "pnpm build",
     "release": "bumpp",
-    "ext:package": "vsce package --no-dependencies",
-    "ext:publish": "vsxpub --no-dependencies",
+    "ext:package": "pnpm build && vsce package --no-dependencies",
     "ext:publish:vsce": "npm_config_proxy= npm_config_https_proxy= vsce publish --skip-duplicate"
   },
   "devDependencies": {
     "@antfu/eslint-config": "^6.7.3",
-    "@antfu/ni": "^28.0.0",
     "@types/node": "^25.0.3",
     "@types/vscode": "^1.97.0",
     "@vscode/vsce": "^3.7.1",
     "bumpp": "^10.3.2",
+    "concurrently": "^9.1.0",
+    "esbuild": "^0.25.0",
     "eslint": "^9.39.2",
     "ovsx": "^0.10.7",
     "reactive-vscode": "^1.0.0-beta.2",
-    "taze": "^19.9.2",
-    "tsdown": "^0.19.0-beta.3",
     "typescript": "^5.9.3",
-    "vite": "^7.3.0",
-    "vitest": "^4.0.16",
-    "vscode-ext-gen": "^1.5.1",
-    "vsxpub": "^0.1.2"
+    "vitest": "^4.0.16"
   }
 }
