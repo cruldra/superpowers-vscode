@@ -42,7 +42,6 @@ superpowers-vscode/
 ├── tsconfig.json               # 扩展 tsconfig
 ├── esbuild.mjs                 # 扩展打包脚本（替代 tsdown.config.ts）
 ├── eslint.config.mjs           # 保留
-├── taze.config.ts              # 保留
 ├── res/                        # 图标资源保留
 ├── docs/superpowers/           # 保留目录，旧示例文件清空
 │   ├── specs/                  # 本设计文件留这里
@@ -289,12 +288,13 @@ docs/superpowers/specs/2026-03-*.md
 docs/superpowers/plans/2026-03-*.md
 docs/superpowers/plans/2026-03-31-*.md
 tsdown.config.ts
+taze.config.ts
 package.json 中 superpowers.run* 和 worktreeDirectory 配置项
 package.json 中 superpowers.openPanel 和 superpowers.runPlan 命令
-devDependencies: tsdown
+devDependencies: tsdown, taze
 ```
 
-保留：`res/`、`README.md`（后期重写）、`LICENSE.md`、`eslint.config.mjs`、`taze.config.ts`、`pnpm-workspace.yaml`、`.vscode/`、`.github/`、`.gitignore`。
+保留：`res/`、`README.md`（后期重写）、`LICENSE.md`、`eslint.config.mjs`、`pnpm-workspace.yaml`、`.vscode/`、`.github/`、`.gitignore`。
 
 新增：`esbuild.mjs`、`webview-ui/` 整目录、`src/extension.ts`、`src/scanner.ts`、`src/types.ts`、`src/panel/KanbanPanel.ts`、`src/panel/messages.ts`、新的 `test/scanner.test.ts`、`test/extension.test.ts`。
 
