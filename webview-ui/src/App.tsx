@@ -1,3 +1,7 @@
 export function App() {
-  return <div>Superpowers Kanban — bootstrap OK</div>
+  return (
+    <div className="p-4 text-lg">
+      Superpowers Kanban — Tailwind OK
+    </div>
+  )
 }

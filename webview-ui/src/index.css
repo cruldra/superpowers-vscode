@@ -1,5 +1,19 @@
-/* placeholder, replaced when Tailwind is added */
+@import "tailwindcss";
+
+@theme {
+  --color-card-border: #475569;
+  --color-state-blue: #3b82f6;
+  --color-state-yellow: #fbbf24;
+  --color-state-purple: #a78bfa;
+  --color-state-orange: #f97316;
+  --color-state-red: #ef4444;
+  --color-state-green: #22c55e;
+}
+
 body {
   margin: 0;
-  font-family: system-ui, sans-serif;
+  font-family: var(--vscode-font-family, system-ui, sans-serif);
+  color: var(--vscode-foreground);
+  background: var(--vscode-editor-background);
+  font-size: var(--vscode-font-size, 13px);
 }
