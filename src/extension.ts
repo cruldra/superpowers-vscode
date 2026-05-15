@@ -1,23 +1,46 @@
-import type { ExtensionContext } from 'vscode'
-import { commands, window, workspace } from 'vscode'
-import { KanbanPanelProvider } from './panel/KanbanPanel'
+import type {
+  Event,
+  ExtensionContext,
+  TreeDataProvider,
+  TreeItem,
+} from 'vscode'
+import { EventEmitter, commands, window, workspace } from 'vscode'
+import { KanbanWebviewPanel } from './panel/KanbanPanel'
 
-let provider: KanbanPanelProvider | undefined
+/**
+ * 侧边栏 TreeView：永远没有 item，靠 package.json 的 viewsWelcome 渲染
+ * "Open Kanban Board" 按钮。注册它的唯一目的是消除 "no data provider" 错误。
+ */
+class EmptyTreeProvider implements TreeDataProvider<never> {
+  private readonly _onDidChangeTreeData = new EventEmitter<void>()
+  readonly onDidChangeTreeData: Event<void> = this._onDidChangeTreeData.event
+
+  getTreeItem(): TreeItem {
+    throw new Error('unreachable')
+  }
+
+  getChildren(): never[] {
+    return []
+  }
+}
 
 export function activate(context: ExtensionContext): void {
-  provider = new KanbanPanelProvider(context)
-
   context.subscriptions.push(
-    window.registerWebviewViewProvider(KanbanPanelProvider.viewType, provider),
-    commands.registerCommand('superpowers.refresh', () => provider?.refresh()),
+    window.registerTreeDataProvider('superpowers.kanban', new EmptyTreeProvider()),
+    commands.registerCommand('superpowers.openKanban', () => {
+      KanbanWebviewPanel.createOrShow(context)
+    }),
+    commands.registerCommand('superpowers.refresh', () => {
+      KanbanWebviewPanel.refresh()
+    }),
   )
 
-  // 监听 specs/plans 文件变化，自动刷新
+  // 监听 specs/plans 文件变化，自动刷新已打开的 panel
   const watcher = workspace.createFileSystemWatcher(
     '**/docs/superpowers/{specs,plans}/*.md',
   )
   const onChange = (): void => {
-    provider?.refresh()
+    KanbanWebviewPanel.refresh()
   }
   watcher.onDidCreate(onChange)
   watcher.onDidChange(onChange)
@@ -25,6 +48,4 @@ export function activate(context: ExtensionContext): void {
   context.subscriptions.push(watcher)
 }
 
-export function deactivate(): void {
-  provider = undefined
-}
+export function deactivate(): void {}

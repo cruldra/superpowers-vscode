@@ -1,9 +1,6 @@
 import type {
-  CancellationToken,
   ExtensionContext,
-  WebviewView,
-  WebviewViewProvider,
-  WebviewViewResolveContext,
+  WebviewPanel,
 } from 'vscode'
 import type { Task } from '../types'
 import type { ExtensionToWebview, WebviewToExtension } from './messages'
@@ -13,50 +10,73 @@ import * as path from 'node:path'
 import { Uri, ViewColumn, window, workspace } from 'vscode'
 import { scanTasks } from '../scanner'
 
-export class KanbanPanelProvider implements WebviewViewProvider {
-  static readonly viewType = 'superpowers.kanban'
+export class KanbanWebviewPanel {
+  static readonly viewType = 'superpowers.kanbanPanel'
 
-  private view?: WebviewView
+  private static current: KanbanWebviewPanel | undefined
 
-  constructor(private readonly context: ExtensionContext) {}
+  private readonly panel: WebviewPanel
+  private readonly disposables: { dispose: () => void }[] = []
 
-  async resolveWebviewView(
-    view: WebviewView,
-    _ctx: WebviewViewResolveContext,
-    _token: CancellationToken,
-  ): Promise<void> {
-    this.view = view
+  private constructor(private readonly context: ExtensionContext, panel: WebviewPanel) {
+    this.panel = panel
 
-    view.webview.options = {
+    this.panel.webview.options = {
       enableScripts: true,
       localResourceRoots: [
         Uri.joinPath(this.context.extensionUri, 'dist', 'webview-ui'),
       ],
     }
 
-    view.webview.html = this.buildHtml(view)
+    this.panel.webview.html = this.buildHtml()
 
-    view.webview.onDidReceiveMessage((msg: WebviewToExtension) => {
-      this.handleMessage(msg).catch((err) => {
-        window.showErrorMessage(`Superpowers: ${err}`)
-      })
-    })
-
-    view.onDidDispose(() => {
-      this.view = undefined
-    })
+    this.disposables.push(
+      this.panel.webview.onDidReceiveMessage((msg: WebviewToExtension) => {
+        this.handleMessage(msg).catch((err) => {
+          window.showErrorMessage(`Superpowers: ${err}`)
+        })
+      }),
+      this.panel.onDidDispose(() => this.dispose()),
+    )
   }
 
-  async refresh(): Promise<void> {
-    const tasks = await this.loadTasks()
-    this.postMessage({ type: 'tasks/update', tasks })
+  static createOrShow(context: ExtensionContext): void {
+    if (KanbanWebviewPanel.current) {
+      KanbanWebviewPanel.current.panel.reveal(ViewColumn.Active)
+      return
+    }
+    const panel = window.createWebviewPanel(
+      KanbanWebviewPanel.viewType,
+      'Superpowers Kanban',
+      ViewColumn.Active,
+      {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+        localResourceRoots: [
+          Uri.joinPath(context.extensionUri, 'dist', 'webview-ui'),
+        ],
+      },
+    )
+    KanbanWebviewPanel.current = new KanbanWebviewPanel(context, panel)
+  }
+
+  static refresh(): void {
+    KanbanWebviewPanel.current?.pushTasks().catch(() => {})
+  }
+
+  private dispose(): void {
+    KanbanWebviewPanel.current = undefined
+    while (this.disposables.length) {
+      const d = this.disposables.pop()
+      d?.dispose()
+    }
+    this.panel.dispose()
   }
 
   private async handleMessage(msg: WebviewToExtension): Promise<void> {
     switch (msg.type) {
       case 'tasks/request': {
-        const tasks = await this.loadTasks()
-        this.postMessage({ type: 'tasks/update', tasks })
+        await this.pushTasks()
         break
       }
       case 'task/open': {
@@ -75,8 +95,13 @@ export class KanbanPanelProvider implements WebviewViewProvider {
     }
   }
 
+  private async pushTasks(): Promise<void> {
+    const tasks = await this.loadTasks()
+    this.postMessage({ type: 'tasks/update', tasks })
+  }
+
   private postMessage(msg: ExtensionToWebview): void {
-    this.view?.webview.postMessage(msg)
+    this.panel.webview.postMessage(msg)
   }
 
   private async loadTasks(): Promise<Task[]> {
@@ -86,23 +111,23 @@ export class KanbanPanelProvider implements WebviewViewProvider {
     return scanTasks(folder.uri.fsPath)
   }
 
-  private buildHtml(view: WebviewView): string {
+  private buildHtml(): string {
     const distRoot = Uri.joinPath(this.context.extensionUri, 'dist', 'webview-ui')
     const indexPath = path.join(distRoot.fsPath, 'index.html')
     let html = fs.readFileSync(indexPath, 'utf-8')
 
     const nonce = makeNonce()
-    const cspSource = view.webview.cspSource
+    const cspSource = this.panel.webview.cspSource
 
     // 重写 src 和 href 的相对路径为 webview URI
     html = html.replace(/(src|href)="(\/[^"]+|\.\/[^"]+|[^"/][^"]*)"/g, (_m, attr, p) => {
       const cleaned = p.replace(/^\.?\//, '')
-      const uri = view.webview.asWebviewUri(Uri.joinPath(distRoot, cleaned))
+      const uri = this.panel.webview.asWebviewUri(Uri.joinPath(distRoot, cleaned))
       return `${attr}="${uri}"`
     })
 
     // 给所有 <script> 标签注入 nonce
-    html = html.replace(/<script(\s[^>]*)?>/g, (m, attrs) => {
+    html = html.replace(/<script(\s[^>]*)?>/g, (_m, attrs) => {
       const a = attrs ?? ''
       return `<script nonce="${nonce}"${a}>`
     })

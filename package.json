@@ -29,7 +29,8 @@
     "vscode": "^1.97.0"
   },
   "activationEvents": [
-    "onView:superpowers.kanban"
+    "onView:superpowers.kanban",
+    "onCommand:superpowers.openKanban"
   ],
   "contributes": {
     "viewsContainers": {
@@ -45,21 +46,32 @@
       "superpowers": [
         {
           "id": "superpowers.kanban",
-          "name": "Kanban",
-          "type": "webview"
+          "name": "Kanban"
         }
       ]
     },
+    "viewsWelcome": [
+      {
+        "view": "superpowers.kanban",
+        "contents": "在编辑器主区打开 Superpowers Kanban 看板。\n[Open Kanban Board](command:superpowers.openKanban)"
+      }
+    ],
     "commands": [
       {
+        "command": "superpowers.openKanban",
+        "title": "Open Superpowers Kanban",
+        "category": "Superpowers"
+      },
+      {
         "command": "superpowers.refresh",
-        "title": "Refresh Superpowers Kanban"
+        "title": "Refresh Superpowers Kanban",
+        "category": "Superpowers"
       }
     ],
     "menus": {
       "view/title": [
         {
-          "command": "superpowers.refresh",
+          "command": "superpowers.openKanban",
           "when": "view == superpowers.kanban",
           "group": "navigation"
         }
