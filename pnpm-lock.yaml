@@ -40,9 +40,6 @@ importers:
       ovsx:
         specifier: ^0.10.7
         version: 0.10.7
-      reactive-vscode:
-        specifier: ^1.0.0-beta.2
-        version: 1.0.0-beta.2(@types/vscode@1.97.0)
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -832,9 +829,6 @@ packages:
   '@pkgjs/parseargs@0.11.0':
     resolution: {integrity: sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg==}
     engines: {node: '>=14'}
-
-  '@reactive-vscode/reactivity@1.0.0-beta.2':
-    resolution: {integrity: sha512-sVddfw2Fq285HMG/hGiOFyCGOMhtIBw7n0y1QG58W1CGdMBSUtJ7gXvQJuQz2qO3c9M6zY/BNYRmWCQHFbzemg==}
 
   '@rolldown/pluginutils@1.0.0-beta.27':
     resolution: {integrity: sha512-+d0F4MKMCbeVUJwG96uQ4SgAznZNSq93I3V+9NHA4OpvqG8mRCpGdKmK8l/dl02h2CCDHwW2FqilnTyDcAnqjA==}
@@ -2930,11 +2924,6 @@ packages:
     resolution: {integrity: sha512-sfWGGfavi0xr8Pg0sVsyHMAOziVYKgPLNrS7ig+ivMNb3wbCBw3KxtflsGBAwD3gYQlE/AEZsTLgToRrSCjb0Q==}
     engines: {node: '>=0.10.0'}
 
-  reactive-vscode@1.0.0-beta.2:
-    resolution: {integrity: sha512-Er94+XaRhRuJEpSRSCuvXW9pyta53R+VEGxdIG+X/hjruT+rg2HTDZDV0RbtQjwI1yWPflDTB903MkiQOn3w5Q==}
-    peerDependencies:
-      '@types/vscode': ^1.101.0
-
   read-pkg@9.0.1:
     resolution: {integrity: sha512-9viLL4/n1BJUCT1NXVTdS1jtm80yDEgR5T4yCelII49Mbj0v1rZdKqj7zCiYdbB0CuCgdrvHcNogAKTFPBocFA==}
     engines: {node: '>=18'}
@@ -4145,8 +4134,6 @@ snapshots:
 
   '@pkgjs/parseargs@0.11.0':
     optional: true
-
-  '@reactive-vscode/reactivity@1.0.0-beta.2': {}
 
   '@rolldown/pluginutils@1.0.0-beta.27': {}
 
@@ -6577,11 +6564,6 @@ snapshots:
   react-refresh@0.17.0: {}
 
   react@19.2.6: {}
-
-  reactive-vscode@1.0.0-beta.2(@types/vscode@1.97.0):
-    dependencies:
-      '@reactive-vscode/reactivity': 1.0.0-beta.2
-      '@types/vscode': 1.97.0
 
   read-pkg@9.0.1:
     dependencies:

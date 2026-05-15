@@ -7,6 +7,7 @@ import type {
 } from 'vscode'
 import type { Task } from '../types'
 import type { ExtensionToWebview, WebviewToExtension } from './messages'
+import { randomBytes } from 'node:crypto'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { Uri, ViewColumn, window, workspace } from 'vscode'
@@ -59,7 +60,15 @@ export class KanbanPanelProvider implements WebviewViewProvider {
         break
       }
       case 'task/open': {
-        const doc = await workspace.openTextDocument(Uri.file(msg.path))
+        const folder = workspace.workspaceFolders?.[0]
+        if (!folder)
+          return
+        const workspaceRoot = folder.uri.fsPath
+        const target = path.resolve(msg.path)
+        // 防止 webview 越权打开 workspace 外的文件
+        if (!target.startsWith(workspaceRoot + path.sep) && target !== workspaceRoot)
+          return
+        const doc = await workspace.openTextDocument(Uri.file(target))
         await window.showTextDocument(doc, { viewColumn: ViewColumn.One, preview: false })
         break
       }
@@ -110,9 +119,5 @@ export class KanbanPanelProvider implements WebviewViewProvider {
 }
 
 function makeNonce(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-  let out = ''
-  for (let i = 0; i < 32; i++)
-    out += chars[Math.floor(Math.random() * chars.length)]
-  return out
+  return randomBytes(16).toString('base64').replace(/[+/=]/g, '')
 }
