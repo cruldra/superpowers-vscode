@@ -65,6 +65,13 @@ export function activate(context: ExtensionContext): void {
     commands.registerCommand('superpowers.openKanban', () => {
       KanbanWebviewPanel.createOrShow(context)
     }),
+    commands.registerCommand('superpowers.refresh', () => {
+      KanbanWebviewPanel.refresh()
+    }),
+    commands.registerCommand('superpowers.setGiteaToken', () => {
+      KanbanWebviewPanel.createOrShow(context)
+      KanbanWebviewPanel.requestEditAuth()
+    }),
   )
 }
 

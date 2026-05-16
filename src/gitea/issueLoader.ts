@@ -1,0 +1,171 @@
+/**
+ * Loads issues from the workspace's Gitea repository using the fetch-based
+ * `api.ts` client and resolves each issue's Kanban column from a JSON
+ * state-comment convention.
+ *
+ * Flow:
+ *   1. Kick off `/user` and the repo-wide comments firehose concurrently.
+ *      Once `/user` resolves we know `login`, so fire both issue-filter
+ *      queries (`assigned_by`, `created_by`) in parallel with the still-
+ *      pending comments fetch.
+ *   2. Merge the two issue lists by `number`.
+ *   3. Group comments by issue number (parsed from each comment's `issue_url`).
+ *   4. For each merged issue, inspect the literal last comment for
+ *      `{ "column": "<id>" }`. If it parses cleanly, use that column.
+ *      Otherwise compute a default from `issue.state` and persist it by
+ *      posting a JSON comment. POST failures are logged and ignored — we
+ *      still display the issue in the computed column.
+ */
+
+import type { GiteaComment, GiteaIssue } from './api'
+import type { Issue, IssueColumn } from './types'
+import {
+  getCurrentUser,
+  listAllRepoComments,
+  listIssuesByFilter,
+  postIssueComment,
+} from './api'
+
+const COLUMN_IDS: readonly IssueColumn[] = ['todo', 'in-progress', 'review', 'done']
+
+function isIssueColumn(value: unknown): value is IssueColumn {
+  return typeof value === 'string' && (COLUMN_IDS as readonly string[]).includes(value)
+}
+
+function defaultColumnForState(state: string): IssueColumn {
+  return state === 'open' ? 'todo' : 'done'
+}
+
+/**
+ * Inspects the literal last comment for a JSON state payload like
+ * `{ "column": "todo" }`. Returns null if no valid payload is present.
+ */
+function parseColumnFromComments(comments: GiteaComment[]): IssueColumn | null {
+  if (comments.length === 0)
+    return null
+  const last = comments[comments.length - 1]
+  const body = (last.body ?? '').trim()
+  if (!body)
+    return null
+  try {
+    const parsed = JSON.parse(body) as unknown
+    if (parsed && typeof parsed === 'object' && 'column' in parsed) {
+      const column = (parsed as { column: unknown }).column
+      if (isIssueColumn(column))
+        return column
+    }
+  }
+  catch {
+    // Non-JSON last comment is the common case; fall through to the default.
+  }
+  return null
+}
+
+/** Extracts the issue index from a comment's `issue_url`, e.g. `.../issues/42`. */
+function indexFromIssueUrl(issueUrl: string): number | undefined {
+  if (!issueUrl)
+    return undefined
+  const segments = issueUrl.split('/')
+  const last = segments[segments.length - 1]
+  const n = Number(last)
+  return Number.isFinite(n) ? n : undefined
+}
+
+/** Merges issue lists by `number`, preferring the first occurrence. */
+function mergeIssues(...lists: GiteaIssue[][]): GiteaIssue[] {
+  const map = new Map<number, GiteaIssue>()
+  for (const list of lists) {
+    for (const issue of list) {
+      if (!map.has(issue.number))
+        map.set(issue.number, issue)
+    }
+  }
+  return [...map.values()]
+}
+
+/**
+ * Groups repo-wide comments by issue number, ordered ascending by creation time.
+ * Comments whose `issue_url` cannot be parsed are dropped.
+ */
+function groupCommentsByIssue(comments: GiteaComment[]): Map<number, GiteaComment[]> {
+  const buckets = new Map<number, GiteaComment[]>()
+  for (const c of comments) {
+    const idx = indexFromIssueUrl(c.issue_url)
+    if (idx === undefined)
+      continue
+    const bucket = buckets.get(idx)
+    if (bucket)
+      bucket.push(c)
+    else
+      buckets.set(idx, [c])
+  }
+  for (const bucket of buckets.values()) {
+    bucket.sort((a, b) => a.created_at.localeCompare(b.created_at))
+  }
+  return buckets
+}
+
+export async function loadIssues(opts: {
+  host: string
+  token: string
+  owner: string
+  repo: string
+}): Promise<Issue[]> {
+  const { host, token, owner, repo } = opts
+
+  // `/user` validates the token and gives us the login. The repo-wide
+  // comments firehose doesn't need the login, so we kick it off in parallel.
+  // The two issue-filter calls need `user.login` and run together after.
+  const userPromise = getCurrentUser({ host, token })
+  const commentsPromise = listAllRepoComments({ host, token, owner, repo })
+
+  const user = await userPromise
+
+  const [assigned, created, allComments] = await Promise.all([
+    listIssuesByFilter({ host, token, owner, repo, filter: 'assigned_by', user: user.login }),
+    listIssuesByFilter({ host, token, owner, repo, filter: 'created_by', user: user.login }),
+    commentsPromise,
+  ])
+
+  const merged = mergeIssues(assigned, created)
+  const buckets = groupCommentsByIssue(allComments)
+
+  const resolved: Issue[] = []
+  for (const issue of merged) {
+    const id = `${owner}/${repo}#${issue.number}`
+    const bucket = buckets.get(issue.number) ?? []
+    const fromComment = parseColumnFromComments(bucket)
+    let column: IssueColumn
+    if (fromComment) {
+      column = fromComment
+    }
+    else {
+      column = defaultColumnForState(issue.state)
+      // Persist the default so future pulls are cheap; failures are
+      // non-fatal — we still display the issue in the computed column.
+      try {
+        await postIssueComment({
+          host,
+          token,
+          owner,
+          repo,
+          index: issue.number,
+          body: JSON.stringify({ column }),
+        })
+      }
+      catch (postErr) {
+        // eslint-disable-next-line no-console
+        console.warn(`[superpowers] failed to seed state comment on ${id}:`, postErr)
+      }
+    }
+
+    resolved.push({
+      id,
+      number: issue.number,
+      title: issue.title,
+      column,
+    })
+  }
+
+  return resolved
+}

@@ -30,7 +30,8 @@
   },
   "activationEvents": [
     "onView:superpowers.kanban",
-    "onCommand:superpowers.openKanban"
+    "onCommand:superpowers.openKanban",
+    "onCommand:superpowers.setGiteaToken"
   ],
   "contributes": {
     "viewsContainers": {
@@ -61,12 +62,32 @@
         "command": "superpowers.openKanban",
         "title": "Open Superpowers Kanban",
         "category": "Superpowers"
+      },
+      {
+        "command": "superpowers.refresh",
+        "title": "Refresh Gitea Issues",
+        "category": "Superpowers"
+      },
+      {
+        "command": "superpowers.setGiteaToken",
+        "title": "Set Gitea Token",
+        "category": "Superpowers"
       }
     ],
     "menus": {
       "view/title": [
         {
           "command": "superpowers.openKanban",
+          "when": "view == superpowers.kanban",
+          "group": "navigation"
+        },
+        {
+          "command": "superpowers.refresh",
+          "when": "view == superpowers.kanban",
+          "group": "navigation"
+        },
+        {
+          "command": "superpowers.setGiteaToken",
           "when": "view == superpowers.kanban",
           "group": "navigation"
         }

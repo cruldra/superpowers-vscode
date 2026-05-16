@@ -5,7 +5,12 @@ import type {
 import { randomBytes } from 'node:crypto'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { Uri, ViewColumn, window } from 'vscode'
+import { Uri, ViewColumn, window, workspace } from 'vscode'
+import type { ExtensionToWebview, WebviewToExtension } from './messages'
+import { deleteToken, getToken, setToken } from '../auth/secrets'
+import { detectRepo } from '../git/remote'
+import { GiteaApiError } from '../gitea/api'
+import { loadIssues } from '../gitea/issueLoader'
 
 export class KanbanWebviewPanel {
   static readonly viewType = 'superpowers.kanbanPanel'
@@ -29,6 +34,7 @@ export class KanbanWebviewPanel {
 
     this.disposables.push(
       this.panel.onDidDispose(() => this.dispose()),
+      this.panel.webview.onDidReceiveMessage((msg: WebviewToExtension) => this.handleMessage(msg)),
     )
   }
 
@@ -50,6 +56,111 @@ export class KanbanWebviewPanel {
       },
     )
     KanbanWebviewPanel.current = new KanbanWebviewPanel(context, panel)
+  }
+
+  /** Triggers a fresh load on the currently open panel, if any. */
+  static refresh(): void {
+    KanbanWebviewPanel.current?.loadAndPush().catch(() => {})
+  }
+
+  private handleMessage(msg: WebviewToExtension): void {
+    if (msg.type === 'issues/refresh') {
+      void this.loadAndPush()
+      return
+    }
+    if (msg.type === 'auth/save') {
+      void this.handleAuthSave(msg.host, msg.token)
+      return
+    }
+    if (msg.type === 'auth/edit-request') {
+      void this.handleEditAuthRequest()
+    }
+  }
+
+  private async loadAndPush(): Promise<void> {
+    this.postMessage({ type: 'issues/loading' })
+
+    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    // eslint-disable-next-line no-console
+    console.log('[superpowers/panel] loadAndPush workspaceRoot=', workspaceRoot)
+    if (!workspaceRoot) {
+      this.postMessage({
+        type: 'issues/error',
+        message: '请先打开一个工作区文件夹',
+      })
+      return
+    }
+
+    const remote = await detectRepo(workspaceRoot)
+    if (!remote) {
+      this.postMessage({
+        type: 'issues/error',
+        message: '当前工作区没有 Gitea 远程仓库',
+      })
+      return
+    }
+
+    const { host, owner, repo } = remote
+    const token = await getToken(this.context, host)
+    if (!token) {
+      this.postMessage({ type: 'auth/required', host })
+      return
+    }
+
+    try {
+      const issues = await loadIssues({ host, token, owner, repo })
+      this.postMessage({ type: 'issues/update', issues })
+    }
+    catch (err) {
+      if (err instanceof GiteaApiError && err.status === 401) {
+        await deleteToken(this.context, host)
+        this.postMessage({
+          type: 'auth/required',
+          host,
+          errorMessage: 'Token 无效或已过期，请重新填写',
+        })
+        return
+      }
+      const baseMessage = err instanceof Error ? err.message : String(err)
+      const message = `${baseMessage}\n\n[debug] host=${host} owner=${owner} repo=${repo}`
+      this.postMessage({ type: 'issues/error', message })
+    }
+  }
+
+  private async handleAuthSave(host: string, token: string): Promise<void> {
+    const trimmedHost = host.trim()
+    const trimmedToken = token.trim()
+    if (!trimmedHost || !trimmedToken) {
+      this.postMessage({
+        type: 'auth/required',
+        host: trimmedHost,
+        errorMessage: 'Host 和 Token 都不能为空',
+      })
+      return
+    }
+    await setToken(this.context, trimmedHost, trimmedToken)
+    await this.loadAndPush()
+  }
+
+  private async handleEditAuthRequest(): Promise<void> {
+    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    let host = ''
+    if (workspaceRoot) {
+      const remote = await detectRepo(workspaceRoot)
+      if (remote)
+        host = remote.host
+    }
+    // User clicked the gear themselves — let them back out without saving.
+    this.postMessage({ type: 'auth/required', host, canCancel: true })
+  }
+
+  /** Forces the open panel (if any) into the setup-auth state. */
+  static requestEditAuth(): void {
+    void KanbanWebviewPanel.current?.handleEditAuthRequest()
+  }
+
+  private postMessage(msg: ExtensionToWebview): void {
+    void this.panel.webview.postMessage(msg)
   }
 
   private dispose(): void {
