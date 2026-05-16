@@ -209,13 +209,18 @@ function spawnClaudeStreamed(
   timeoutMs: number,
   images: ClaudeImage[],
 ): Promise<ClaudeResult> {
+  // Local Claude Code v2.1.143 enforces that --input-format=stream-json must
+  // be paired with --output-format=stream-json (the friendlier `--output-format
+  // json` is rejected). The output is NDJSON; extractClaudePayload walks lines
+  // from the end to find the final result-shaped object.
   const args = [
     '--dangerously-skip-permissions',
     '-p',
     '--input-format',
     'stream-json',
     '--output-format',
-    'json',
+    'stream-json',
+    '--verbose',
   ]
   const ndjson = buildStreamJsonLine(prompt, images)
 
@@ -310,8 +315,16 @@ function spawnClaudeStreamed(
     })
 
     // Send the single NDJSON line and close stdin so claude knows the user
-    // turn is complete.
-    child.stdin.write(ndjson)
-    child.stdin.end()
+    // turn is complete. If the child has already exited (e.g. arg validation
+    // failed), stdin will EPIPE — swallow it; the 'close' handler will surface
+    // the real error from stderr + exit code.
+    child.stdin.on('error', () => { /* ignore EPIPE / ECONNRESET */ })
+    try {
+      child.stdin.write(ndjson)
+      child.stdin.end()
+    }
+    catch {
+      // child already gone; close handler will run with the error code.
+    }
   })
 }
