@@ -107,14 +107,10 @@ export function NewIssueModal({ open, onCancel, onSubmit }: Props) {
   }
 
   return (
-    <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/40"
-      onClick={onCancel}
-    >
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
       <div
         role="dialog"
         aria-modal="true"
-        onClick={e => e.stopPropagation()}
         className="w-full max-w-xl rounded-md border border-[var(--vscode-panel-border)] bg-[var(--vscode-editor-background)] p-4 shadow-xl"
       >
         <h2 className="mb-3 text-base font-medium">新建工单</h2>
