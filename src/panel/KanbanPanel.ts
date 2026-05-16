@@ -78,7 +78,7 @@ export class KanbanWebviewPanel {
       return
     }
     if (msg.type === 'issue/create') {
-      void this.handleIssueCreate(msg.userRequest)
+      void this.handleIssueCreate(msg.userRequest, msg.images)
       return
     }
     if (msg.type === 'toast/open-url') {
@@ -163,7 +163,10 @@ export class KanbanWebviewPanel {
     this.postMessage({ type: 'auth/required', host, canCancel: true })
   }
 
-  private async handleIssueCreate(userRequest: string): Promise<void> {
+  private async handleIssueCreate(
+    userRequest: string,
+    images?: Array<{ mediaType: string, base64: string }>,
+  ): Promise<void> {
     const trimmed = userRequest.trim()
     if (!trimmed) {
       // Webview already disables the submit button when empty, but be defensive.
@@ -217,6 +220,7 @@ export class KanbanWebviewPanel {
       repo: remote.repo,
       token,
       userRequest: trimmed,
+      images,
       onProgress: (event) => {
         if (event.kind === 'started') {
           this.postMessage({

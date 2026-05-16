@@ -10,6 +10,7 @@
 import { randomUUID } from 'node:crypto'
 import type { ExtensionContext } from 'vscode'
 import { GiteaApiError, postIssueComment } from '../gitea/api'
+import type { ClaudeImage } from './spawnClaude'
 import { ClaudeError, ClaudeTimeoutError, spawnClaude } from './spawnClaude'
 
 export type ProgressEvent =
@@ -37,6 +38,7 @@ export async function createIssueViaClaude(opts: {
   repo: string
   token: string
   userRequest: string
+  images?: ClaudeImage[]
   onProgress: (event: ProgressEvent) => void
 }): Promise<void> {
   const toastId = randomUUID()
@@ -51,6 +53,7 @@ export async function createIssueViaClaude(opts: {
     const out = await spawnClaude({
       prompt,
       cwd: opts.workspaceRoot,
+      images: opts.images,
     })
     sessionId = out.sessionId
     resultText = out.resultText

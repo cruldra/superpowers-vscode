@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { KanbanBoard } from './components/KanbanBoard'
+import type { PastedImage } from './components/NewIssueModal'
 import { NewIssueModal } from './components/NewIssueModal'
 import { PanelHeader } from './components/PanelHeader'
 import { SetupForm } from './components/SetupForm'
@@ -20,8 +21,9 @@ export function App() {
   } = useIssues()
   const [showNewIssueModal, setShowNewIssueModal] = useState(false)
 
-  function handleSubmitNewIssue(userRequest: string): void {
-    createIssue(userRequest)
+  function handleSubmitNewIssue(userRequest: string, images: PastedImage[]): void {
+    const payload = images.map(({ mediaType, base64 }) => ({ mediaType, base64 }))
+    createIssue(userRequest, payload.length > 0 ? payload : undefined)
     setShowNewIssueModal(false)
   }
 

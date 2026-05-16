@@ -29,7 +29,7 @@ export interface UseIssuesResult {
   refresh: () => void
   saveAuth: (host: string, token: string) => void
   requestEditAuth: () => void
-  createIssue: (userRequest: string) => void
+  createIssue: (userRequest: string, images?: Array<{ mediaType: string, base64: string }>) => void
   dismissToast: (id: string) => void
   openUrl: (url: string) => void
 }
@@ -52,8 +52,11 @@ export function useIssues(): UseIssuesResult {
     postMessage({ type: 'auth/edit-request' })
   }, [])
 
-  const createIssue = useCallback((userRequest: string): void => {
-    postMessage({ type: 'issue/create', userRequest })
+  const createIssue = useCallback((
+    userRequest: string,
+    images?: Array<{ mediaType: string, base64: string }>,
+  ): void => {
+    postMessage({ type: 'issue/create', userRequest, images })
   }, [])
 
   const dismissToast = useCallback((id: string): void => {

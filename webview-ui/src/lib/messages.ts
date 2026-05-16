@@ -33,5 +33,5 @@ export type WebviewToExtension =
   | { type: 'issues/refresh' }
   | { type: 'auth/save', host: string, token: string }
   | { type: 'auth/edit-request' }
-  | { type: 'issue/create', userRequest: string }
+  | { type: 'issue/create', userRequest: string, images?: Array<{ mediaType: string, base64: string }> }
   | { type: 'toast/open-url', url: string }
