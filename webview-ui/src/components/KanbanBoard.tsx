@@ -22,13 +22,15 @@ import { COLUMN_ORDER } from '../types'
 interface KanbanBoardProps {
   issues: Issue[]
   onIssuesChange: (next: Issue[]) => void
+  /** Renders the + button on the todo column when provided. */
+  onCreateIssue?: () => void
 }
 
 function isColumnId(id: string): id is IssueColumn {
   return (COLUMN_ORDER as string[]).includes(id)
 }
 
-export function KanbanBoard({ issues, onIssuesChange }: KanbanBoardProps) {
+export function KanbanBoard({ issues, onIssuesChange, onCreateIssue }: KanbanBoardProps) {
   const [activeId, setActiveId] = useState<string | null>(null)
 
   const sensors = useSensors(
@@ -113,7 +115,12 @@ export function KanbanBoard({ issues, onIssuesChange }: KanbanBoardProps) {
           const columnIssues = issuesByColumn[column]
           const ids = columnIssues.map(i => i.id)
           return (
-            <KanbanColumn key={column} column={column} issues={columnIssues}>
+            <KanbanColumn
+              key={column}
+              column={column}
+              issues={columnIssues}
+              onCreate={column === 'todo' ? onCreateIssue : undefined}
+            >
               <SortableContext items={ids} strategy={verticalListSortingStrategy}>
                 {columnIssues.map(issue => (
                   <IssueCard key={issue.id} issue={issue} />

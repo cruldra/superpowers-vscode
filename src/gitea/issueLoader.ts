@@ -40,25 +40,30 @@ function defaultColumnForState(state: string): IssueColumn {
  * Inspects the literal last comment for a JSON state payload like
  * `{ "column": "todo" }`. Returns null if no valid payload is present.
  */
-function parseColumnFromComments(comments: GiteaComment[]): IssueColumn | null {
+function parseColumnFromComments(comments: GiteaComment[]): {
+  column: IssueColumn | null
+  sessionId?: string
+} {
   if (comments.length === 0)
-    return null
+    return { column: null }
   const last = comments[comments.length - 1]
   const body = (last.body ?? '').trim()
   if (!body)
-    return null
+    return { column: null }
   try {
     const parsed = JSON.parse(body) as unknown
     if (parsed && typeof parsed === 'object' && 'column' in parsed) {
-      const column = (parsed as { column: unknown }).column
-      if (isIssueColumn(column))
-        return column
+      const obj = parsed as { column: unknown, sessionId?: unknown }
+      if (isIssueColumn(obj.column)) {
+        const sessionId = typeof obj.sessionId === 'string' ? obj.sessionId : undefined
+        return { column: obj.column, sessionId }
+      }
     }
   }
   catch {
     // Non-JSON last comment is the common case; fall through to the default.
   }
-  return null
+  return { column: null }
 }
 
 /** Extracts the issue index from a comment's `issue_url`, e.g. `.../issues/42`. */
@@ -134,7 +139,7 @@ export async function loadIssues(opts: {
   for (const issue of merged) {
     const id = `${owner}/${repo}#${issue.number}`
     const bucket = buckets.get(issue.number) ?? []
-    const fromComment = parseColumnFromComments(bucket)
+    const { column: fromComment, sessionId } = parseColumnFromComments(bucket)
     let column: IssueColumn
     if (fromComment) {
       column = fromComment
@@ -164,6 +169,7 @@ export async function loadIssues(opts: {
       number: issue.number,
       title: issue.title,
       column,
+      ...(sessionId ? { sessionId } : {}),
     })
   }
 

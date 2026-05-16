@@ -1,10 +1,29 @@
+import { useState } from 'react'
 import { KanbanBoard } from './components/KanbanBoard'
+import { NewIssueModal } from './components/NewIssueModal'
 import { PanelHeader } from './components/PanelHeader'
 import { SetupForm } from './components/SetupForm'
+import { ToastStack } from './components/ToastStack'
 import { useIssues } from './hooks/useIssues'
 
 export function App() {
-  const { state, setIssues, refresh, saveAuth, requestEditAuth } = useIssues()
+  const {
+    state,
+    toasts,
+    setIssues,
+    refresh,
+    saveAuth,
+    requestEditAuth,
+    createIssue,
+    dismissToast,
+    openUrl,
+  } = useIssues()
+  const [showNewIssueModal, setShowNewIssueModal] = useState(false)
+
+  function handleSubmitNewIssue(userRequest: string): void {
+    createIssue(userRequest)
+    setShowNewIssueModal(false)
+  }
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-[var(--vscode-editor-background)]">
@@ -27,7 +46,11 @@ export function App() {
         <>
           <PanelHeader onRefresh={refresh} onEditAuth={requestEditAuth} />
           <div className="flex-1 overflow-hidden">
-            <KanbanBoard issues={state.issues} onIssuesChange={setIssues} />
+            <KanbanBoard
+              issues={state.issues}
+              onIssuesChange={setIssues}
+              onCreateIssue={() => setShowNewIssueModal(true)}
+            />
           </div>
         </>
       )}
@@ -59,6 +82,13 @@ export function App() {
           </div>
         </>
       )}
+
+      <NewIssueModal
+        open={showNewIssueModal}
+        onCancel={() => setShowNewIssueModal(false)}
+        onSubmit={handleSubmitNewIssue}
+      />
+      <ToastStack toasts={toasts} onDismiss={dismissToast} onOpenUrl={openUrl} />
     </div>
   )
 }

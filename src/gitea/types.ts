@@ -14,4 +14,6 @@ export interface Issue {
   number: number
   title: string
   column: IssueColumn
+  /** Optional Claude Code session id stored alongside the column marker. */
+  sessionId?: string
 }

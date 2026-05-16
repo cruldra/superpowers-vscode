@@ -5,9 +5,10 @@ import type {
 import { randomBytes } from 'node:crypto'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { Uri, ViewColumn, window, workspace } from 'vscode'
+import { env, Uri, ViewColumn, window, workspace } from 'vscode'
 import type { ExtensionToWebview, WebviewToExtension } from './messages'
 import { deleteToken, getToken, setToken } from '../auth/secrets'
+import { createIssueViaClaude } from '../cc/createIssueFlow'
 import { detectRepo } from '../git/remote'
 import { GiteaApiError } from '../gitea/api'
 import { loadIssues } from '../gitea/issueLoader'
@@ -74,6 +75,14 @@ export class KanbanWebviewPanel {
     }
     if (msg.type === 'auth/edit-request') {
       void this.handleEditAuthRequest()
+      return
+    }
+    if (msg.type === 'issue/create') {
+      void this.handleIssueCreate(msg.userRequest)
+      return
+    }
+    if (msg.type === 'toast/open-url') {
+      void env.openExternal(Uri.parse(msg.url))
     }
   }
 
@@ -152,6 +161,96 @@ export class KanbanWebviewPanel {
     }
     // User clicked the gear themselves — let them back out without saving.
     this.postMessage({ type: 'auth/required', host, canCancel: true })
+  }
+
+  private async handleIssueCreate(userRequest: string): Promise<void> {
+    const trimmed = userRequest.trim()
+    if (!trimmed) {
+      // Webview already disables the submit button when empty, but be defensive.
+      return
+    }
+
+    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    if (!workspaceRoot) {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: '请先打开一个工作区文件夹',
+        dismissOnTimer: 5000,
+      })
+      return
+    }
+
+    const remote = await detectRepo(workspaceRoot)
+    if (!remote) {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: '当前工作区没有 Gitea 远程仓库',
+        dismissOnTimer: 5000,
+      })
+      return
+    }
+
+    const token = await getToken(this.context, remote.host)
+    if (!token) {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: '请先完成 Gitea 配置',
+        dismissOnTimer: 5000,
+      })
+      return
+    }
+
+    // The webview emits `toast/show` with the same id twice — first an
+    // info-level spinner toast, then a success/error toast — so the UI
+    // updates in place rather than stacking two distinct cards.
+    await createIssueViaClaude({
+      ctx: this.context,
+      workspaceRoot,
+      host: remote.host,
+      owner: remote.owner,
+      repo: remote.repo,
+      token,
+      userRequest: trimmed,
+      onProgress: (event) => {
+        if (event.kind === 'started') {
+          this.postMessage({
+            type: 'toast/show',
+            id: event.toastId,
+            level: 'info',
+            message: '正在创建工单…',
+            spinner: true,
+          })
+          return
+        }
+        if (event.kind === 'success') {
+          this.postMessage({
+            type: 'toast/show',
+            id: event.toastId,
+            level: 'success',
+            message: `#${event.issueNumber} 已创建`,
+            link: { label: '查看', url: event.issueUrl },
+            dismissOnTimer: 8000,
+          })
+          // Refresh kanban so the new card shows up in 待办.
+          void this.loadAndPush()
+          return
+        }
+        // failed
+        this.postMessage({
+          type: 'toast/show',
+          id: event.toastId,
+          level: 'error',
+          message: event.message,
+          dismissOnTimer: 10000,
+        })
+      },
+    })
   }
 
   /** Forces the open panel (if any) into the setup-auth state. */

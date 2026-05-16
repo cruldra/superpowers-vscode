@@ -5,6 +5,7 @@ export interface Issue {
   number: number
   title: string
   column: IssueColumn
+  sessionId?: string
 }
 
 export const COLUMN_ORDER: IssueColumn[] = ['todo', 'in-progress', 'review', 'done']
