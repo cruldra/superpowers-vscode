@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   DndContext,
   DragOverlay,
@@ -24,13 +24,21 @@ interface KanbanBoardProps {
   onIssuesChange: (next: Issue[]) => void
   /** Renders the + button on the todo column when provided. */
   onCreateIssue?: () => void
+  selectedId?: string | null
+  onSelectIssue?: (id: string | null) => void
 }
 
 function isColumnId(id: string): id is IssueColumn {
   return (COLUMN_ORDER as string[]).includes(id)
 }
 
-export function KanbanBoard({ issues, onIssuesChange, onCreateIssue }: KanbanBoardProps) {
+export function KanbanBoard({
+  issues,
+  onIssuesChange,
+  onCreateIssue,
+  selectedId,
+  onSelectIssue,
+}: KanbanBoardProps) {
   const [activeId, setActiveId] = useState<string | null>(null)
 
   const sensors = useSensors(
@@ -51,6 +59,16 @@ export function KanbanBoard({ issues, onIssuesChange, onCreateIssue }: KanbanBoa
   }, [issues])
 
   const activeIssue = activeId ? issues.find(i => i.id === activeId) ?? null : null
+
+  // Map of issue id -> DOM node, used so keyboard navigation can scrollIntoView.
+  const cardRefs = useRef(new Map<string, HTMLDivElement | null>())
+
+  useEffect(() => {
+    if (!selectedId)
+      return
+    const node = cardRefs.current.get(selectedId)
+    node?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [selectedId])
 
   function handleDragStart(event: DragStartEvent): void {
     setActiveId(String(event.active.id))
@@ -123,7 +141,18 @@ export function KanbanBoard({ issues, onIssuesChange, onCreateIssue }: KanbanBoa
             >
               <SortableContext items={ids} strategy={verticalListSortingStrategy}>
                 {columnIssues.map(issue => (
-                  <IssueCard key={issue.id} issue={issue} />
+                  <IssueCard
+                    key={issue.id}
+                    ref={(node) => {
+                      if (node)
+                        cardRefs.current.set(issue.id, node)
+                      else
+                        cardRefs.current.delete(issue.id)
+                    }}
+                    issue={issue}
+                    selected={issue.id === selectedId}
+                    onSelect={onSelectIssue}
+                  />
                 ))}
               </SortableContext>
             </KanbanColumn>

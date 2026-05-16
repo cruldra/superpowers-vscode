@@ -24,6 +24,11 @@ export interface GiteaIssue {
   comments: number
   created_at: string
   updated_at: string
+  body: string
+  html_url: string
+  user: { login: string } | null
+  assignees: Array<{ login: string }> | null
+  labels: Array<{ name: string, color: string }> | null
 }
 
 export interface GiteaComment {

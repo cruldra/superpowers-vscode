@@ -16,4 +16,16 @@ export interface Issue {
   column: IssueColumn
   /** Optional Claude Code session id stored alongside the column marker. */
   sessionId?: string
+  state: 'open' | 'closed'
+  body: string
+  /** Issue author login (empty string if unknown). */
+  author: string
+  /** Assignee logins; empty array if none. */
+  assignees: string[]
+  /** Labels; empty array if none. */
+  labels: Array<{ name: string, color: string }>
+  /** Browser URL to the Gitea issue page. */
+  htmlUrl: string
+  /** ISO 8601 timestamp. */
+  createdAt: string
 }
