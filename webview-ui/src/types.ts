@@ -6,13 +6,7 @@ export interface Issue {
   title: string
   column: IssueColumn
   sessionId?: string
-  state: 'open' | 'closed'
-  body: string
-  author: string
-  assignees: string[]
-  labels: Array<{ name: string, color: string }>
   htmlUrl: string
-  createdAt: string
 }
 
 export const COLUMN_ORDER: IssueColumn[] = ['todo', 'in-progress', 'review', 'done']

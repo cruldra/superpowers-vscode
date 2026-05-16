@@ -29,3 +29,4 @@ export type WebviewToExtension =
   | { type: 'auth/edit-request' }
   | { type: 'issue/create', userRequest: string, images?: Array<{ mediaType: string, base64: string }> }
   | { type: 'toast/open-url', url: string }
+  | { type: 'session/resume', sessionId: string }

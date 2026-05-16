@@ -170,13 +170,7 @@ export async function loadIssues(opts: {
       title: issue.title,
       column,
       ...(sessionId ? { sessionId } : {}),
-      state: issue.state,
-      body: issue.body ?? '',
-      author: issue.user?.login ?? '',
-      assignees: (issue.assignees ?? []).map(a => a.login),
-      labels: (issue.labels ?? []).map(l => ({ name: l.name, color: l.color })),
       htmlUrl: issue.html_url,
-      createdAt: issue.created_at,
     })
   }
 

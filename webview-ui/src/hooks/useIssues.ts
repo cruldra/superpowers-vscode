@@ -32,6 +32,7 @@ export interface UseIssuesResult {
   createIssue: (userRequest: string, images?: Array<{ mediaType: string, base64: string }>) => void
   dismissToast: (id: string) => void
   openUrl: (url: string) => void
+  resumeSession: (sessionId: string) => void
 }
 
 export function useIssues(): UseIssuesResult {
@@ -65,6 +66,10 @@ export function useIssues(): UseIssuesResult {
 
   const openUrl = useCallback((url: string): void => {
     postMessage({ type: 'toast/open-url', url })
+  }, [])
+
+  const resumeSession = useCallback((sessionId: string): void => {
+    postMessage({ type: 'session/resume', sessionId })
   }, [])
 
   const setIssues = useCallback((issues: Issue[]): void => {
@@ -115,5 +120,5 @@ export function useIssues(): UseIssuesResult {
     return cleanup
   }, [])
 
-  return { state, toasts, setIssues, refresh, saveAuth, requestEditAuth, createIssue, dismissToast, openUrl }
+  return { state, toasts, setIssues, refresh, saveAuth, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession }
 }

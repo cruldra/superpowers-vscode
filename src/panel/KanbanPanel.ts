@@ -83,7 +83,22 @@ export class KanbanWebviewPanel {
     }
     if (msg.type === 'toast/open-url') {
       void env.openExternal(Uri.parse(msg.url))
+      return
     }
+    if (msg.type === 'session/resume') {
+      this.handleResumeSession(msg.sessionId)
+    }
+  }
+
+
+  private handleResumeSession(sessionId: string): void {
+    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    const terminal = window.createTerminal({
+      name: `Claude · ${sessionId.slice(0, 8)}`,
+      cwd: workspaceRoot,
+    })
+    terminal.show()
+    terminal.sendText(`claude --dangerously-skip-permissions --resume ${sessionId}`)
   }
 
   private async loadAndPush(): Promise<void> {

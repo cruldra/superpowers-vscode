@@ -21,6 +21,7 @@ export function App() {
     createIssue,
     dismissToast,
     openUrl,
+    resumeSession,
   } = useIssues()
   const [showNewIssueModal, setShowNewIssueModal] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -80,9 +81,9 @@ export function App() {
       }
 
       if (e.key === 'Enter') {
-        if (selectedIssue) {
+        if (selectedIssue?.sessionId) {
           e.preventDefault()
-          openUrl(selectedIssue.htmlUrl)
+          resumeSession(selectedIssue.sessionId)
         }
         return
       }
@@ -148,7 +149,7 @@ export function App() {
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [state.status, showNewIssueModal, ordered, selectedId, selectedIssue, openUrl])
+  }, [state.status, showNewIssueModal, ordered, selectedId, selectedIssue, resumeSession])
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-[var(--vscode-editor-background)]">
@@ -184,6 +185,7 @@ export function App() {
               <IssueDetailPanel
                 issue={selectedIssue}
                 onOpenInBrowser={openUrl}
+                onResumeSession={resumeSession}
               />
             </div>
           </div>
