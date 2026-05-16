@@ -2,13 +2,10 @@ import type {
   ExtensionContext,
   WebviewPanel,
 } from 'vscode'
-import type { Task } from '../types'
-import type { ExtensionToWebview, WebviewToExtension } from './messages'
 import { randomBytes } from 'node:crypto'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { Uri, ViewColumn, window, workspace } from 'vscode'
-import { scanTasks } from '../scanner'
+import { Uri, ViewColumn, window } from 'vscode'
 
 export class KanbanWebviewPanel {
   static readonly viewType = 'superpowers.kanbanPanel'
@@ -31,11 +28,6 @@ export class KanbanWebviewPanel {
     this.panel.webview.html = this.buildHtml()
 
     this.disposables.push(
-      this.panel.webview.onDidReceiveMessage((msg: WebviewToExtension) => {
-        this.handleMessage(msg).catch((err) => {
-          window.showErrorMessage(`Superpowers: ${err}`)
-        })
-      }),
       this.panel.onDidDispose(() => this.dispose()),
     )
   }
@@ -60,10 +52,6 @@ export class KanbanWebviewPanel {
     KanbanWebviewPanel.current = new KanbanWebviewPanel(context, panel)
   }
 
-  static refresh(): void {
-    KanbanWebviewPanel.current?.pushTasks().catch(() => {})
-  }
-
   private dispose(): void {
     KanbanWebviewPanel.current = undefined
     while (this.disposables.length) {
@@ -71,44 +59,6 @@ export class KanbanWebviewPanel {
       d?.dispose()
     }
     this.panel.dispose()
-  }
-
-  private async handleMessage(msg: WebviewToExtension): Promise<void> {
-    switch (msg.type) {
-      case 'tasks/request': {
-        await this.pushTasks()
-        break
-      }
-      case 'task/open': {
-        const folder = workspace.workspaceFolders?.[0]
-        if (!folder)
-          return
-        const workspaceRoot = folder.uri.fsPath
-        const target = path.resolve(msg.path)
-        // 防止 webview 越权打开 workspace 外的文件
-        if (!target.startsWith(workspaceRoot + path.sep) && target !== workspaceRoot)
-          return
-        const doc = await workspace.openTextDocument(Uri.file(target))
-        await window.showTextDocument(doc, { viewColumn: ViewColumn.One, preview: false })
-        break
-      }
-    }
-  }
-
-  private async pushTasks(): Promise<void> {
-    const tasks = await this.loadTasks()
-    this.postMessage({ type: 'tasks/update', tasks })
-  }
-
-  private postMessage(msg: ExtensionToWebview): void {
-    this.panel.webview.postMessage(msg)
-  }
-
-  private async loadTasks(): Promise<Task[]> {
-    const folder = workspace.workspaceFolders?.[0]
-    if (!folder)
-      return []
-    return scanTasks(folder.uri.fsPath)
   }
 
   private buildHtml(): string {

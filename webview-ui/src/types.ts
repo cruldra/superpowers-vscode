@@ -1,35 +1,17 @@
-export type Phase = 'planning' | 'development'
+export type IssueColumn = 'todo' | 'in-progress' | 'review' | 'done'
 
-export type PlanningState =
-  | 'write-spec'
-  | 'spec-review'
-  | 'write-plan'
-  | 'plan-review'
-
-export type DevelopmentState =
-  | 'create-worktree'
-  | 'implement'
-  | 'review'
-  | 'fix'
-  | 'review-passed'
-  | 'merge-cleanup'
-
-export type TaskState = PlanningState | DevelopmentState
-
-export interface Task {
+export interface Issue {
   id: string
+  number: number
   title: string
-  date: string
-  topic: string
-  specPath?: string
-  planPath?: string
-  phase: Phase
-  state: TaskState
+  column: IssueColumn
 }
 
-export type ExtensionToWebview =
-  | { type: 'tasks/update'; tasks: Task[] }
+export const COLUMN_ORDER: IssueColumn[] = ['todo', 'in-progress', 'review', 'done']
 
-export type WebviewToExtension =
-  | { type: 'tasks/request' }
-  | { type: 'task/open'; path: string }
+export const COLUMN_LABELS: Record<IssueColumn, string> = {
+  'todo': '待办',
+  'in-progress': '进行中',
+  'review': '审查',
+  'done': '完成',
+}

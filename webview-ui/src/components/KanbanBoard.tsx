@@ -1,20 +1,132 @@
-import type { Task } from '../types'
+import { useMemo, useState } from 'react'
+import {
+  DndContext,
+  DragOverlay,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core'
+import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core'
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { IssueCard } from './IssueCard'
 import { KanbanColumn } from './KanbanColumn'
+import type { Issue, IssueColumn } from '../types'
+import { COLUMN_ORDER } from '../types'
 
-interface Props {
-  tasks: Task[]
+interface KanbanBoardProps {
+  issues: Issue[]
+  onIssuesChange: (next: Issue[]) => void
 }
 
-export function KanbanBoard({ tasks }: Props) {
-  const planning = tasks.filter(t => t.phase === 'planning')
-  const development = tasks.filter(t => t.phase === 'development')
+function isColumnId(id: string): id is IssueColumn {
+  return (COLUMN_ORDER as string[]).includes(id)
+}
+
+export function KanbanBoard({ issues, onIssuesChange }: KanbanBoardProps) {
+  const [activeId, setActiveId] = useState<string | null>(null)
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+
+  const issuesByColumn = useMemo(() => {
+    const map: Record<IssueColumn, Issue[]> = {
+      'todo': [],
+      'in-progress': [],
+      'review': [],
+      'done': [],
+    }
+    for (const issue of issues)
+      map[issue.column].push(issue)
+    return map
+  }, [issues])
+
+  const activeIssue = activeId ? issues.find(i => i.id === activeId) ?? null : null
+
+  function handleDragStart(event: DragStartEvent): void {
+    setActiveId(String(event.active.id))
+  }
+
+  function handleDragEnd(event: DragEndEvent): void {
+    const { active, over } = event
+    setActiveId(null)
+    if (!over)
+      return
+
+    const activeIdStr = String(active.id)
+    const overIdStr = String(over.id)
+    if (activeIdStr === overIdStr)
+      return
+
+    const activeIndex = issues.findIndex(i => i.id === activeIdStr)
+    if (activeIndex < 0)
+      return
+    const activeItem = issues[activeIndex]
+
+    // Dropped onto a column container
+    if (isColumnId(overIdStr)) {
+      if (activeItem.column === overIdStr)
+        return
+      const next = [...issues]
+      next.splice(activeIndex, 1)
+      next.push({ ...activeItem, column: overIdStr })
+      onIssuesChange(next)
+      return
+    }
+
+    // Dropped onto another card
+    const overIndex = issues.findIndex(i => i.id === overIdStr)
+    if (overIndex < 0)
+      return
+    const overItem = issues[overIndex]
+
+    if (activeItem.column === overItem.column) {
+      onIssuesChange(arrayMove(issues, activeIndex, overIndex))
+      return
+    }
+
+    // Cross-column: drop activeItem at overItem's position in the new column
+    const next = [...issues]
+    next.splice(activeIndex, 1)
+    const newOverIndex = next.findIndex(i => i.id === overIdStr)
+    const insertAt = newOverIndex < 0 ? next.length : newOverIndex
+    next.splice(insertAt, 0, { ...activeItem, column: overItem.column })
+    onIssuesChange(next)
+  }
 
   return (
-    <div className="h-full flex flex-col p-2 gap-2">
-      <div className="flex-1 min-h-0 flex gap-2">
-        <KanbanColumn title="规划阶段" icon="📋" tasks={planning} />
-        <KanbanColumn title="开发阶段" icon="⚙️" tasks={development} />
+    <DndContext
+      sensors={sensors}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+      onDragCancel={() => setActiveId(null)}
+    >
+      <div className="grid h-full grid-cols-4 gap-3 p-3">
+        {COLUMN_ORDER.map((column) => {
+          const columnIssues = issuesByColumn[column]
+          const ids = columnIssues.map(i => i.id)
+          return (
+            <KanbanColumn key={column} column={column} issues={columnIssues}>
+              <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+                {columnIssues.map(issue => (
+                  <IssueCard key={issue.id} issue={issue} />
+                ))}
+              </SortableContext>
+            </KanbanColumn>
+          )
+        })}
       </div>
-    </div>
+
+      <DragOverlay>
+        {activeIssue ? <IssueCard issue={activeIssue} /> : null}
+      </DragOverlay>
+    </DndContext>
   )
 }

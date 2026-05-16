@@ -61,11 +61,6 @@
         "command": "superpowers.openKanban",
         "title": "Open Superpowers Kanban",
         "category": "Superpowers"
-      },
-      {
-        "command": "superpowers.refresh",
-        "title": "Refresh Superpowers Kanban",
-        "category": "Superpowers"
       }
     ],
     "menus": {
