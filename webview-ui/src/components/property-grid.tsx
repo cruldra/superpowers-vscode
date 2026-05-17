@@ -34,6 +34,7 @@ export type FieldType =
   | 'boolean'
   | 'select'
   | 'color'
+  | 'theme-color'
   | 'password'
   | 'action'
   | 'file-link'
@@ -216,6 +217,28 @@ function PropertyRow({
             />
           </div>
         )
+
+      case 'theme-color': {
+        // 只读展示一个 VS Code ThemeColor 变量。value 形如 'terminal.ansiBlue'，
+        // 渲染为 var(--vscode-terminal-ansiBlue) 的小色块 + 去掉 'terminal.ansi'
+        // 前缀后的短名字。空值显示占位符。
+        const raw = typeof value === 'string' ? value : ''
+        if (!raw) {
+          return <span className="block truncate px-2 py-1.5 text-xs opacity-50">未分配</span>
+        }
+        const cssVar = `var(--vscode-${raw.replace(/\./g, '-')})`
+        const shortName = raw.replace(/^terminal\.ansi/, '')
+        return (
+          <div className="flex items-center gap-2 px-2 py-1.5">
+            <span
+              aria-hidden="true"
+              className="size-3.5 shrink-0 rounded-full border border-[var(--vscode-panel-border)]"
+              style={{ backgroundColor: cssVar }}
+            />
+            <span className="truncate font-mono text-xs">{shortName}</span>
+          </div>
+        )
+      }
 
       case 'number':
         return (

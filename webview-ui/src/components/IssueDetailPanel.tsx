@@ -144,6 +144,13 @@ export function IssueDetailPanel({
                 description: 'worktree 已清理，无法 resume；仅保留 id 文本',
               },
           {
+            key: 'color',
+            label: '颜色',
+            type: 'theme-color',
+            readOnly: true,
+            description: '首次开会话时随机分配的终端颜色（VS Code ThemeColor），用于该工单所有会话的终端 tab 着色',
+          },
+          {
             key: 'profilePath',
             label: '配置文件',
             type: 'string',
@@ -259,6 +266,7 @@ export function IssueDetailPanel({
     sessionId: issue.sessionId ?? null,
     implementSessionId: issue.implementSessionId ?? null,
     reviewSessionId: issue.reviewSessionId ?? null,
+    color: issue.color ?? null,
     profilePath: issue.profilePath ?? null,
     specFile: issue.specFile ?? null,
     planFile: issue.planFile ?? null,
