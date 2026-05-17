@@ -194,7 +194,14 @@ export class KanbanWebviewPanel {
     // column so the new terminal stacks as a tab in the same group. This
     // runs synchronously at spawn time — by now the existing terminal's
     // tab is definitely in tabGroups.all (no async race).
-    for (const existing of this.terminals.values()) {
+    //
+    // We track terminals across multiple Maps (sessionId-keyed for cc
+    // resumes, issueNumber-keyed for impl spawns); iterate ALL of them.
+    const tracked: Terminal[] = [
+      ...this.terminals.values(),
+      ...this.implTerminals.values(),
+    ]
+    for (const existing of tracked) {
       for (const group of window.tabGroups.all) {
         for (const tab of group.tabs) {
           if (tab.input instanceof TabInputTerminal && tab.label.startsWith(existing.name)) {
@@ -213,7 +220,7 @@ export class KanbanWebviewPanel {
       level: 'info',
       source: 'terminal',
       message: '未找到已存在的终端 tab，使用 Beside',
-      details: `terminals.size=${this.terminals.size}, tabGroups.all.length=${window.tabGroups.all.length}`,
+      details: `terminals.size=${this.terminals.size}, implTerminals.size=${this.implTerminals.size}, tabGroups.all.length=${window.tabGroups.all.length}`,
     })
     return { viewColumn: ViewColumn.Beside, preserveFocus }
   }
