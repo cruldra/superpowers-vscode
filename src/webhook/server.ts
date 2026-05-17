@@ -134,6 +134,7 @@ export class WebhookServer {
       req.on('end', () => {
         try {
           const body = Buffer.concat(chunks).toString('utf-8')
+          const eventHeader = (req.headers['x-gitea-event'] || '').toString() || '<missing>'
           let parsed: unknown
           try {
             parsed = JSON.parse(body) as unknown
@@ -155,16 +156,15 @@ export class WebhookServer {
             logger.add({
               level: 'info',
               source: 'webhook',
-              message: `匹配 action=${event.action} PR #${event.pr} 分支 ${event.branch}`,
+              message: `匹配 action=${event.action} PR #${event.pr} 分支 ${event.branch} (event=${eventHeader})`,
             })
             this.emitter.fire(event)
           }
           else {
-            const action = extractAction(parsed)
             logger.add({
               level: 'info',
               source: 'webhook',
-              message: `payload 解析失败 action=${action ?? '<missing>'}`,
+              message: `非 pull_request 事件，已忽略 (X-Gitea-Event=${eventHeader})`,
             })
           }
 
@@ -235,10 +235,3 @@ function parseEvent(issueNumber: number, raw: unknown): WebhookEvent | null {
   }
 }
 
-/** Best-effort string read of the `action` field, used only for log output. */
-function extractAction(raw: unknown): string | undefined {
-  if (!raw || typeof raw !== 'object')
-    return undefined
-  const action = (raw as { action?: unknown }).action
-  return typeof action === 'string' ? action : undefined
-}
