@@ -1,11 +1,16 @@
 /**
  * Subscribes to the extension host's issue stream.
  *
- * State machine:
- *   - setup   : token absent or invalid; show the settings form
+ * State machine (`UseIssuesState`):
  *   - loading : initial mount + any time the host pushes `issues/loading`
  *   - ready   : host pushed `issues/update`; carries the current list
  *   - error   : host pushed `issues/error`; carries the user-facing message
+ *
+ * Settings UI is a separate overlay (`settings: SettingsOverlayState | null`)
+ * that floats above the kanban, mirroring how LogModal / NewIssueModal
+ * coexist with the board state. When `canCancel === false` the kanban is
+ * still mounted underneath, so the user sees a placeholder rather than the
+ * usual "加载中…".
  *
  * `setIssues` is exposed so the Kanban board can reorder cards locally
  * after a drag. Persisting drag moves back to Gitea is step 3+.
@@ -22,23 +27,21 @@ export interface SettingsValues {
   token: string
   webhookPort: number
   webhookHost: string
-  webhookPublicUrl: string
+  createIssuePrompt: string
+  implementPlanPrompt: string
+}
+
+export interface SettingsOverlayState {
+  host: string
+  errorMessage?: string
+  canCancel: boolean
+  webhookPort: number
+  webhookHost: string
   createIssuePrompt: string
   implementPlanPrompt: string
 }
 
 export type UseIssuesState =
-  | {
-    status: 'setup'
-    host: string
-    errorMessage?: string
-    canCancel?: boolean
-    webhookPort: number
-    webhookHost: string
-    webhookPublicUrl: string
-    createIssuePrompt: string
-    implementPlanPrompt: string
-  }
   | { status: 'loading' }
   | { status: 'ready', issues: Issue[] }
   | { status: 'error', message: string }
@@ -51,11 +54,13 @@ export interface ClaudeProfile {
 
 export interface UseIssuesResult {
   state: UseIssuesState
+  settings: SettingsOverlayState | null
   toasts: ToastItem[]
   profiles: ClaudeProfile[]
   setIssues: (issues: Issue[]) => void
   refresh: () => void
   saveSettings: (values: SettingsValues) => void
+  dismissSettings: () => void
   requestEditAuth: () => void
   createIssue: (userRequest: string, images?: Array<{ mediaType: string, base64: string }>, profilePath?: string) => void
   dismissToast: (id: string) => void
@@ -73,6 +78,7 @@ export interface UseIssuesResult {
 
 export function useIssues(): UseIssuesResult {
   const [state, setState] = useState<UseIssuesState>({ status: 'loading' })
+  const [settings, setSettings] = useState<SettingsOverlayState | null>(null)
   const [toasts, setToasts] = useState<ToastItem[]>([])
   const [profiles, setProfiles] = useState<ClaudeProfile[]>([])
   const [logs, setLogs] = useState<LogEntry[]>([])
@@ -83,17 +89,22 @@ export function useIssues(): UseIssuesResult {
   }, [])
 
   const saveSettings = useCallback((values: SettingsValues): void => {
-    setState({ status: 'loading' })
+    // Optimistically close the modal; extension will re-post `settings/show`
+    // with an errorMessage if save fails server-side.
+    setSettings(null)
     postMessage({
       type: 'settings/save',
       host: values.host,
       token: values.token,
       webhookPort: values.webhookPort,
       webhookHost: values.webhookHost,
-      webhookPublicUrl: values.webhookPublicUrl,
       createIssuePrompt: values.createIssuePrompt,
       implementPlanPrompt: values.implementPlanPrompt,
     })
+  }, [])
+
+  const dismissSettings = useCallback((): void => {
+    setSettings(null)
   }, [])
 
   const requestEditAuth = useCallback((): void => {
@@ -180,14 +191,16 @@ export function useIssues(): UseIssuesResult {
           setState({ status: 'error', message: msg.message })
           break
         case 'settings/show':
-          setState({
-            status: 'setup',
+          // Open (or re-open) the overlay. Kanban state is preserved
+          // underneath — when `canCancel === false` and we're still loading,
+          // App.tsx renders a "请先完成设置" placeholder rather than the
+          // usual spinner text.
+          setSettings({
             host: msg.host,
             errorMessage: msg.errorMessage,
-            canCancel: msg.canCancel,
+            canCancel: msg.canCancel === true,
             webhookPort: msg.webhookPort,
             webhookHost: msg.webhookHost,
-            webhookPublicUrl: msg.webhookPublicUrl,
             createIssuePrompt: msg.createIssuePrompt,
             implementPlanPrompt: msg.implementPlanPrompt,
           })
@@ -235,5 +248,5 @@ export function useIssues(): UseIssuesResult {
     return cleanup
   }, [])
 
-  return { state, toasts, profiles, setIssues, refresh, saveSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, focusSession, openFile, loadSessionFiles, implement, openPr, logs, fetchLogs, clearLogs }
+  return { state, settings, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, focusSession, openFile, loadSessionFiles, implement, openPr, logs, fetchLogs, clearLogs }
 }

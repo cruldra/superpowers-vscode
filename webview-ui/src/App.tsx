@@ -5,7 +5,7 @@ import { LogModal } from './components/LogModal'
 import type { PastedImage } from './components/NewIssueModal'
 import { NewIssueModal } from './components/NewIssueModal'
 import { PanelHeader } from './components/PanelHeader'
-import { SetupForm } from './components/SetupForm'
+import { SettingsModal } from './components/SettingsModal'
 import { ToastStack } from './components/ToastStack'
 import { useIssues } from './hooks/useIssues'
 import type { Issue } from './types'
@@ -14,11 +14,13 @@ import { COLUMN_ORDER } from './types'
 export function App() {
   const {
     state,
+    settings,
     toasts,
     profiles,
     setIssues,
     refresh,
     saveSettings,
+    dismissSettings,
     requestEditAuth,
     createIssue,
     dismissToast,
@@ -71,13 +73,18 @@ export function App() {
       focusSession(selectedIssue.sessionId)
   }, [selectedIssue?.sessionId, focusSession])
 
-  // Global keyboard navigation.
+  // Global keyboard navigation. Skipped whenever an overlay (new-issue, logs,
+  // settings) is showing, so its inputs receive arrow/Enter without
+  // interference.
+  const settingsOpen = settings !== null
   useEffect(() => {
     if (state.status !== 'ready')
       return
     if (showNewIssueModal)
       return
     if (showLogs)
+      return
+    if (settingsOpen)
       return
 
     function onKeyDown(e: KeyboardEvent): void {
@@ -170,29 +177,22 @@ export function App() {
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [state.status, showNewIssueModal, showLogs, ordered, selectedId, selectedIssue, resumeSession])
+  }, [state.status, showNewIssueModal, showLogs, settingsOpen, ordered, selectedId, selectedIssue, resumeSession])
+
+  // When the user is being forced into first-time setup, the kanban behind
+  // the modal has nothing meaningful to show — replace the spinner with a
+  // muted hint so it doesn't look like things are still loading.
+  const blockedBySetup = settings !== null && !settings.canCancel && state.status === 'loading'
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-[var(--vscode-editor-background)]">
-      {state.status === 'setup' && (
-        <SetupForm
-          host={state.host}
-          errorMessage={state.errorMessage}
-          canCancel={state.canCancel}
-          initialWebhookPort={state.webhookPort}
-          initialWebhookHost={state.webhookHost}
-          initialWebhookPublicUrl={state.webhookPublicUrl}
-          initialCreateIssuePrompt={state.createIssuePrompt}
-          initialImplementPlanPrompt={state.implementPlanPrompt}
-          onSubmit={saveSettings}
-          onCancel={state.canCancel ? refresh : undefined}
-        />
-      )}
-
       {state.status === 'loading' && (
-        <div className="flex h-full w-full items-center justify-center text-sm opacity-70">
-          加载中…
-        </div>
+        <>
+          <PanelHeader onRefresh={refresh} onEditAuth={requestEditAuth} />
+          <div className="flex h-full w-full items-center justify-center text-sm opacity-70">
+            {blockedBySetup ? '请先完成设置' : '加载中…'}
+          </div>
+        </>
       )}
 
       {state.status === 'ready' && (
@@ -264,6 +264,18 @@ export function App() {
         entries={logs}
         onClose={() => setShowLogs(false)}
         onClear={clearLogs}
+      />
+      <SettingsModal
+        open={settings !== null}
+        host={settings?.host ?? ''}
+        errorMessage={settings?.errorMessage}
+        canCancel={settings?.canCancel}
+        initialWebhookPort={settings?.webhookPort ?? 17421}
+        initialWebhookHost={settings?.webhookHost ?? ''}
+        initialCreateIssuePrompt={settings?.createIssuePrompt ?? ''}
+        initialImplementPlanPrompt={settings?.implementPlanPrompt ?? ''}
+        onSubmit={saveSettings}
+        onCancel={settings?.canCancel ? dismissSettings : undefined}
       />
       <ToastStack toasts={toasts} onDismiss={dismissToast} onOpenUrl={openUrl} />
     </div>

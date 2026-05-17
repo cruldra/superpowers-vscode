@@ -764,7 +764,6 @@ export class KanbanWebviewPanel {
         host,
         webhookPort: s.webhookPort,
         webhookHost: s.webhookHost,
-        webhookPublicUrl: s.webhookPublicUrl,
         createIssuePrompt: s.createIssuePrompt,
         implementPlanPrompt: s.implementPlanPrompt,
       })
@@ -785,7 +784,6 @@ export class KanbanWebviewPanel {
           errorMessage: 'Token 无效或已过期，请重新填写',
           webhookPort: s.webhookPort,
           webhookHost: s.webhookHost,
-          webhookPublicUrl: s.webhookPublicUrl,
           createIssuePrompt: s.createIssuePrompt,
           implementPlanPrompt: s.implementPlanPrompt,
         })
@@ -802,37 +800,51 @@ export class KanbanWebviewPanel {
     token: string
     webhookPort: number
     webhookHost: string
-    webhookPublicUrl: string
     createIssuePrompt: string
     implementPlanPrompt: string
   }): Promise<void> {
     const trimmedHost = payload.host.trim()
     const trimmedToken = payload.token.trim()
+    const prev = getSettings(this.context)
     if (!trimmedHost || !trimmedToken) {
-      const s = getSettings(this.context)
       this.postMessage({
         type: 'settings/show',
         host: trimmedHost,
         errorMessage: 'Host 和 Token 都不能为空',
         webhookPort: payload.webhookPort,
         webhookHost: payload.webhookHost,
-        webhookPublicUrl: payload.webhookPublicUrl,
-        createIssuePrompt: payload.createIssuePrompt || s.createIssuePrompt,
-        implementPlanPrompt: payload.implementPlanPrompt || s.implementPlanPrompt,
+        createIssuePrompt: payload.createIssuePrompt || prev.createIssuePrompt,
+        implementPlanPrompt: payload.implementPlanPrompt || prev.implementPlanPrompt,
       })
       return
     }
+    // Capture the previous token *for this host* before overwriting it, so
+    // we can decide below whether the kanban needs a re-fetch. (Only host
+    // and token affect the issue list — port/host-override/prompts don't.)
+    const oldToken = await getToken(this.context, trimmedHost)
+    // The new modal doesn't manage webhookPublicUrl; preserve whatever was
+    // there so we don't accidentally clear an frp/Caddy override.
     await saveSettings(this.context, {
       webhookPort: payload.webhookPort,
       webhookHost: payload.webhookHost,
-      webhookPublicUrl: payload.webhookPublicUrl,
+      webhookPublicUrl: prev.webhookPublicUrl,
       createIssuePrompt: payload.createIssuePrompt,
       implementPlanPrompt: payload.implementPlanPrompt,
     })
     await setToken(this.context, trimmedHost, trimmedToken)
-    // Honor a port change without requiring a window reload.
+    // Honor a port change without requiring a window reload. Restart the
+    // listener and emit a log entry when the port actually changed so the
+    // user can see it in the log modal.
+    const newPort = getSettings(this.context).webhookPort
+    if (newPort !== prev.webhookPort) {
+      logger.add({
+        level: 'info',
+        source: 'webhook',
+        message: `端口配置变更，重启监听 :${newPort}`,
+      })
+    }
     try {
-      await webhookCoordinator.ensurePort(getSettings(this.context).webhookPort)
+      await webhookCoordinator.ensurePort(newPort)
     }
     catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -843,7 +855,11 @@ export class KanbanWebviewPanel {
         details: message,
       })
     }
-    await this.loadAndPush()
+    // Only re-fetch issues when the credential that gates the kanban
+    // actually changed. Saves a round-trip + visible loading flash when the
+    // user just tweaked prompts or webhook settings.
+    if (oldToken !== trimmedToken)
+      await this.loadAndPush()
   }
 
   private async handleEditSettingsRequest(): Promise<void> {
@@ -862,7 +878,6 @@ export class KanbanWebviewPanel {
       canCancel: true,
       webhookPort: s.webhookPort,
       webhookHost: s.webhookHost,
-      webhookPublicUrl: s.webhookPublicUrl,
       createIssuePrompt: s.createIssuePrompt,
       implementPlanPrompt: s.implementPlanPrompt,
     })
