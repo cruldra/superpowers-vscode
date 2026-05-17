@@ -285,9 +285,11 @@ export class KanbanWebviewPanel {
   injectIntoImplTerminal(issueNumber: number, text: string): boolean {
     let terminal = this.implTerminals.get(issueNumber)
     if (!terminal) {
-      const wantedName = `Claude · 实施 #${issueNumber}`
+      // Match by prefix — shell OSC title escapes can append a git branch
+      // suffix to terminal.name (e.g. "Claude · 实施 #48 5f56026c").
+      const wantedPrefix = `Claude · 实施 #${issueNumber}`
       for (const t of window.terminals) {
-        if (t.name === wantedName) {
+        if (t.name.startsWith(wantedPrefix)) {
           terminal = t
           this.implTerminals.set(issueNumber, t)
           break
