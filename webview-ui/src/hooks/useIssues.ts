@@ -207,6 +207,19 @@ export function useIssues(): UseIssuesResult {
   }, [])
 
   const updateIssueAutoReview = useCallback((issueNumber: number, value: boolean): void => {
+    // Optimistically update local state so the toggle reflects immediately
+    // and the issues list / detail panel are not remounted by a full reload.
+    // On failure, the extension posts `issue/patch` to roll us back.
+    setState((prev) => {
+      if (prev.status !== 'ready')
+        return prev
+      return {
+        status: 'ready',
+        issues: prev.issues.map(i =>
+          i.number === issueNumber ? { ...i, autoReview: value } : i,
+        ),
+      }
+    })
     postMessage({ type: 'issue/update-auto-review', issueNumber, value })
   }, [])
 
@@ -235,6 +248,18 @@ export function useIssues(): UseIssuesResult {
         case 'issues/error':
           setState({ status: 'error', message: msg.message })
           break
+        case 'issue/patch':
+          setState((prev) => {
+            if (prev.status !== 'ready')
+              return prev
+            return {
+              status: 'ready',
+              issues: prev.issues.map(i =>
+                i.number === msg.issueNumber ? { ...i, ...msg.patch } : i,
+              ),
+            }
+          })
+          break
         case 'settings/show':
           // Open (or re-open) the overlay. Kanban state is preserved
           // underneath — when `canCancel === false` and we're still loading,
@@ -261,7 +286,7 @@ export function useIssues(): UseIssuesResult {
             link: msg.link,
             dismissOnTimer: msg.dismissOnTimer,
           }
-          setToasts(prev => {
+          setToasts((prev) => {
             const existing = prev.findIndex(t => t.id === toast.id)
             if (existing >= 0) {
               const next = [...prev]

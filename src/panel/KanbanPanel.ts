@@ -1575,6 +1575,28 @@ export class KanbanWebviewPanel {
       return
     }
 
+    // Snapshot the previous value so we can roll the webview back on failure
+    // without re-broadcasting the whole issues list.
+    let previousValue: boolean | undefined
+    try {
+      const existingState = await readStateJsonComment({
+        host: remote.host,
+        owner: remote.owner,
+        repo: remote.repo,
+        token,
+        issueNumber,
+      })
+      previousValue = typeof existingState.autoReview === 'boolean'
+        ? existingState.autoReview
+        : undefined
+    }
+    catch {
+      // If we can't read the previous state, leave previousValue undefined —
+      // the rollback patch will clear the override, which is the safest
+      // recovery (webview will fall back to the global autoReview default).
+      previousValue = undefined
+    }
+
     try {
       await mergeStateJsonComment({
         host: remote.host,
@@ -1605,9 +1627,13 @@ export class KanbanWebviewPanel {
         message: `保存工单 #${issueNumber} 自动审查开关失败: ${message}`,
         dismissOnTimer: 6000,
       })
+      // Roll back the optimistic update in the webview.
+      this.postMessage({
+        type: 'issue/patch',
+        issueNumber,
+        patch: { autoReview: previousValue },
+      })
     }
-
-    void this.loadAndPush()
   }
 
   /** Reloads issues from gitea and pushes to the webview. Public so the
