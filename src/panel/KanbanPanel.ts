@@ -50,15 +50,6 @@ export class KanbanWebviewPanel {
    */
   private readonly terminals = new Map<string, Terminal>()
 
-  /**
-   * ViewColumn of the editor group where we placed our first terminal. Set
-   * after the first `createTerminal` + `terminal.show()`. Reused for every
-   * subsequent terminal so they stack as tabs in the same group instead of
-   * splitting the editor area into ever-more columns. Cleared when no
-   * terminals remain.
-   */
-  private terminalGroupColumn?: ViewColumn
-
   private constructor(private readonly context: ExtensionContext, panel: WebviewPanel) {
     this.panel = panel
 
@@ -90,8 +81,6 @@ export class KanbanWebviewPanel {
             break
           }
         }
-        if (this.terminals.size === 0)
-          this.terminalGroupColumn = undefined
       }),
     )
   }
@@ -182,63 +171,37 @@ export class KanbanWebviewPanel {
 
 
   private resolveTerminalLocation(preserveFocus: boolean): TerminalEditorLocationOptions {
-    return {
-      viewColumn: this.terminalGroupColumn ?? ViewColumn.Beside,
-      preserveFocus,
-    }
-  }
-
-  private scanForTerminalColumn(terminal: Terminal): boolean {
-    for (const group of window.tabGroups.all) {
-      for (const tab of group.tabs) {
-        if (tab.input instanceof TabInputTerminal && tab.label.startsWith(terminal.name)) {
-          this.terminalGroupColumn = group.viewColumn
-          return true
-        }
-      }
-    }
-    return false
-  }
-
-  private captureTerminalGroupColumn(terminal: Terminal): void {
-    // Already known? Nothing to do.
-    if (this.terminalGroupColumn !== undefined)
-      return
-
-    // Sync scan in case the tab is already present (rare but cheap to check).
-    if (this.scanForTerminalColumn(terminal))
-      return
-
-    // Otherwise subscribe to tab-open events until we see our terminal.
-    // Match by prefix because the shell may append a git branch suffix to
-    // the tab label (e.g. "Claude · b3f68c6d" becomes "Claude · b3f68c6d feat/foo").
-    const sub = window.tabGroups.onDidChangeTabs((e) => {
-      if (this.terminalGroupColumn !== undefined) {
-        sub.dispose()
-        return
-      }
-      for (const tab of e.opened) {
-        if (tab.input instanceof TabInputTerminal && tab.label.startsWith(terminal.name)) {
-          // Find which group this tab belongs to.
-          for (const group of window.tabGroups.all) {
-            if (group.tabs.includes(tab)) {
-              this.terminalGroupColumn = group.viewColumn
-              sub.dispose()
-              return
-            }
+    // Look for any tab belonging to a terminal we already manage; reuse its
+    // column so the new terminal stacks as a tab in the same group. This
+    // runs synchronously at spawn time — by now the existing terminal's
+    // tab is definitely in tabGroups.all (no async race).
+    for (const existing of this.terminals.values()) {
+      for (const group of window.tabGroups.all) {
+        for (const tab of group.tabs) {
+          if (tab.input instanceof TabInputTerminal && tab.label.startsWith(existing.name)) {
+            logger.add({
+              level: 'info',
+              source: 'terminal',
+              message: `复用列 ${group.viewColumn}`,
+              details: `匹配到现有终端 "${existing.name}" 的 tab "${tab.label}"`,
+            })
+            return { viewColumn: group.viewColumn, preserveFocus }
           }
         }
       }
+    }
+    logger.add({
+      level: 'info',
+      source: 'terminal',
+      message: '未找到已存在的终端 tab，使用 Beside',
+      details: `terminals.size=${this.terminals.size}, tabGroups.all.length=${window.tabGroups.all.length}`,
     })
-
-    // Don't leak the listener if the tab never shows up (e.g. terminal failed
-    // to launch). 5 seconds is plenty for VS Code to materialize the tab.
-    const timer = setTimeout(() => {
-      sub.dispose()
-    }, 5000)
-
-    this.disposables.push(sub, { dispose: () => clearTimeout(timer) })
+    return { viewColumn: ViewColumn.Beside, preserveFocus }
   }
+
+  
+
+  
 
   private handleResumeSession(sessionId: string, profilePath?: string, relCwd?: string, issueNumber?: number): void {
     const existing = this.terminals.get(sessionId)
@@ -275,7 +238,11 @@ export class KanbanWebviewPanel {
     })
     this.terminals.set(sessionId, terminal)
     terminal.show(false)
-    this.captureTerminalGroupColumn(terminal)
+    logger.add({
+      level: 'info',
+      source: 'terminal',
+      message: `已创建终端 "${terminal.name}"`,
+    })
     const cmd = `claude --dangerously-skip-permissions --settings '${effectiveProfilePath}' --resume ${sessionId}`
     terminal.sendText(cmd)
   }
@@ -691,7 +658,11 @@ export class KanbanWebviewPanel {
       color: issueTerminalColor(issueNumber),
     })
     terminal.show(false)
-    this.captureTerminalGroupColumn(terminal)
+    logger.add({
+      level: 'info',
+      source: 'terminal',
+      message: `已创建终端 "${terminal.name}"`,
+    })
     const cmd = `claude --dangerously-skip-permissions --settings '${effectiveProfilePath}' '${prompt}'`
     terminal.sendText(cmd)
     logger.add({
