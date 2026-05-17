@@ -737,16 +737,24 @@ class WebhookCoordinator {
       })
     }
 
-    const worktreeAbs = workspaceRoot && worktreePath ? path.join(workspaceRoot, worktreePath) : undefined
-    const cwd = (worktreeAbs && fs.existsSync(worktreeAbs)) ? worktreeAbs : workspaceRoot
-    if (worktreePath && cwd !== worktreeAbs) {
+    if (!worktreePath) {
       logger.add({
-        level: 'info',
+        level: 'error',
         source: 'webhook',
-        message: `审查 cwd 回退到 workspaceRoot (worktree 不存在或未记录) #${issueNumber}`,
-        details: `worktreeAbs=${worktreeAbs ?? '<none>'}`,
+        message: `审查中止 #${issueNumber}：state JSON 中无 worktreePath`,
       })
+      return
     }
+    const worktreeAbs = path.join(workspaceRoot, worktreePath)
+    if (!fs.existsSync(worktreeAbs)) {
+      logger.add({
+        level: 'error',
+        source: 'webhook',
+        message: `审查中止 #${issueNumber}：worktree 不存在 ${worktreeAbs}`,
+      })
+      return
+    }
+    const cwd = worktreeAbs
 
     logger.add({
       level: 'info',

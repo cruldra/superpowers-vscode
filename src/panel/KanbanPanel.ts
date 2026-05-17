@@ -354,19 +354,18 @@ export class KanbanWebviewPanel {
       return
     }
     const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
-    const worktreeAbs = relCwd && workspaceRoot ? path.join(workspaceRoot, relCwd) : undefined
-    const effectiveCwd = (worktreeAbs && fs.existsSync(worktreeAbs)) ? worktreeAbs : workspaceRoot
-    if (relCwd && worktreeAbs && effectiveCwd !== worktreeAbs) {
-      logger.add({
-        level: 'info',
-        source: 'terminal',
-        message: `审查 cwd 回退到 workspaceRoot (worktree 不存在或未记录) #${issueNumber}`,
-        details: `worktreeAbs=${worktreeAbs}`,
-      })
+    if (!relCwd || !workspaceRoot) {
+      void window.showErrorMessage(`审查会话无法恢复 #${issueNumber}：worktree 路径未记录`)
+      return
+    }
+    const worktreeAbs = path.join(workspaceRoot, relCwd)
+    if (!fs.existsSync(worktreeAbs)) {
+      void window.showErrorMessage(`审查会话无法恢复 #${issueNumber}：worktree 不存在 ${worktreeAbs}`)
+      return
     }
     const terminal = window.createTerminal({
       name: `issue-${issueNumber}-审查`,
-      cwd: effectiveCwd,
+      cwd: worktreeAbs,
       location: this.resolveTerminalLocation(false),
       color: issueTerminalColor(issueNumber),
     })
@@ -376,7 +375,7 @@ export class KanbanWebviewPanel {
     logger.add({
       level: 'info',
       source: 'terminal',
-      message: `已创建审查会话终端 #${issueNumber} cwd=${effectiveCwd ?? '<none>'}`,
+      message: `已创建审查会话终端 #${issueNumber} cwd=${worktreeAbs}`,
     })
   }
 
