@@ -127,17 +127,25 @@ export function NewIssueModal({ open, onCancel, onSubmit, profiles, defaultProfi
     const lines = text.split('\n').length
     if (lines > PASTE_LINE_THRESHOLD) {
       e.preventDefault()
+      const ta = textareaRef.current
+      const start = ta?.selectionStart ?? value.length
+      const end = ta?.selectionEnd ?? value.length
+      const token = `[复制的 ${lines} 行文本]`
+      const newVal = value.slice(0, start) + token + value.slice(end)
+      setValue(newVal)
       setPastedTexts(prev => [...prev, {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         text,
         lines,
       }])
+      requestAnimationFrame(() => {
+        if (textareaRef.current) {
+          textareaRef.current.selectionStart = textareaRef.current.selectionEnd = start + token.length
+          textareaRef.current.focus()
+        }
+      })
     }
-  }, [])
-
-  function removePastedText(id: string): void {
-    setPastedTexts(prev => prev.filter(p => p.id !== id))
-  }
+  }, [value])
 
   function removeImage(id: string): void {
     setImages(prev => prev.filter(i => i.id !== id))
@@ -155,9 +163,16 @@ export function NewIssueModal({ open, onCancel, onSubmit, profiles, defaultProfi
     const profilePath = selectedProfile
       ? profiles.find(p => p.name === selectedProfile)?.path
       : undefined
-    let finalRequest = trimmed
-    for (const pt of pastedTexts)
-      finalRequest += `\n\n[粘贴片段，${pt.lines} 行]\n${pt.text}`
+    const pending = [...pastedTexts]
+    const tokenRegex = /\[复制的 (\d+) 行文本\]/g
+    const finalRequest = trimmed.replace(tokenRegex, (_match, linesStr) => {
+      const lines = Number.parseInt(linesStr, 10)
+      const idx = pending.findIndex(p => p.lines === lines)
+      if (idx < 0)
+        return ''
+      const [taken] = pending.splice(idx, 1)
+      return taken.text
+    })
     onSubmit(
       finalRequest,
       images.map(({ mediaType, base64, previewDataUrl }) => ({ mediaType, base64, previewDataUrl })),
@@ -201,34 +216,6 @@ export function NewIssueModal({ open, onCancel, onSubmit, profiles, defaultProfi
               ))}
             </div>
           </fieldset>
-        )}
-
-        {pastedTexts.length > 0 && (
-          <div className="mb-3 flex flex-wrap gap-2">
-            {pastedTexts.map(pt => (
-              <div
-                key={pt.id}
-                className="group relative inline-flex items-center gap-1 rounded border border-[var(--vscode-panel-border)] px-2 py-1 text-xs"
-                title={pt.text.slice(0, 200) + (pt.text.length > 200 ? '...' : '')}
-              >
-                <span className="opacity-70">
-                  [复制的
-                  {' '}
-                  {pt.lines}
-                  {' '}
-                  行文本]
-                </span>
-                <button
-                  type="button"
-                  onClick={() => removePastedText(pt.id)}
-                  className="opacity-60 hover:opacity-100"
-                  aria-label="移除"
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-          </div>
         )}
 
         {images.length > 0 && (
