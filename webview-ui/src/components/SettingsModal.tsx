@@ -29,6 +29,7 @@ export interface SettingsModalProps {
   host: string
   errorMessage?: string
   canCancel?: boolean
+  initialTokenSaved: boolean
   initialWebhookPort: number
   initialWebhookPublicUrl: string
   initialCreateIssuePrompt: string
@@ -84,6 +85,7 @@ export function SettingsModal({
   host: initialHost,
   errorMessage,
   canCancel,
+  initialTokenSaved,
   initialWebhookPort,
   initialWebhookPublicUrl,
   initialCreateIssuePrompt,
@@ -151,7 +153,10 @@ export function SettingsModal({
     const trimmedToken = token.trim()
     if (!trimmedHost)
       nextErrors.host = 'Host 不能为空'
-    if (!trimmedToken)
+    // When a token is already saved server-side, leaving the field blank
+    // means "keep the existing token" — don't flag it as an error. Only
+    // require a new token when nothing is saved yet.
+    if (!trimmedToken && !initialTokenSaved)
       nextErrors.token = 'Token 不能为空'
     const portNum = Number.parseInt(webhookPort, 10)
     if (!Number.isInteger(portNum) || portNum < 1 || portNum > 65535)
@@ -173,6 +178,8 @@ export function SettingsModal({
     setErrors({})
     onSubmit({
       host: trimmedHost,
+      // Pass raw token (may be empty string when keeping existing). The
+      // extension side detects empty + existing-saved as "preserve".
       token: trimmedToken,
       webhookPort: portNum,
       webhookPublicUrl: webhookPublicUrl.trim(),
@@ -271,6 +278,12 @@ export function SettingsModal({
                         : <span className="opacity-60">填写 Host 后这里会显示生成 token 的链接</span>}
                       {' '}
                       生成一个 token
+                      {initialTokenSaved && (
+                        <>
+                          <br />
+                          已保存，留空则保留
+                        </>
+                      )}
                     </>
                   )}
                 >
@@ -278,7 +291,7 @@ export function SettingsModal({
                     type="password"
                     value={token}
                     onChange={e => setToken(e.target.value)}
-                    placeholder="例如 1a2b3c4d…"
+                    placeholder={initialTokenSaved ? '••••••••' : '例如 1a2b3c4d…'}
                     className={inputClass}
                   />
                 </Field>

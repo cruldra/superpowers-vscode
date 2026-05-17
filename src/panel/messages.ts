@@ -19,6 +19,7 @@ export type ExtensionToWebview =
     host: string
     errorMessage?: string
     canCancel?: boolean
+    tokenSaved: boolean
     webhookPort: number
     webhookPublicUrl: string
     createIssuePrompt: string

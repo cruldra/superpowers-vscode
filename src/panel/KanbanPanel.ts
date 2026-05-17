@@ -809,6 +809,7 @@ export class KanbanWebviewPanel {
       this.postMessage({
         type: 'settings/show',
         host,
+        tokenSaved: false,
         webhookPort: s.webhookPort,
         webhookPublicUrl: s.webhookPublicUrl,
         createIssuePrompt: s.createIssuePrompt,
@@ -831,6 +832,7 @@ export class KanbanWebviewPanel {
           type: 'settings/show',
           host,
           errorMessage: 'Token 无效或已过期，请重新填写',
+          tokenSaved: false,
           webhookPort: s.webhookPort,
           webhookPublicUrl: s.webhookPublicUrl,
           createIssuePrompt: s.createIssuePrompt,
@@ -860,11 +862,20 @@ export class KanbanWebviewPanel {
     const trimmedToken = payload.token.trim()
     const trimmedUrl = payload.webhookPublicUrl.trim()
     const prev = getSettings(this.context)
-    if (!trimmedHost || !trimmedToken) {
+    // Capture the previous token *for this host* before overwriting it, so
+    // we can decide below whether the kanban needs a re-fetch. (Only host
+    // and token affect the issue list — port/url-prefix/prompts don't.)
+    const oldToken = trimmedHost ? await getToken(this.context, trimmedHost) : undefined
+    // Empty token + existing saved token = user wants to keep the existing
+    // one (placeholder semantics in the modal). Skip rewriting and skip the
+    // kanban refresh since auth didn't change.
+    const keepExisting = trimmedToken === '' && !!oldToken
+    if (!trimmedHost || (!trimmedToken && !keepExisting)) {
       this.postMessage({
         type: 'settings/show',
         host: trimmedHost,
         errorMessage: 'Host 和 Token 都不能为空',
+        tokenSaved: !!oldToken,
         webhookPort: payload.webhookPort,
         webhookPublicUrl: trimmedUrl,
         createIssuePrompt: payload.createIssuePrompt || prev.createIssuePrompt,
@@ -874,10 +885,6 @@ export class KanbanWebviewPanel {
       })
       return
     }
-    // Capture the previous token *for this host* before overwriting it, so
-    // we can decide below whether the kanban needs a re-fetch. (Only host
-    // and token affect the issue list — port/url-prefix/prompts don't.)
-    const oldToken = await getToken(this.context, trimmedHost)
     await saveSettings(this.context, {
       webhookPort: payload.webhookPort,
       webhookPublicUrl: trimmedUrl,
@@ -886,7 +893,8 @@ export class KanbanWebviewPanel {
       autoReview: payload.autoReview,
       reviewPrompt: payload.reviewPrompt,
     })
-    await setToken(this.context, trimmedHost, trimmedToken)
+    if (!keepExisting)
+      await setToken(this.context, trimmedHost, trimmedToken)
     // Honor a port change without requiring a window reload. Restart the
     // listener and emit a log entry when the port actually changed so the
     // user can see it in the log modal.
@@ -912,8 +920,9 @@ export class KanbanWebviewPanel {
     }
     // Only re-fetch issues when the credential that gates the kanban
     // actually changed. Saves a round-trip + visible loading flash when the
-    // user just tweaked prompts or webhook settings.
-    if (oldToken !== trimmedToken)
+    // user just tweaked prompts or webhook settings. `keepExisting` already
+    // guarantees no auth change.
+    if (!keepExisting && oldToken !== trimmedToken)
       await this.loadAndPush()
   }
 
@@ -926,11 +935,14 @@ export class KanbanWebviewPanel {
         host = remote.host
     }
     const s = getSettings(this.context)
+    const tok = host ? await getToken(this.context, host) : undefined
+    const tokenSaved = !!tok && tok.length > 0
     // User clicked the gear themselves — let them back out without saving.
     this.postMessage({
       type: 'settings/show',
       host,
       canCancel: true,
+      tokenSaved,
       webhookPort: s.webhookPort,
       webhookPublicUrl: s.webhookPublicUrl,
       createIssuePrompt: s.createIssuePrompt,

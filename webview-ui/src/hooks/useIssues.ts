@@ -37,6 +37,7 @@ export interface SettingsOverlayState {
   host: string
   errorMessage?: string
   canCancel: boolean
+  tokenSaved: boolean
   webhookPort: number
   webhookPublicUrl: string
   createIssuePrompt: string
@@ -210,6 +211,7 @@ export function useIssues(): UseIssuesResult {
             host: msg.host,
             errorMessage: msg.errorMessage,
             canCancel: msg.canCancel === true,
+            tokenSaved: msg.tokenSaved,
             webhookPort: msg.webhookPort,
             webhookPublicUrl: msg.webhookPublicUrl,
             createIssuePrompt: msg.createIssuePrompt,

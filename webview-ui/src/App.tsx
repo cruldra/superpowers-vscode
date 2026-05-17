@@ -272,6 +272,7 @@ export function App() {
         host={settings?.host ?? ''}
         errorMessage={settings?.errorMessage}
         canCancel={settings?.canCancel}
+        initialTokenSaved={settings?.tokenSaved ?? false}
         initialWebhookPort={settings?.webhookPort ?? 17421}
         initialWebhookPublicUrl={settings?.webhookPublicUrl ?? ''}
         initialCreateIssuePrompt={settings?.createIssuePrompt ?? ''}
