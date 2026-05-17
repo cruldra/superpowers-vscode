@@ -289,14 +289,16 @@ function PropertyRow({
               : (
                   <span className="min-w-0 flex-1 truncate text-xs opacity-50">未加载</span>
                 )}
-            <button
-              type="button"
-              onClick={() => propDef.onReload?.()}
-              aria-label="重新加载"
-              className="grid size-5 shrink-0 place-items-center opacity-60 hover:opacity-100"
-            >
-              {reloadIcon}
-            </button>
+            {!hasValue && (
+              <button
+                type="button"
+                onClick={() => propDef.onReload?.()}
+                aria-label="重新加载"
+                className="grid size-5 shrink-0 place-items-center opacity-60 hover:opacity-100"
+              >
+                {reloadIcon}
+              </button>
+            )}
             {hasSecondary && (
               <button
                 type="button"
