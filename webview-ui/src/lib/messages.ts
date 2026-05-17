@@ -13,6 +13,20 @@ export interface ToastLink {
 
 export type ToastLevel = 'info' | 'success' | 'error'
 
+/**
+ * Mirror of the extension-side LogEntry in src/logging/logger.ts.
+ * Kept manually in sync — workspace boundaries prevent direct import.
+ */
+export type LogLevel = 'info' | 'warn' | 'error'
+
+export interface LogEntry {
+  ts: number
+  level: LogLevel
+  source: string
+  message: string
+  details?: string
+}
+
 export type ExtensionToWebview =
   | { type: 'issues/loading' }
   | { type: 'issues/update', issues: Issue[] }
@@ -38,6 +52,9 @@ export type ExtensionToWebview =
   }
   | { type: 'toast/dismiss', id: string }
   | { type: 'profiles/update', profiles: Array<{ name: string, path: string }> }
+  | { type: 'logs/snapshot', entries: LogEntry[] }
+  | { type: 'logs/append', entry: LogEntry }
+  | { type: 'logs/cleared' }
 
 export type WebviewToExtension =
   | { type: 'issues/refresh' }
@@ -60,3 +77,5 @@ export type WebviewToExtension =
   | { type: 'profiles/list' }
   | { type: 'issue/implement', issueNumber: number, planFile: string, profilePath?: string, sessionId?: string }
   | { type: 'pr/open', pr: string }
+  | { type: 'logs/fetch' }
+  | { type: 'logs/clear' }

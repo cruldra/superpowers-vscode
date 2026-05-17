@@ -9,6 +9,8 @@
  * distinguish 401 (token invalid) from other failure modes.
  */
 
+import { logger } from '../logging/logger'
+
 const PAGE_SIZE = 50
 
 export interface GiteaUser {
@@ -231,11 +233,31 @@ export async function createWebhook(opts: {
       }),
     },
   )
-  await ensureOk(res)
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    logger.add({
+      level: 'error',
+      source: 'gitea',
+      message: `createWebhook 失败 status=${res.status}`,
+      details: (body || res.statusText).slice(0, 500),
+    })
+    throw new GiteaApiError(res.status, body || res.statusText)
+  }
   const data = (await res.json()) as { id?: unknown }
   const id = typeof data.id === 'number' ? data.id : Number(data.id)
-  if (!Number.isFinite(id))
+  if (!Number.isFinite(id)) {
+    logger.add({
+      level: 'error',
+      source: 'gitea',
+      message: 'createWebhook: 响应缺少 id',
+    })
     throw new GiteaApiError(500, 'createWebhook: response missing id')
+  }
+  logger.add({
+    level: 'info',
+    source: 'gitea',
+    message: `已创建 hookId=${id} url=${opts.url} branch_filter=${opts.branchFilter}`,
+  })
   return { id }
 }
 
@@ -253,7 +275,27 @@ export async function deleteWebhook(opts: {
       headers: authHeaders(opts.token),
     },
   )
-  if (res.status === 404)
+  if (res.status === 404) {
+    logger.add({
+      level: 'warn',
+      source: 'gitea',
+      message: `deleteWebhook hookId=${opts.hookId} 已不存在 (404)`,
+    })
     return
-  await ensureOk(res)
+  }
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    logger.add({
+      level: 'error',
+      source: 'gitea',
+      message: `deleteWebhook hookId=${opts.hookId} 失败 status=${res.status}`,
+      details: (body || res.statusText).slice(0, 500),
+    })
+    throw new GiteaApiError(res.status, body || res.statusText)
+  }
+  logger.add({
+    level: 'info',
+    source: 'gitea',
+    message: `已删除 hookId=${opts.hookId}`,
+  })
 }

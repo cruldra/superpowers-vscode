@@ -1,4 +1,7 @@
 import type { Issue } from '../gitea/types'
+import type { LogEntry } from '../logging/logger'
+
+export type { LogEntry } from '../logging/logger'
 
 export interface ToastLink {
   label: string
@@ -32,6 +35,9 @@ export type ExtensionToWebview =
   }
   | { type: 'toast/dismiss', id: string }
   | { type: 'profiles/update', profiles: Array<{ name: string, path: string }> }
+  | { type: 'logs/snapshot', entries: LogEntry[] }
+  | { type: 'logs/append', entry: LogEntry }
+  | { type: 'logs/cleared' }
 
 export type WebviewToExtension =
   | { type: 'issues/refresh' }
@@ -54,3 +60,5 @@ export type WebviewToExtension =
   | { type: 'profiles/list' }
   | { type: 'issue/implement', issueNumber: number, planFile: string, profilePath?: string, sessionId?: string }
   | { type: 'pr/open', pr: string }
+  | { type: 'logs/fetch' }
+  | { type: 'logs/clear' }

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { IssueDetailPanel } from './components/IssueDetailPanel'
 import { KanbanBoard } from './components/KanbanBoard'
+import { LogModal } from './components/LogModal'
 import type { PastedImage } from './components/NewIssueModal'
 import { NewIssueModal } from './components/NewIssueModal'
 import { PanelHeader } from './components/PanelHeader'
@@ -28,8 +29,11 @@ export function App() {
     loadSessionFiles,
     implement,
     openPr,
+    logs,
+    clearLogs,
   } = useIssues()
   const [showNewIssueModal, setShowNewIssueModal] = useState(false)
+  const [showLogs, setShowLogs] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
   function handleSubmitNewIssue(userRequest: string, images: PastedImage[], profilePath?: string): void {
@@ -72,6 +76,8 @@ export function App() {
     if (state.status !== 'ready')
       return
     if (showNewIssueModal)
+      return
+    if (showLogs)
       return
 
     function onKeyDown(e: KeyboardEvent): void {
@@ -164,7 +170,7 @@ export function App() {
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [state.status, showNewIssueModal, ordered, selectedId, selectedIssue, resumeSession])
+  }, [state.status, showNewIssueModal, showLogs, ordered, selectedId, selectedIssue, resumeSession])
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-[var(--vscode-editor-background)]">
@@ -210,6 +216,7 @@ export function App() {
                 onLoadFiles={loadSessionFiles}
                 onImplement={implement}
                 onOpenPr={openPr}
+                onOpenLogs={() => setShowLogs(true)}
               />
             </div>
           </div>
@@ -250,6 +257,12 @@ export function App() {
         onSubmit={handleSubmitNewIssue}
         profiles={profiles}
         defaultProfileName="offical"
+      />
+      <LogModal
+        open={showLogs}
+        entries={logs}
+        onClose={() => setShowLogs(false)}
+        onClear={clearLogs}
       />
       <ToastStack toasts={toasts} onDismiss={dismissToast} onOpenUrl={openUrl} />
     </div>

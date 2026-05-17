@@ -81,6 +81,8 @@ export interface PropertyGroup {
   label: string
   /** 属性列表 */
   properties: PropertyDef[]
+  /** 可选：在分组标题行右侧渲染的额外操作按钮（如图标按钮）。 */
+  actions?: ReactNode
 }
 
 /** PropertyGrid 组件 Props */
@@ -610,24 +612,31 @@ export function PropertyGrid({
                 return (
                   <div key={group.id}>
                     {/* 分组标题行 */}
-                    <button
-                      type="button"
-                      onClick={() => toggleGroup(group.id)}
-                      className="sticky top-0 z-[5] flex w-full items-center gap-1.5 border-b border-[var(--vscode-panel-border)] px-3 py-1.5 text-left transition-colors"
-                    >
-                      <span className="grid place-items-center opacity-60">
-                        {isCollapsed
-                          ? <ChevronRight className="size-3.5" />
-                          : <ChevronDown className="size-3.5" />}
-                      </span>
-                      <span className="text-xs font-bold uppercase tracking-wider">
-                        {group.label}
-                      </span>
-                      <span className="ml-auto text-xs opacity-60">
-                        {group.properties.length}
-                        {' 项'}
-                      </span>
-                    </button>
+                    <div className="sticky top-0 z-[5] flex w-full items-center gap-1.5 border-b border-[var(--vscode-panel-border)] px-3 py-1.5 transition-colors">
+                      <button
+                        type="button"
+                        onClick={() => toggleGroup(group.id)}
+                        className="flex flex-1 items-center gap-1.5 text-left"
+                      >
+                        <span className="grid place-items-center opacity-60">
+                          {isCollapsed
+                            ? <ChevronRight className="size-3.5" />
+                            : <ChevronDown className="size-3.5" />}
+                        </span>
+                        <span className="text-xs font-bold uppercase tracking-wider">
+                          {group.label}
+                        </span>
+                        <span className="ml-auto text-xs opacity-60">
+                          {group.properties.length}
+                          {' 项'}
+                        </span>
+                      </button>
+                      {group.actions && (
+                        <div className="ml-1.5 flex shrink-0 items-center">
+                          {group.actions}
+                        </div>
+                      )}
+                    </div>
 
                     {/* 分组属性行列表 */}
                     {!isCollapsed && group.properties.map((prop) => {

@@ -14,6 +14,7 @@ import type { Event } from 'vscode'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
 import { createServer } from 'node:http'
 import { EventEmitter } from 'vscode'
+import { logger } from '../logging/logger'
 
 export interface WebhookEvent {
   issueNumber: number
@@ -49,6 +50,12 @@ export class WebhookServer {
     await new Promise<void>((resolve, reject) => {
       const onError = (err: Error): void => {
         server.off('listening', onListening)
+        logger.add({
+          level: 'error',
+          source: 'webhook',
+          message: 'bind 失败',
+          details: err.message,
+        })
         reject(err)
       }
       const onListening = (): void => {
@@ -61,6 +68,11 @@ export class WebhookServer {
     })
     this.server = server
     this.port = port
+    logger.add({
+      level: 'info',
+      source: 'webhook',
+      message: `HTTP server listening on :${port}`,
+    })
   }
 
   async stop(): Promise<void> {
@@ -72,11 +84,21 @@ export class WebhookServer {
     await new Promise<void>((resolve) => {
       srv.close(() => resolve())
     })
+    logger.add({
+      level: 'info',
+      source: 'webhook',
+      message: 'HTTP server 已停止',
+    })
   }
 
   private handle(req: IncomingMessage, res: ServerResponse): void {
     try {
       const url = req.url ?? ''
+      logger.add({
+        level: 'info',
+        source: 'webhook',
+        message: `收到 ${req.method ?? '?'} ${url}`,
+      })
       if (req.method !== 'POST') {
         res.writeHead(405, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ ok: false, error: 'method_not_allowed' }))
@@ -85,6 +107,12 @@ export class WebhookServer {
 
       const match = /^\/webhook\/(\d+)(?:\?.*)?$/.exec(url)
       if (!match) {
+        logger.add({
+          level: 'warn',
+          source: 'webhook',
+          message: '路径不匹配',
+          details: url,
+        })
         res.writeHead(404, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ ok: false, error: 'not_found' }))
         return
@@ -101,14 +129,34 @@ export class WebhookServer {
             parsed = JSON.parse(body) as unknown
           }
           catch {
+            logger.add({
+              level: 'warn',
+              source: 'webhook',
+              message: '请求体解析失败',
+              details: body.slice(0, 500),
+            })
             res.writeHead(400, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({ ok: false, error: 'invalid_json' }))
             return
           }
 
+          const action = extractAction(parsed)
           const event = parseEvent(issueNumber, parsed)
-          if (event)
+          if (event) {
+            logger.add({
+              level: 'info',
+              source: 'webhook',
+              message: `匹配 PR #${event.pr} 分支 ${event.branch}`,
+            })
             this.emitter.fire(event)
+          }
+          else {
+            logger.add({
+              level: 'info',
+              source: 'webhook',
+              message: `忽略 action=${action ?? '<missing>'}`,
+            })
+          }
 
           res.writeHead(200, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ ok: true }))
@@ -176,4 +224,12 @@ function parseEvent(issueNumber: number, raw: unknown): WebhookEvent | null {
     htmlUrl,
     raw,
   }
+}
+
+/** Best-effort string read of the `action` field, used only for log output. */
+function extractAction(raw: unknown): string | undefined {
+  if (!raw || typeof raw !== 'object')
+    return undefined
+  const action = (raw as { action?: unknown }).action
+  return typeof action === 'string' ? action : undefined
 }

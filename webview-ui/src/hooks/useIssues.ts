@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { Issue } from '../types'
 import type { ToastItem } from '../components/ToastStack'
+import type { LogEntry } from '../lib/messages'
 import { onMessage, postMessage } from '../lib/vscode'
 
 export interface SettingsValues {
@@ -63,12 +64,16 @@ export interface UseIssuesResult {
   loadSessionFiles: (sessionId: string | undefined, issueNumber: number) => void
   implement: (issueNumber: number, planFile: string, profilePath?: string, sessionId?: string) => void
   openPr: (pr: string) => void
+  logs: LogEntry[]
+  fetchLogs: () => void
+  clearLogs: () => void
 }
 
 export function useIssues(): UseIssuesResult {
   const [state, setState] = useState<UseIssuesState>({ status: 'loading' })
   const [toasts, setToasts] = useState<ToastItem[]>([])
   const [profiles, setProfiles] = useState<ClaudeProfile[]>([])
+  const [logs, setLogs] = useState<LogEntry[]>([])
 
   const refresh = useCallback((): void => {
     setState({ status: 'loading' })
@@ -147,6 +152,14 @@ export function useIssues(): UseIssuesResult {
     postMessage({ type: 'pr/open', pr })
   }, [])
 
+  const fetchLogs = useCallback((): void => {
+    postMessage({ type: 'logs/fetch' })
+  }, [])
+
+  const clearLogs = useCallback((): void => {
+    postMessage({ type: 'logs/clear' })
+  }, [])
+
   const setIssues = useCallback((issues: Issue[]): void => {
     setState(prev => prev.status === 'ready' ? { status: 'ready', issues } : prev)
   }, [])
@@ -201,12 +214,22 @@ export function useIssues(): UseIssuesResult {
         case 'profiles/update':
           setProfiles(msg.profiles)
           break
+        case 'logs/snapshot':
+          setLogs(msg.entries)
+          break
+        case 'logs/append':
+          setLogs(prev => [...prev, msg.entry].slice(-500))
+          break
+        case 'logs/cleared':
+          setLogs([])
+          break
       }
     })
     postMessage({ type: 'issues/refresh' })
     postMessage({ type: 'profiles/list' })
+    postMessage({ type: 'logs/fetch' })
     return cleanup
   }, [])
 
-  return { state, toasts, profiles, setIssues, refresh, saveSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, focusSession, openFile, loadSessionFiles, implement, openPr }
+  return { state, toasts, profiles, setIssues, refresh, saveSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, focusSession, openFile, loadSessionFiles, implement, openPr, logs, fetchLogs, clearLogs }
 }

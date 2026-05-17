@@ -18,6 +18,8 @@ interface IssueDetailPanelProps {
   onImplement: (issueNumber: number, planFile: string, profilePath?: string, sessionId?: string) => void
   /** Open the gitea PR page in the browser. */
   onOpenPr: (pr: string) => void
+  /** Open the in-webview log modal. */
+  onOpenLogs: () => void
 }
 
 /**
@@ -36,12 +38,24 @@ export function IssueDetailPanel({
   onLoadFiles,
   onImplement,
   onOpenPr,
+  onOpenLogs,
 }: IssueDetailPanelProps) {
   const schema = useMemo<PropertyGroup[]>(
     () => [
       {
         id: 'state',
         label: 'state JSON',
+        actions: (
+          <button
+            type="button"
+            onClick={onOpenLogs}
+            title="查看扩展日志"
+            aria-label="查看扩展日志"
+            className="grid size-5 place-items-center rounded opacity-60 hover:opacity-100"
+          >
+            <Terminal className="size-3.5" />
+          </button>
+        ),
         properties: [
           {
             key: 'column',
@@ -163,7 +177,7 @@ export function IssueDetailPanel({
         ],
       },
     ],
-    [onResumeSession, onOpenFile, onLoadFiles, onImplement, onOpenPr, issue],
+    [onResumeSession, onOpenFile, onLoadFiles, onImplement, onOpenPr, onOpenLogs, issue],
   )
 
   if (!issue) {

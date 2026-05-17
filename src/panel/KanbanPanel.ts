@@ -27,6 +27,7 @@ import {
   postIssueComment,
 } from '../gitea/api'
 import { loadIssues } from '../gitea/issueLoader'
+import { logger } from '../logging/logger'
 import { getSettings, saveSettings } from '../settings/store'
 import { detectLocalHost } from '../webhook/host'
 import type { WebhookEvent } from '../webhook/server'
@@ -92,6 +93,9 @@ export class KanbanWebviewPanel {
     this.disposables.push(
       this.panel.onDidDispose(() => this.dispose()),
       this.panel.webview.onDidReceiveMessage((msg: WebviewToExtension) => this.handleMessage(msg)),
+      // Forward every new log entry to the webview so the log modal stays
+      // live without polling.
+      logger.onEntry(entry => this.postMessage({ type: 'logs/append', entry })),
       // Drop tracked terminals when the user closes them, so the next Enter
       // on that card spawns a fresh tab instead of trying to .show() a dead
       // handle.
@@ -178,6 +182,15 @@ export class KanbanWebviewPanel {
     }
     if (msg.type === 'pr/open') {
       void this.handleOpenPr(msg.pr)
+      return
+    }
+    if (msg.type === 'logs/fetch') {
+      this.postMessage({ type: 'logs/snapshot', entries: logger.snapshot() })
+      return
+    }
+    if (msg.type === 'logs/clear') {
+      logger.clear()
+      this.postMessage({ type: 'logs/cleared' })
     }
   }
 
@@ -429,6 +442,12 @@ export class KanbanWebviewPanel {
     profilePath?: string,
     _sessionId?: string,
   ): Promise<void> {
+    logger.add({
+      level: 'info',
+      source: 'implement',
+      message: `开始实施 #${issueNumber}`,
+      details: `planFile=${planFile}`,
+    })
     const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
     if (!workspaceRoot) {
       void window.showErrorMessage('请先打开一个工作区文件夹')
@@ -522,6 +541,12 @@ export class KanbanWebviewPanel {
     }
     catch (err) {
       const message = err instanceof Error ? err.message : String(err)
+      logger.add({
+        level: 'error',
+        source: 'implement',
+        message: 'git worktree add 失败',
+        details: message,
+      })
       void window.showErrorMessage(message)
       return
     }
@@ -566,6 +591,12 @@ export class KanbanWebviewPanel {
       feature,
     })
     await this.persistPendingHooks()
+    logger.add({
+      level: 'info',
+      source: 'implement',
+      message: `已注册 webhook hookId=${hookId}`,
+      details: `url=${webhookUrl} branch_filter=${branch}`,
+    })
 
     // Merge into the latest state-JSON comment so we don't clobber spec/plan/
     // sessionId etc that earlier steps wrote.
@@ -633,16 +664,29 @@ export class KanbanWebviewPanel {
     terminal.show()
     const cmd = `claude --dangerously-skip-permissions --settings '${effectiveProfilePath}' '${prompt}'`
     terminal.sendText(cmd)
+    logger.add({
+      level: 'info',
+      source: 'implement',
+      message: `已发送 prompt 到终端 #${issueNumber}`,
+    })
 
     // Wait in the background for the session jsonl to materialize; merge
     // the captured implementSessionId back into the state-JSON comment so
     // the user can resume from the detail panel later.
     watchPromise.then(async (sid) => {
       if (!sid) {
-        // eslint-disable-next-line no-console
-        console.warn('[superpowers] implementation session id watch timed out')
+        logger.add({
+          level: 'warn',
+          source: 'implement',
+          message: '实施会话监听超时 (120s)',
+        })
         return
       }
+      logger.add({
+        level: 'info',
+        source: 'implement',
+        message: `已捕获实施会话 ${sid}`,
+      })
       try {
         const comments = await listIssueComments({
           host: remote.host,
@@ -734,10 +778,18 @@ export class KanbanWebviewPanel {
    * refresh the kanban so the new fields surface immediately.
    */
   private async handleWebhookEvent(event: WebhookEvent): Promise<void> {
+    logger.add({
+      level: 'info',
+      source: 'webhook',
+      message: `收到 webhook 事件 issue=#${event.issueNumber} pr=#${event.pr}`,
+    })
     const pending = this.pendingHooks.get(event.issueNumber)
     if (!pending) {
-      // eslint-disable-next-line no-console
-      console.warn('[superpowers/webhook] no pending hook for issue', event.issueNumber)
+      logger.add({
+        level: 'warn',
+        source: 'webhook',
+        message: `收到未跟踪的 issue 回调 #${event.issueNumber}`,
+      })
       return
     }
     const token = await getToken(this.context, pending.host)
@@ -783,6 +835,13 @@ export class KanbanWebviewPanel {
       })
     }
     catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.add({
+        level: 'error',
+        source: 'webhook',
+        message: '更新 state JSON 失败',
+        details: message,
+      })
       // eslint-disable-next-line no-console
       console.error('[superpowers/webhook] failed to update state comment:', err)
     }
