@@ -304,7 +304,14 @@ export function SettingsModal({
 
                 <Field
                   label="Webhook 回调 URL 前缀"
-                  hint="Gitea 拒绝 raw IP 回调，必须用域名。留空则无法触发实施流程。"
+                  hint={(
+                    <>
+                      在 gitea 仓库 Webhooks 配置里指向
+                      {' '}
+                      <code>{'<此值>/webhook'}</code>
+                      ，事件选 Pull Request（含 opened / closed / synchronize / deleted）。插件不再自动建/删 webhook。
+                    </>
+                  )}
                 >
                   <input
                     type="text"
@@ -347,7 +354,14 @@ export function SettingsModal({
 
                 <Field
                   label="实施提示词"
-                  hint={<>可用占位符：<code>{'{planFile}'}</code></>}
+                  hint={(
+                    <>
+                      可用占位符：
+                      <code>{'{planFile}'}</code>
+                      、
+                      <code>{'{issueNumber}'}</code>
+                    </>
+                  )}
                 >
                   <textarea
                     rows={8}

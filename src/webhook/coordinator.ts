@@ -16,6 +16,7 @@ import { getReviewPrompt } from '../cc/prompts'
 import { runReview } from '../cc/reviewFlow'
 import { deleteWebhook, listIssueComments } from '../gitea/api'
 import { detectRepo } from '../git/remote'
+import { loadIssues } from '../gitea/issueLoader'
 import { mergeStateJsonComment } from '../gitea/stateJson'
 import { logger } from '../logging/logger'
 import { getSettings } from '../settings/store'
@@ -38,9 +39,14 @@ export interface PendingHook {
   feature: string
 }
 
+/** A {@link WebhookEvent} whose `issueNumber` has been resolved (either from
+ * the legacy `/webhook/:n` path or via PR-body / branch heuristics). */
+type ResolvedWebhookEvent = Omit<WebhookEvent, 'issueNumber'> & { issueNumber: number }
+
 class WebhookCoordinator {
   private ctx?: ExtensionContext
   private server?: WebhookServer
+  // kept for legacy cleanup; new flow uses one shared webhook
   private pendingHooks = new Map<number, PendingHook>()
   private activePanel: KanbanWebviewPanel | undefined
   private initialized = false
@@ -238,6 +244,78 @@ class WebhookCoordinator {
    * immediately. Always shows a toast — `window.showInformationMessage`
    * works regardless of panel state.
    */
+  /**
+   * Resolve which issue an incoming webhook event belongs to.
+   *
+   * Order of attempts:
+   *   1. `event.issueNumber` (set by the legacy `/webhook/:n` path).
+   *   2. Parse PR body for `Closes #N` / `Fixes #N` / `Resolves #N` (and
+   *      the short forms `close`/`fix`/`resolve`). First match wins,
+   *      case-insensitive.
+   *   3. Branch-name fallback: scan kanban issues for one whose `branch`
+   *      matches the event's head branch (strict equality).
+   *
+   * Returns `null` when none of the strategies produced a match — the
+   * caller drops the event with a warning.
+   */
+  private async resolveIssueNumber(event: WebhookEvent): Promise<number | null> {
+    if (typeof event.issueNumber === 'number')
+      return event.issueNumber
+
+    const body = event.body || ''
+    const m = body.match(/\b(?:closes|fixes|resolves|close|fix|resolve)\s+#(\d+)/i)
+    if (m) {
+      const n = Number.parseInt(m[1], 10)
+      logger.add({
+        level: 'info',
+        source: 'webhook',
+        message: `通过 PR body 关键词解析到 issue=#${n}`,
+      })
+      return n
+    }
+
+    if (this.activePanel && event.branch) {
+      try {
+        const ws = workspace.workspaceFolders?.[0]?.uri.fsPath
+        if (!ws)
+          return null
+        const remote = await detectRepo(ws)
+        if (!remote)
+          return null
+        const tok = await getToken(this.ctx!, remote.host)
+        if (!tok)
+          return null
+        const issues = await loadIssues({ host: remote.host, token: tok, owner: remote.owner, repo: remote.repo })
+        const found = issues.find(i => i.branch === event.branch)
+        if (found) {
+          logger.add({
+            level: 'info',
+            source: 'webhook',
+            message: `通过分支名 ${event.branch} 反查到 issue=#${found.number}`,
+          })
+          return found.number
+        }
+      }
+      catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        logger.add({
+          level: 'warn',
+          source: 'webhook',
+          message: '分支兜底反查失败',
+          details: msg,
+        })
+      }
+    }
+
+    logger.add({
+      level: 'warn',
+      source: 'webhook',
+      message: '无法定位工单（既无 path 也无 body 关键词也无 branch 匹配）',
+      details: `branch=${event.branch} bodyLen=${body.length}`,
+    })
+    return null
+  }
+
   private async handleEvent(event: WebhookEvent): Promise<void> {
     if (!this.ctx) {
       logger.add({
@@ -250,33 +328,41 @@ class WebhookCoordinator {
     logger.add({
       level: 'info',
       source: 'webhook',
-      message: `收到 webhook 事件 action=${event.action} issue=#${event.issueNumber} pr=#${event.pr}`,
+      message: `收到 webhook 事件 action=${event.action} issue=${typeof event.issueNumber === 'number' ? `#${event.issueNumber}` : '<未定>'} pr=#${event.pr}`,
     })
 
-    switch (event.action) {
+    const issueNumber = await this.resolveIssueNumber(event)
+    if (issueNumber === null)
+      return
+    // Narrow `issueNumber` for downstream handlers. We build a fresh
+    // object instead of mutating `event` so TypeScript can see the
+    // non-undefined type without casts at every call site.
+    const resolved: ResolvedWebhookEvent = { ...event, issueNumber }
+
+    switch (resolved.action) {
       case 'opened':
       case 'reopened': {
-        await this.handlePrOpened(event)
+        await this.handlePrOpened(resolved)
         break
       }
       case 'synchronize': {
-        await this.handlePrSynchronize(event)
+        await this.handlePrSynchronize(resolved)
         break
       }
       case 'closed': {
-        await this.handlePrClosed(event)
+        await this.handlePrClosed(resolved)
         break
       }
       case 'deleted': {
-        await this.handlePrDeleted(event)
+        await this.handlePrDeleted(resolved)
         break
       }
       default: {
         logger.add({
           level: 'info',
           source: 'webhook',
-          message: `未处理 action=${event.action}`,
-          details: `issue=#${event.issueNumber} pr=#${event.pr}`,
+          message: `未处理 action=${resolved.action}`,
+          details: `issue=#${resolved.issueNumber} pr=#${resolved.pr}`,
         })
         break
       }
@@ -288,7 +374,7 @@ class WebhookCoordinator {
    * state JSON, refresh the kanban, toast. The webhook is *not* deleted
    * here — Phase A keeps it alive for `synchronize` / `closed`.
    */
-  private async handlePrOpened(event: WebhookEvent): Promise<void> {
+  private async handlePrOpened(event: ResolvedWebhookEvent): Promise<void> {
     if (!this.ctx)
       return
     const ctx = await this.resolveRepoContext(event.issueNumber)
@@ -419,7 +505,7 @@ class WebhookCoordinator {
    * resume the codex thread with a follow-up prompt. Skip entirely when
    * autoReview is off or no prior session exists.
    */
-  private async handlePrSynchronize(event: WebhookEvent): Promise<void> {
+  private async handlePrSynchronize(event: ResolvedWebhookEvent): Promise<void> {
     if (!this.ctx)
       return
     if (!getSettings(this.ctx).autoReview) {
@@ -491,7 +577,7 @@ class WebhookCoordinator {
    * by a fresh `opened`) keeps flowing through the same registration.
    * Cleanup of the webhook is deferred to the future "完成" column trigger.
    */
-  private async handlePrClosed(event: WebhookEvent): Promise<void> {
+  private async handlePrClosed(event: ResolvedWebhookEvent): Promise<void> {
     logger.add({
       level: 'info',
       source: 'webhook',
@@ -506,7 +592,7 @@ class WebhookCoordinator {
    * treats them as unset) and refresh the kanban. The webhook stays alive
    * for the next push.
    */
-  private async handlePrDeleted(event: WebhookEvent): Promise<void> {
+  private async handlePrDeleted(event: ResolvedWebhookEvent): Promise<void> {
     logger.add({
       level: 'info',
       source: 'webhook',

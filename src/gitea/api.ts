@@ -205,6 +205,7 @@ export async function postIssueComment(opts: {
 }
 
 
+// no longer auto-invoked by the implement flow; kept for future manual ops
 export async function createWebhook(opts: {
   host: string
   token: string
@@ -261,6 +262,7 @@ export async function createWebhook(opts: {
   return { id }
 }
 
+// no longer auto-invoked by the implement flow; kept for future manual ops
 export async function deleteWebhook(opts: {
   host: string
   token: string

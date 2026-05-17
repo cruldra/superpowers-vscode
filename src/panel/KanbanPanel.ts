@@ -21,7 +21,6 @@ import { projectsDirFor, watchForNewSession } from '../cc/sessionWatcher'
 import { detectRepo } from '../git/remote'
 import { createWorktree } from '../git/worktree'
 import {
-  createWebhook,
   GiteaApiError,
   listIssueComments,
   postIssueComment,
@@ -604,18 +603,12 @@ export class KanbanWebviewPanel {
 
     const settings = getSettings(this.context)
     const port = settings.webhookPort
-    const publicUrl = settings.webhookPublicUrl.trim()
-    if (!publicUrl) {
-      void window.showErrorMessage('实施失败：请先在设置中填写 Webhook 回调 URL 前缀')
-      logger.add({ level: 'error', source: 'implement', message: '缺少 webhook URL 前缀' })
-      return
-    }
-    const base = publicUrl.replace(/\/+$/, '')
-    const webhookUrl = `${base}/webhook/${issueNumber}`
-    logger.add({ level: 'info', source: 'gitea', message: '使用 webhook URL', details: webhookUrl })
 
     // The webhook coordinator is started at extension activation; just
-    // ensure the port matches the current setting (no-op if unchanged).
+    // ensure the port matches the current setting (no-op if unchanged). The
+    // user must configure a single shared webhook in gitea pointing at
+    // `<publicUrl>/webhook`; the extension no longer auto-creates per-issue
+    // hooks, and PR→issue resolution happens via `Closes #N` in the PR body.
     try {
       await webhookCoordinator.ensurePort(port)
     }
@@ -625,8 +618,8 @@ export class KanbanWebviewPanel {
       return
     }
 
-    // Create the worktree before the webhook, so a worktree-add failure
-    // doesn't leave a dangling hook on gitea.
+    // Create the worktree before anything else, so a worktree-add failure
+    // doesn't leave half-written state behind.
     try {
       await createWorktree({ workspaceRoot, worktreePath, branch })
     }
@@ -656,38 +649,6 @@ export class KanbanWebviewPanel {
     // Kick off the watcher *before* spawning the terminal so we don't race.
     const watchPromise = watchForNewSession({ projectsDir: projDir, timeoutMs: 120_000 })
 
-    let hookId: number
-    try {
-      const created = await createWebhook({
-        host: remote.host,
-        token,
-        owner: remote.owner,
-        repo: remote.repo,
-        url: webhookUrl,
-        branchFilter: branch,
-      })
-      hookId = created.id
-    }
-    catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      void window.showErrorMessage(`创建 gitea webhook 失败: ${message}`)
-      return
-    }
-
-    await webhookCoordinator.addPending(issueNumber, {
-      hookId,
-      host: remote.host,
-      owner: remote.owner,
-      repo: remote.repo,
-      feature,
-    })
-    logger.add({
-      level: 'info',
-      source: 'implement',
-      message: `已注册 webhook hookId=${hookId}`,
-      details: `url=${webhookUrl} branch_filter=${branch}`,
-    })
-
     // Merge into the latest state-JSON comment so we don't clobber spec/plan/
     // sessionId etc that earlier steps wrote.
     try {
@@ -716,7 +677,7 @@ export class KanbanWebviewPanel {
     // Build the prompt. The extension already created the worktree, so cc
     // just implements the plan. `$pr_no` is left as-is for cc to fill in
     // via tool calls.
-    const prompt = getImplementPlanPrompt(this.context, { planFile })
+    const prompt = getImplementPlanPrompt(this.context, { planFile, issueNumber })
     if (prompt.includes('\'')) {
       void window.showErrorMessage('实施失败：prompt 含单引号，拒绝执行')
       return

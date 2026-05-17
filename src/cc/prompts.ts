@@ -17,9 +17,11 @@ export function getCreateIssuePrompt(ctx: ExtensionContext, vars: { userRequest:
   return tpl.split('{userRequest}').join(vars.userRequest)
 }
 
-export function getImplementPlanPrompt(ctx: ExtensionContext, vars: { planFile: string }): string {
+export function getImplementPlanPrompt(ctx: ExtensionContext, vars: { planFile: string, issueNumber: number }): string {
   const tpl = getSettings(ctx).implementPlanPrompt
-  return tpl.split('{planFile}').join(vars.planFile)
+  return tpl
+    .split('{planFile}').join(vars.planFile)
+    .split('{issueNumber}').join(String(vars.issueNumber))
 }
 
 export function getReviewPrompt(ctx: ExtensionContext, vars: { prNumber: string }): string {

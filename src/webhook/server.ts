@@ -1,13 +1,19 @@
 /**
  * Minimal HTTP server that listens for Gitea PR webhooks and fires a VS Code
- * `Event<WebhookEvent>` for each `pull_request` payload with action
- * `'opened'` or `'reopened'`.
+ * `Event<WebhookEvent>` for each `pull_request` payload.
  *
- * Route: `POST /webhook/:issueNumber`. The issue number is parsed from the
- * path and round-tripped on the event so the orchestrator can look up its
- * own pending state. Other paths/methods get a 404/405. Malformed JSON or
- * missing fields → 400. Non-matching actions still respond 200 but skip the
- * emit (gitea retries less aggressively that way).
+ * Routes accepted:
+ *   - `POST /webhook/:issueNumber` (legacy) — the issue number is taken from
+ *     the path and round-tripped on the event. Kept so per-issue webhooks
+ *     that the extension previously created on gitea keep working.
+ *   - `POST /webhook` (canonical) — the user configures a single shared
+ *     webhook in gitea pointing here; the event leaves `issueNumber`
+ *     undefined and the coordinator resolves it from the PR body
+ *     (`Closes #N` / branch fallback).
+ *
+ * Other paths/methods get a 404/405. Malformed JSON or missing fields → 400.
+ * Non-matching actions still respond 200 but skip the emit (gitea retries
+ * less aggressively that way).
  */
 
 import type { Event } from 'vscode'
@@ -17,7 +23,10 @@ import { EventEmitter } from 'vscode'
 import { logger } from '../logging/logger'
 
 export interface WebhookEvent {
-  issueNumber: number
+  /** Issue number from the legacy `/webhook/:n` path. `undefined` when the
+   * canonical `/webhook` route was used — the coordinator then resolves the
+   * issue via PR body / branch heuristics. */
+  issueNumber: number | undefined
   /** The `action` field from the `pull_request` payload (e.g. `opened`,
    * `reopened`, `synchronize`, `closed`, `edited`). The server fires this
    * event on every `pull_request` action whose payload parses correctly;
@@ -29,6 +38,10 @@ export interface WebhookEvent {
   branch: string
   /** Browser URL to the PR. */
   htmlUrl: string
+  /** PR title (best-effort; empty string if missing). */
+  title: string
+  /** PR body / description — used by the coordinator for `Closes #N` parsing. */
+  body: string
   /** Raw JSON payload, in case downstream needs more fields. */
   raw: unknown
 }
@@ -115,8 +128,21 @@ export class WebhookServer {
         return
       }
 
-      const match = /^\/webhook\/(\d+)(?:\?.*)?$/.exec(url)
-      if (!match) {
+      // Two accepted shapes:
+      //   /webhook            → issueNumber resolved later from PR body
+      //   /webhook/<digits>   → legacy per-issue, issueNumber set from path
+      let issueNumber: number | undefined
+      let routeMatched = false
+      const legacyMatch = /^\/webhook\/(\d+)(?:\?.*)?$/.exec(url)
+      if (legacyMatch) {
+        issueNumber = Number(legacyMatch[1])
+        routeMatched = true
+      }
+      else if (/^\/webhook(?:\?.*)?$/.test(url)) {
+        issueNumber = undefined
+        routeMatched = true
+      }
+      if (!routeMatched) {
         logger.add({
           level: 'warn',
           source: 'webhook',
@@ -127,7 +153,6 @@ export class WebhookServer {
         res.end(JSON.stringify({ ok: false, error: 'not_found' }))
         return
       }
-      const issueNumber = Number(match[1])
 
       const chunks: Buffer[] = []
       req.on('data', (c: Buffer) => chunks.push(c))
@@ -153,10 +178,13 @@ export class WebhookServer {
 
           const event = parseEvent(issueNumber, parsed)
           if (event) {
+            const issuePart = typeof event.issueNumber === 'number'
+              ? `issue=#${event.issueNumber}`
+              : 'path=/webhook'
             logger.add({
               level: 'info',
               source: 'webhook',
-              message: `匹配 action=${event.action} PR #${event.pr} 分支 ${event.branch} (event=${eventHeader})`,
+              message: `匹配 action=${event.action} PR #${event.pr} 分支 ${event.branch} ${issuePart} (event=${eventHeader})`,
             })
             this.emitter.fire(event)
           }
@@ -195,9 +223,11 @@ export class WebhookServer {
 /**
  * Validate and normalise a gitea pull_request webhook payload. Returns null
  * for missing fields or non-actionable actions; the HTTP handler still
- * responds 200 in both cases.
+ * responds 200 in both cases. `issueNumber` is forwarded as-is — it's
+ * `undefined` when the request came in on the canonical `/webhook` route
+ * (the coordinator resolves it from `body` / `branch` in that case).
  */
-function parseEvent(issueNumber: number, raw: unknown): WebhookEvent | null {
+function parseEvent(issueNumber: number | undefined, raw: unknown): WebhookEvent | null {
   if (!raw || typeof raw !== 'object')
     return null
   const obj = raw as {
@@ -214,6 +244,8 @@ function parseEvent(issueNumber: number, raw: unknown): WebhookEvent | null {
     number?: unknown
     html_url?: unknown
     head?: unknown
+    title?: unknown
+    body?: unknown
   }
   const num = typeof prObj.number === 'number' ? prObj.number : Number(prObj.number)
   if (!Number.isFinite(num))
@@ -221,6 +253,8 @@ function parseEvent(issueNumber: number, raw: unknown): WebhookEvent | null {
   const htmlUrl = typeof prObj.html_url === 'string' ? prObj.html_url : ''
   const head = prObj.head as { ref?: unknown } | undefined
   const branch = head && typeof head.ref === 'string' ? head.ref : ''
+  const title = typeof prObj.title === 'string' ? prObj.title : ''
+  const body = typeof prObj.body === 'string' ? prObj.body : ''
 
   if (!branch || !htmlUrl)
     return null
@@ -231,7 +265,8 @@ function parseEvent(issueNumber: number, raw: unknown): WebhookEvent | null {
     pr: String(num),
     branch,
     htmlUrl,
+    title,
+    body,
     raw,
   }
 }
-
