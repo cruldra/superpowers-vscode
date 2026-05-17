@@ -167,7 +167,7 @@ export class KanbanWebviewPanel {
       return
     }
     if (msg.type === 'session/resume') {
-      this.handleResumeSession(msg.sessionId, msg.profilePath, msg.cwd, msg.issueNumber)
+      void this.handleResumeSession(msg.sessionId, msg.profilePath, msg.cwd, msg.issueNumber)
       return
     }
     if (msg.type === 'session/focus') {
@@ -175,7 +175,7 @@ export class KanbanWebviewPanel {
       return
     }
     if (msg.type === 'session/resume-review') {
-      this.handleResumeReviewSession(msg.sessionId, msg.issueNumber, msg.cwd)
+      void this.handleResumeReviewSession(msg.sessionId, msg.issueNumber, msg.cwd)
       return
     }
     if (msg.type === 'editor/open-file') {
@@ -266,7 +266,26 @@ export class KanbanWebviewPanel {
 
   
 
-  private handleResumeSession(sessionId: string, profilePath?: string, relCwd?: string, issueNumber?: number): void {
+  private async handleResumeSession(sessionId: string, profilePath?: string, relCwd?: string, issueNumber?: number): Promise<void> {
+    // Server-side prerequisite gate. Webview already disables the entry
+    // visually (see `isIssueLocked` in the kanban UI), but a user who
+    // bypasses that — message tampering, editing Gitea directly, etc. —
+    // would otherwise still get a session. Skip when `issueNumber` is
+    // unknown (legacy sessions) so we don't gate flows that never had a
+    // prerequisite concept.
+    if (issueNumber !== undefined) {
+      const lockCheck = await this.resolveLockedReason(issueNumber)
+      if (lockCheck.locked) {
+        logger.add({
+          level: 'warn',
+          source: 'panel',
+          message: `拒绝打开会话 #${issueNumber}：前置 #${lockCheck.prerequisiteNumber} 未完成`,
+        })
+        await window.showWarningMessage(`等待前置工单 #${lockCheck.prerequisiteNumber} 完成`)
+        return
+      }
+    }
+
     const existing = this.terminals.get(sessionId)
     if (existing) {
       existing.show(false)
@@ -357,7 +376,22 @@ export class KanbanWebviewPanel {
     return true
   }
 
-  private handleResumeReviewSession(sessionId: string, issueNumber: number, relCwd?: string): void {
+  private async handleResumeReviewSession(sessionId: string, issueNumber: number, relCwd?: string): Promise<void> {
+    // Server-side prerequisite gate — consistent with handleResumeSession /
+    // handleImplement. In practice review sessions imply the issue has
+    // moved past todo (a worktree must exist), but enforcing here keeps
+    // the contract uniform.
+    const lockCheck = await this.resolveLockedReason(issueNumber)
+    if (lockCheck.locked) {
+      logger.add({
+        level: 'warn',
+        source: 'panel',
+        message: `拒绝打开审查会话 #${issueNumber}：前置 #${lockCheck.prerequisiteNumber} 未完成`,
+      })
+      await window.showWarningMessage(`等待前置工单 #${lockCheck.prerequisiteNumber} 完成`)
+      return
+    }
+
     const existing = this.reviewTerminals.get(sessionId)
     if (existing) {
       existing.show(false)
@@ -597,6 +631,20 @@ export class KanbanWebviewPanel {
     profilePath?: string,
     _sessionId?: string,
   ): Promise<void> {
+    // Server-side prerequisite gate — webview disables the implement
+    // button when the prerequisite isn't done, but enforce here too so
+    // tampered messages can't slip past.
+    const lockCheck = await this.resolveLockedReason(issueNumber)
+    if (lockCheck.locked) {
+      logger.add({
+        level: 'warn',
+        source: 'panel',
+        message: `拒绝实施 #${issueNumber}：前置 #${lockCheck.prerequisiteNumber} 未完成`,
+      })
+      await window.showWarningMessage(`等待前置工单 #${lockCheck.prerequisiteNumber} 完成`)
+      return
+    }
+
     logger.add({
       level: 'info',
       source: 'implement',
@@ -1215,6 +1263,66 @@ export class KanbanWebviewPanel {
       message: `工单 #${issueNumber} 已完成，worktree 已清理`,
       dismissOnTimer: 5000,
     })
+  }
+
+  /**
+   * Server-side lock check for prerequisite gating. Fetches a fresh issues
+   * snapshot (we don't trust webview state) and reports whether
+   * `issueNumber` is blocked by an unfinished prerequisite. Mirrors the
+   * webview-side `isIssueLocked` predicate: locked iff the issue has a
+   * prerequisite that exists in the current snapshot and is not yet in the
+   * `done` column.
+   *
+   * Fail-open: any error fetching issues is logged and we return
+   * `{ locked: false }` so a transient Gitea hiccup can't lock the user out
+   * of starting a session.
+   */
+  private async resolveLockedReason(
+    issueNumber: number,
+  ): Promise<{ locked: boolean, prerequisiteNumber?: number, prerequisiteColumn?: string }> {
+    try {
+      const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+      if (!workspaceRoot)
+        return { locked: false }
+      const remote = await detectRepo(workspaceRoot)
+      if (!remote)
+        return { locked: false }
+      const token = await getToken(this.context, remote.host)
+      if (!token)
+        return { locked: false }
+      const issues = await loadIssues({
+        host: remote.host,
+        token,
+        owner: remote.owner,
+        repo: remote.repo,
+        workspaceRoot,
+      })
+      const issue = issues.find(i => i.number === issueNumber)
+      if (!issue)
+        return { locked: false }
+      if (issue.prerequisite === undefined)
+        return { locked: false }
+      const prereq = issues.find(i => i.number === issue.prerequisite)
+      if (!prereq)
+        return { locked: false }
+      if (prereq.column === 'done')
+        return { locked: false }
+      return {
+        locked: true,
+        prerequisiteNumber: prereq.number,
+        prerequisiteColumn: prereq.column,
+      }
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.add({
+        level: 'warn',
+        source: 'panel',
+        message: `锁定检查失败，放行 #${issueNumber}`,
+        details: message,
+      })
+      return { locked: false }
+    }
   }
 
   private async handleSetDependency(issueNumber: number, prerequisiteNumber: number): Promise<void> {
