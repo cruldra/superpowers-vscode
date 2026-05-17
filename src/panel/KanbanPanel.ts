@@ -58,6 +58,13 @@ export class KanbanWebviewPanel {
    */
   private readonly implTerminals = new Map<number, Terminal>()
 
+  /**
+   * codex review terminals keyed by review session id (codex thread_id).
+   * Lets `handleResumeReviewSession` reuse an existing tab instead of
+   * spawning a fresh one on every click.
+   */
+  private readonly reviewTerminals = new Map<string, Terminal>()
+
   private constructor(private readonly context: ExtensionContext, panel: WebviewPanel) {
     this.panel = panel
 
@@ -92,6 +99,12 @@ export class KanbanWebviewPanel {
         for (const [n, t] of this.implTerminals) {
           if (t === closed) {
             this.implTerminals.delete(n)
+            break
+          }
+        }
+        for (const [sid, t] of this.reviewTerminals) {
+          if (t === closed) {
+            this.reviewTerminals.delete(sid)
             break
           }
         }
@@ -199,6 +212,7 @@ export class KanbanWebviewPanel {
     const tracked: Terminal[] = [
       ...this.terminals.values(),
       ...this.implTerminals.values(),
+      ...this.reviewTerminals.values(),
     ]
     for (const existing of tracked) {
       for (const group of window.tabGroups.all) {
@@ -311,6 +325,11 @@ export class KanbanWebviewPanel {
   }
 
   private handleResumeReviewSession(sessionId: string, issueNumber: number): void {
+    const existing = this.reviewTerminals.get(sessionId)
+    if (existing) {
+      existing.show(false)
+      return
+    }
     const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
     const terminal = window.createTerminal({
       name: `issue-${issueNumber}-审查`,
@@ -318,6 +337,7 @@ export class KanbanWebviewPanel {
       location: this.resolveTerminalLocation(false),
       color: issueTerminalColor(issueNumber),
     })
+    this.reviewTerminals.set(sessionId, terminal)
     terminal.show(false)
     terminal.sendText(`codex resume ${sessionId}`)
     logger.add({
