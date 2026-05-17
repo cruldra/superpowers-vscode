@@ -32,6 +32,17 @@ interface KanbanBoardProps {
    * targeting `done`; other column changes remain client-visual-only.
    */
   onColumnChange?: (issueNumber: number, toColumn: IssueColumn) => void
+  /**
+   * Called when a drag gesture establishes a new prerequisite relationship
+   * (drop onto another todo card's middle 1/3) or moves to a sibling whose
+   * parent differs from the active card's current parent.
+   */
+  onDependencySet?: (issueNumber: number, prerequisiteNumber: number) => void
+  /**
+   * Called when a drag gesture clears an existing prerequisite (e.g. drop
+   * onto the todo column's empty area, or onto a sibling at root level).
+   */
+  onDependencyClear?: (issueNumber: number, prerequisiteNumber: number) => void
 }
 
 function isColumnId(id: string): id is IssueColumn {
@@ -96,6 +107,8 @@ export function KanbanBoard({
   selectedId,
   onSelectIssue,
   onColumnChange,
+  onDependencySet,
+  onDependencyClear,
 }: KanbanBoardProps) {
   const [activeId, setActiveId] = useState<string | null>(null)
 
@@ -132,6 +145,43 @@ export function KanbanBoard({
     setActiveId(String(event.active.id))
   }
 
+  /**
+   * Classify the drop position relative to the `over` card. Middle 1/3
+   * means nest (set prerequisite); the upper/lower 2/3 means sibling reorder.
+   * The 1/3-2/3 split is intentionally wider than 1/4-1/2-1/4 because the
+   * sortable strategy reflows during drag, so the user needs more room.
+   */
+  function detectDropZone(event: DragEndEvent): 'middle' | 'edge' {
+    const activeRect = event.active.rect.current.translated
+    const overRect = event.over?.rect
+    if (!activeRect || !overRect)
+      return 'edge'
+    const activeCenterY = (activeRect.top + activeRect.bottom) / 2
+    const overHeight = overRect.height
+    const middleStart = overRect.top + overHeight * 0.33
+    const middleEnd = overRect.top + overHeight * 0.67
+    return activeCenterY >= middleStart && activeCenterY <= middleEnd ? 'middle' : 'edge'
+  }
+
+  /**
+   * Walks up the prerequisite chain from `target`, returning true if
+   * `maybeAncestor` appears anywhere on the way. Uses a visited set so a
+   * pre-existing cycle in the data doesn't spin forever.
+   */
+  function isDescendant(maybeAncestor: number, target: number, all: Issue[]): boolean {
+    const visited = new Set<number>()
+    let current: Issue | undefined = all.find(i => i.number === target)
+    while (current && current.prerequisite != null) {
+      if (visited.has(current.number))
+        return false
+      visited.add(current.number)
+      if (current.prerequisite === maybeAncestor)
+        return true
+      current = all.find(i => i.number === current!.prerequisite)
+    }
+    return false
+  }
+
   function handleDragEnd(event: DragEndEvent): void {
     const { active, over } = event
     setActiveId(null)
@@ -148,8 +198,37 @@ export function KanbanBoard({
       return
     const activeItem = issues[activeIndex]
 
+    // Lock check: a todo card whose prerequisite is still unfinished must
+    // stay in the todo column. Resolve target column from either the over
+    // column id or the over card's column.
+    const prereqIssue = activeItem.prerequisite != null
+      ? issues.find(i => i.number === activeItem.prerequisite)
+      : undefined
+    const isLocked = !!prereqIssue && prereqIssue.column !== 'done'
+    if (isLocked && activeItem.column === 'todo') {
+      const overItemForLock = isColumnId(overIdStr)
+        ? undefined
+        : issues.find(i => i.id === overIdStr)
+      const targetColumn: IssueColumn | undefined = isColumnId(overIdStr)
+        ? overIdStr
+        : overItemForLock?.column
+      if (targetColumn && targetColumn !== 'todo')
+        return
+    }
+
     // Dropped onto a column container
     if (isColumnId(overIdStr)) {
+      // Drop onto the todo column's empty area while the card is already in
+      // todo → clear prerequisite (move to root level, append at column end).
+      if (overIdStr === 'todo' && activeItem.column === 'todo' && activeItem.prerequisite != null) {
+        const prevPrereq = activeItem.prerequisite
+        const next = [...issues]
+        next.splice(activeIndex, 1)
+        next.push({ ...activeItem, prerequisite: undefined })
+        onIssuesChange(next)
+        onDependencyClear?.(activeItem.number, prevPrereq)
+        return
+      }
       if (activeItem.column === overIdStr)
         return
       const next = [...issues]
@@ -167,20 +246,67 @@ export function KanbanBoard({
       return
     const overItem = issues[overIndex]
 
-    if (activeItem.column === overItem.column) {
-      onIssuesChange(arrayMove(issues, activeIndex, overIndex))
+    // Cross-column or non-todo-to-non-todo: keep the existing semantics.
+    if (activeItem.column !== 'todo' || overItem.column !== 'todo') {
+      if (activeItem.column === overItem.column) {
+        onIssuesChange(arrayMove(issues, activeIndex, overIndex))
+        return
+      }
+      // Cross-column: drop activeItem at overItem's position in the new column
+      const next = [...issues]
+      next.splice(activeIndex, 1)
+      const newOverIndex = next.findIndex(i => i.id === overIdStr)
+      const insertAt = newOverIndex < 0 ? next.length : newOverIndex
+      next.splice(insertAt, 0, { ...activeItem, column: overItem.column })
+      onIssuesChange(next)
+      if (overItem.column === 'done')
+        onColumnChange?.(activeItem.number, overItem.column)
       return
     }
 
-    // Cross-column: drop activeItem at overItem's position in the new column
+    // Both in todo: distinguish nest (middle 1/3) vs sibling reorder (edge).
+    const zone = detectDropZone(event)
+    if (zone === 'middle') {
+      // Don't allow nesting onto our own descendant (would form a cycle).
+      if (isDescendant(activeItem.number, overItem.number, issues))
+        return
+      // Already nested under this same parent → nothing to do.
+      if (activeItem.prerequisite === overItem.number)
+        return
+      const next = [...issues]
+      next.splice(activeIndex, 1)
+      const newOverIndex = next.findIndex(i => i.id === overIdStr)
+      const insertAt = newOverIndex < 0 ? next.length : newOverIndex + 1
+      next.splice(insertAt, 0, { ...activeItem, prerequisite: overItem.number })
+      onIssuesChange(next)
+      onDependencySet?.(activeItem.number, overItem.number)
+      return
+    }
+
+    // edge: sibling reorder. Inherit the over card's prerequisite as parent.
+    const newParent = overItem.prerequisite
+    if (newParent === activeItem.prerequisite) {
+      // Same parent (including both undefined): pure reorder.
+      onIssuesChange(arrayMove(issues, activeIndex, overIndex))
+      return
+    }
+    // Cycle guard: refuse to set the new parent if it would put active under
+    // its own descendant. Still reorder visually.
+    const cycle = newParent != null && isDescendant(activeItem.number, newParent, issues)
+    if (cycle) {
+      onIssuesChange(arrayMove(issues, activeIndex, overIndex))
+      return
+    }
     const next = [...issues]
     next.splice(activeIndex, 1)
     const newOverIndex = next.findIndex(i => i.id === overIdStr)
     const insertAt = newOverIndex < 0 ? next.length : newOverIndex
-    next.splice(insertAt, 0, { ...activeItem, column: overItem.column })
+    next.splice(insertAt, 0, { ...activeItem, prerequisite: newParent })
     onIssuesChange(next)
-    if (overItem.column === 'done')
-      onColumnChange?.(activeItem.number, overItem.column)
+    if (newParent == null)
+      onDependencyClear?.(activeItem.number, activeItem.prerequisite!)
+    else
+      onDependencySet?.(activeItem.number, newParent)
   }
 
   return (

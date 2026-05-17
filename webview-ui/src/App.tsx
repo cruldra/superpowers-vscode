@@ -35,6 +35,8 @@ export function App() {
     openWorktree,
     deleteWorktree,
     changeColumn,
+    setDependency,
+    clearDependency,
     logs,
     clearLogs,
   } = useIssues()
@@ -211,6 +213,8 @@ export function App() {
                 selectedId={selectedId}
                 onSelectIssue={setSelectedId}
                 onColumnChange={changeColumn}
+                onDependencySet={setDependency}
+                onDependencyClear={clearDependency}
               />
             </div>
             <div className="h-[40vh] shrink-0">

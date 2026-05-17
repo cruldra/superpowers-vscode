@@ -78,6 +78,8 @@ export interface UseIssuesResult {
   openWorktree: (path: string) => void
   deleteWorktree: (issueNumber: number, path: string) => void
   changeColumn: (issueNumber: number, toColumn: IssueColumn) => void
+  setDependency: (issueNumber: number, prerequisiteNumber: number) => void
+  clearDependency: (issueNumber: number, prerequisiteNumber: number) => void
   logs: LogEntry[]
   fetchLogs: () => void
   clearLogs: () => void
@@ -190,6 +192,14 @@ export function useIssues(): UseIssuesResult {
     postMessage({ type: 'column/change', issueNumber, toColumn })
   }, [])
 
+  const setDependency = useCallback((issueNumber: number, prerequisiteNumber: number): void => {
+    postMessage({ type: 'dependency/set', issueNumber, prerequisiteNumber })
+  }, [])
+
+  const clearDependency = useCallback((issueNumber: number, prerequisiteNumber: number): void => {
+    postMessage({ type: 'dependency/clear', issueNumber, prerequisiteNumber })
+  }, [])
+
   const fetchLogs = useCallback((): void => {
     postMessage({ type: 'logs/fetch' })
   }, [])
@@ -274,5 +284,5 @@ export function useIssues(): UseIssuesResult {
     return cleanup
   }, [])
 
-  return { state, settings, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, focusSession, openFile, loadSessionFiles, implement, openPr, openWorktree, deleteWorktree, changeColumn, logs, fetchLogs, clearLogs }
+  return { state, settings, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, focusSession, openFile, loadSessionFiles, implement, openPr, openWorktree, deleteWorktree, changeColumn, setDependency, clearDependency, logs, fetchLogs, clearLogs }
 }
