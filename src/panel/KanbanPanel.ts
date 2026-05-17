@@ -173,7 +173,7 @@ export class KanbanWebviewPanel {
       return
     }
     if (msg.type === 'session/resume-review') {
-      this.handleResumeReviewSession(msg.sessionId, msg.issueNumber)
+      this.handleResumeReviewSession(msg.sessionId, msg.issueNumber, msg.cwd)
       return
     }
     if (msg.type === 'editor/open-file') {
@@ -347,16 +347,26 @@ export class KanbanWebviewPanel {
     return true
   }
 
-  private handleResumeReviewSession(sessionId: string, issueNumber: number): void {
+  private handleResumeReviewSession(sessionId: string, issueNumber: number, relCwd?: string): void {
     const existing = this.reviewTerminals.get(sessionId)
     if (existing) {
       existing.show(false)
       return
     }
     const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    const worktreeAbs = relCwd && workspaceRoot ? path.join(workspaceRoot, relCwd) : undefined
+    const effectiveCwd = (worktreeAbs && fs.existsSync(worktreeAbs)) ? worktreeAbs : workspaceRoot
+    if (relCwd && worktreeAbs && effectiveCwd !== worktreeAbs) {
+      logger.add({
+        level: 'info',
+        source: 'terminal',
+        message: `审查 cwd 回退到 workspaceRoot (worktree 不存在或未记录) #${issueNumber}`,
+        details: `worktreeAbs=${worktreeAbs}`,
+      })
+    }
     const terminal = window.createTerminal({
       name: `issue-${issueNumber}-审查`,
-      cwd: workspaceRoot,
+      cwd: effectiveCwd,
       location: this.resolveTerminalLocation(false),
       color: issueTerminalColor(issueNumber),
     })
@@ -366,7 +376,7 @@ export class KanbanWebviewPanel {
     logger.add({
       level: 'info',
       source: 'terminal',
-      message: `已创建审查会话终端 #${issueNumber}`,
+      message: `已创建审查会话终端 #${issueNumber} cwd=${effectiveCwd ?? '<none>'}`,
     })
   }
 

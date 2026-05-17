@@ -11,7 +11,7 @@ interface IssueDetailPanelProps {
   onResumeSession: (sessionId: string, profilePath?: string, cwd?: string, issueNumber?: number) => void
   /** Open a new terminal that runs `codex resume <id>` for the auto-review
    * conversation associated with this issue. */
-  onResumeReviewSession: (sessionId: string, issueNumber: number) => void
+  onResumeReviewSession: (sessionId: string, issueNumber: number, cwd?: string) => void
   /** Open a workspace-relative file in the editor. */
   onOpenFile: (path: string) => void
   /** Scan the Claude session transcript for `sessionId` and merge any
@@ -104,11 +104,11 @@ export function IssueDetailPanel({
             key: 'reviewSessionId',
             label: '审查会话id',
             type: 'action',
-            description: '点击在新终端运行 codex resume <id> 查看审查会话',
+            description: '点击在新终端运行 codex resume <id> 查看审查会话（cwd 优先用 worktree）',
             actionIcon: <Terminal className="size-3.5" />,
             onAction: (v) => {
               if (typeof v === 'string' && v.length > 0 && issue)
-                onResumeReviewSession(v, issue.number)
+                onResumeReviewSession(v, issue.number, issue?.worktreePath)
             },
           },
           {

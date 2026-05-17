@@ -69,7 +69,7 @@ export interface UseIssuesResult {
   dismissToast: (id: string) => void
   openUrl: (url: string) => void
   resumeSession: (sessionId: string, profilePath?: string, cwd?: string, issueNumber?: number) => void
-  resumeReviewSession: (sessionId: string, issueNumber: number) => void
+  resumeReviewSession: (sessionId: string, issueNumber: number, cwd?: string) => void
   focusSession: (sessionId: string) => void
   openFile: (path: string) => void
   loadSessionFiles: (sessionId: string | undefined, issueNumber: number) => void
@@ -148,8 +148,8 @@ export function useIssues(): UseIssuesResult {
     postMessage({ type: 'session/focus', sessionId })
   }, [])
 
-  const resumeReviewSession = useCallback((sessionId: string, issueNumber: number): void => {
-    postMessage({ type: 'session/resume-review', sessionId, issueNumber })
+  const resumeReviewSession = useCallback((sessionId: string, issueNumber: number, cwd?: string): void => {
+    postMessage({ type: 'session/resume-review', sessionId, issueNumber, cwd })
   }, [])
 
   const openFile = useCallback((path: string): void => {

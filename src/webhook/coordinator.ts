@@ -10,6 +10,8 @@
  */
 
 import type { ExtensionContext } from 'vscode'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 import { env, Uri, window, workspace } from 'vscode'
 import { getToken } from '../auth/secrets'
 import { getReviewPrompt } from '../cc/prompts'
@@ -701,10 +703,55 @@ class WebhookCoordinator {
       return
     }
 
+    // Re-fetch state JSON to pick up the issue's worktreePath. Same pattern
+    // as handlePrSynchronize uses for reviewSessionId.
+    let worktreePath: string | undefined
+    try {
+      const comments = await listIssueComments({
+        host: ctx.host,
+        token: ctx.token,
+        owner: ctx.owner,
+        repo: ctx.repo,
+        index: issueNumber,
+      })
+      const last = comments[comments.length - 1]
+      const body = (last?.body ?? '').trim()
+      if (body) {
+        try {
+          const parsed = JSON.parse(body) as { worktreePath?: unknown }
+          if (typeof parsed?.worktreePath === 'string' && parsed.worktreePath.length > 0)
+            worktreePath = parsed.worktreePath
+        }
+        catch {
+          // last comment isn't JSON — proceed without a worktree.
+        }
+      }
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.add({
+        level: 'warn',
+        source: 'webhook',
+        message: `读取 state JSON 失败（triggerReview）#${issueNumber}`,
+        details: message,
+      })
+    }
+
+    const worktreeAbs = workspaceRoot && worktreePath ? path.join(workspaceRoot, worktreePath) : undefined
+    const cwd = (worktreeAbs && fs.existsSync(worktreeAbs)) ? worktreeAbs : workspaceRoot
+    if (worktreePath && cwd !== worktreeAbs) {
+      logger.add({
+        level: 'info',
+        source: 'webhook',
+        message: `审查 cwd 回退到 workspaceRoot (worktree 不存在或未记录) #${issueNumber}`,
+        details: `worktreeAbs=${worktreeAbs ?? '<none>'}`,
+      })
+    }
+
     logger.add({
       level: 'info',
       source: 'webhook',
-      message: `开始审查 #${issueNumber} resume=${resumeFrom ? 'true' : 'false'}`,
+      message: `开始审查 #${issueNumber} resume=${resumeFrom ? 'true' : 'false'} cwd=${cwd}`,
     })
 
     const prompt = resumeFrom
@@ -714,7 +761,7 @@ class WebhookCoordinator {
     let result: { sessionId: string | null, text: string }
     try {
       result = await runReview({
-        workspaceRoot,
+        workspaceRoot: cwd,
         prompt,
         resumeFrom,
       })

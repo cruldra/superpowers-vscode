@@ -58,7 +58,7 @@ export type WebviewToExtension =
   | { type: 'toast/open-url', url: string }
   | { type: 'session/resume', sessionId: string, profilePath?: string, cwd?: string, issueNumber?: number }
   | { type: 'session/focus', sessionId: string }
-  | { type: 'session/resume-review', sessionId: string, issueNumber: number }
+  | { type: 'session/resume-review', sessionId: string, issueNumber: number, cwd?: string }
   | { type: 'editor/open-file', path: string }
   | { type: 'session/load-files', sessionId: string, issueNumber: number }
   | { type: 'profiles/list' }
