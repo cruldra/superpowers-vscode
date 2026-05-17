@@ -26,7 +26,7 @@ export interface SettingsValues {
   host: string
   token: string
   webhookPort: number
-  webhookHost: string
+  webhookPublicUrl: string
   createIssuePrompt: string
   implementPlanPrompt: string
 }
@@ -36,7 +36,7 @@ export interface SettingsOverlayState {
   errorMessage?: string
   canCancel: boolean
   webhookPort: number
-  webhookHost: string
+  webhookPublicUrl: string
   createIssuePrompt: string
   implementPlanPrompt: string
 }
@@ -97,7 +97,7 @@ export function useIssues(): UseIssuesResult {
       host: values.host,
       token: values.token,
       webhookPort: values.webhookPort,
-      webhookHost: values.webhookHost,
+      webhookPublicUrl: values.webhookPublicUrl,
       createIssuePrompt: values.createIssuePrompt,
       implementPlanPrompt: values.implementPlanPrompt,
     })
@@ -200,7 +200,7 @@ export function useIssues(): UseIssuesResult {
             errorMessage: msg.errorMessage,
             canCancel: msg.canCancel === true,
             webhookPort: msg.webhookPort,
-            webhookHost: msg.webhookHost,
+            webhookPublicUrl: msg.webhookPublicUrl,
             createIssuePrompt: msg.createIssuePrompt,
             implementPlanPrompt: msg.implementPlanPrompt,
           })

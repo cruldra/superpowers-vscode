@@ -271,7 +271,7 @@ export function App() {
         errorMessage={settings?.errorMessage}
         canCancel={settings?.canCancel}
         initialWebhookPort={settings?.webhookPort ?? 17421}
-        initialWebhookHost={settings?.webhookHost ?? ''}
+        initialWebhookPublicUrl={settings?.webhookPublicUrl ?? ''}
         initialCreateIssuePrompt={settings?.createIssuePrompt ?? ''}
         initialImplementPlanPrompt={settings?.implementPlanPrompt ?? ''}
         onSubmit={saveSettings}

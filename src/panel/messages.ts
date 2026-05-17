@@ -20,7 +20,7 @@ export type ExtensionToWebview =
     errorMessage?: string
     canCancel?: boolean
     webhookPort: number
-    webhookHost: string
+    webhookPublicUrl: string
     createIssuePrompt: string
     implementPlanPrompt: string
   }
@@ -46,7 +46,7 @@ export type WebviewToExtension =
     host: string
     token: string
     webhookPort: number
-    webhookHost: string
+    webhookPublicUrl: string
     createIssuePrompt: string
     implementPlanPrompt: string
   }

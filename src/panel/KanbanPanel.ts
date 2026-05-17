@@ -30,7 +30,6 @@ import { mergeStateJsonComment } from '../gitea/stateJson'
 import { loadIssues } from '../gitea/issueLoader'
 import { logger } from '../logging/logger'
 import { getSettings, saveSettings } from '../settings/store'
-import { detectLocalHost } from '../webhook/host'
 import { webhookCoordinator } from '../webhook/coordinator'
 
 const DEFAULT_PROFILE_PATH = '/home/cruldra/Sources/cruldra-profile/claude-config/profiles/offical.json'
@@ -532,9 +531,15 @@ export class KanbanWebviewPanel {
 
     const settings = getSettings(this.context)
     const port = settings.webhookPort
-    const hostOverride = settings.webhookHost
-    const host = detectLocalHost(hostOverride)
     const publicUrl = settings.webhookPublicUrl.trim()
+    if (!publicUrl) {
+      void window.showErrorMessage('实施失败：请先在设置中填写 Webhook 回调 URL 前缀')
+      logger.add({ level: 'error', source: 'implement', message: '缺少 webhook URL 前缀' })
+      return
+    }
+    const base = publicUrl.replace(/\/+$/, '')
+    const webhookUrl = `${base}/webhook/${issueNumber}`
+    logger.add({ level: 'info', source: 'gitea', message: '使用 webhook URL', details: webhookUrl })
 
     // The webhook coordinator is started at extension activation; just
     // ensure the port matches the current setting (no-op if unchanged).
@@ -545,16 +550,6 @@ export class KanbanWebviewPanel {
       const message = err instanceof Error ? err.message : String(err)
       void window.showErrorMessage(`webhook 服务启动失败: ${message}`)
       return
-    }
-
-    let webhookUrl: string
-    if (publicUrl) {
-      const base = publicUrl.replace(/\/+$/, '')
-      webhookUrl = `${base}/webhook/${issueNumber}`
-      logger.add({ level: 'info', source: 'gitea', message: '使用公网 webhook URL', details: publicUrl })
-    }
-    else {
-      webhookUrl = `http://${host}:${port}/webhook/${issueNumber}`
     }
 
     // Create the worktree before the webhook, so a worktree-add failure
@@ -763,7 +758,7 @@ export class KanbanWebviewPanel {
         type: 'settings/show',
         host,
         webhookPort: s.webhookPort,
-        webhookHost: s.webhookHost,
+        webhookPublicUrl: s.webhookPublicUrl,
         createIssuePrompt: s.createIssuePrompt,
         implementPlanPrompt: s.implementPlanPrompt,
       })
@@ -783,7 +778,7 @@ export class KanbanWebviewPanel {
           host,
           errorMessage: 'Token 无效或已过期，请重新填写',
           webhookPort: s.webhookPort,
-          webhookHost: s.webhookHost,
+          webhookPublicUrl: s.webhookPublicUrl,
           createIssuePrompt: s.createIssuePrompt,
           implementPlanPrompt: s.implementPlanPrompt,
         })
@@ -799,12 +794,13 @@ export class KanbanWebviewPanel {
     host: string
     token: string
     webhookPort: number
-    webhookHost: string
+    webhookPublicUrl: string
     createIssuePrompt: string
     implementPlanPrompt: string
   }): Promise<void> {
     const trimmedHost = payload.host.trim()
     const trimmedToken = payload.token.trim()
+    const trimmedUrl = payload.webhookPublicUrl.trim()
     const prev = getSettings(this.context)
     if (!trimmedHost || !trimmedToken) {
       this.postMessage({
@@ -812,7 +808,7 @@ export class KanbanWebviewPanel {
         host: trimmedHost,
         errorMessage: 'Host 和 Token 都不能为空',
         webhookPort: payload.webhookPort,
-        webhookHost: payload.webhookHost,
+        webhookPublicUrl: trimmedUrl,
         createIssuePrompt: payload.createIssuePrompt || prev.createIssuePrompt,
         implementPlanPrompt: payload.implementPlanPrompt || prev.implementPlanPrompt,
       })
@@ -820,14 +816,11 @@ export class KanbanWebviewPanel {
     }
     // Capture the previous token *for this host* before overwriting it, so
     // we can decide below whether the kanban needs a re-fetch. (Only host
-    // and token affect the issue list — port/host-override/prompts don't.)
+    // and token affect the issue list — port/url-prefix/prompts don't.)
     const oldToken = await getToken(this.context, trimmedHost)
-    // The new modal doesn't manage webhookPublicUrl; preserve whatever was
-    // there so we don't accidentally clear an frp/Caddy override.
     await saveSettings(this.context, {
       webhookPort: payload.webhookPort,
-      webhookHost: payload.webhookHost,
-      webhookPublicUrl: prev.webhookPublicUrl,
+      webhookPublicUrl: trimmedUrl,
       createIssuePrompt: payload.createIssuePrompt,
       implementPlanPrompt: payload.implementPlanPrompt,
     })
@@ -877,7 +870,7 @@ export class KanbanWebviewPanel {
       host,
       canCancel: true,
       webhookPort: s.webhookPort,
-      webhookHost: s.webhookHost,
+      webhookPublicUrl: s.webhookPublicUrl,
       createIssuePrompt: s.createIssuePrompt,
       implementPlanPrompt: s.implementPlanPrompt,
     })

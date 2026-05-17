@@ -2,12 +2,12 @@
  * Non-secret extension settings persisted in `globalState`.
  *
  * Token stays in `context.secrets` (see `src/auth/secrets.ts`); everything
- * else (webhook port/host, prompt templates) lives here under a single JSON
- * blob keyed by `SETTINGS_KEY`.
+ * else (webhook port, public URL prefix, prompt templates) lives here under
+ * a single JSON blob keyed by `SETTINGS_KEY`.
  *
- * Empty-string values for prompts or `webhookHost` are treated as "use the
- * default" so the form can save user input verbatim and still fall back when
- * the user clears a field.
+ * Empty-string values for prompts are treated as "use the default" so the
+ * form can save user input verbatim and still fall back when the user clears
+ * a field.
  */
 
 import type { ExtensionContext } from 'vscode'
@@ -21,11 +21,9 @@ export const DEFAULT_WEBHOOK_PORT = 17421
 export interface Settings {
   /** Local HTTP port for receiving gitea webhook callbacks. */
   webhookPort: number
-  /** IP override for the local webhook host; empty means auto-detect. */
-  webhookHost: string
-  /** Public URL override registered with gitea (e.g. via frp/Caddy). Empty
-   * means "build from host+port"; the local server still listens on
-   * `webhookPort` regardless. */
+  /** Public URL prefix registered with gitea (e.g. via frp/Caddy). Gitea
+   * rejects raw IPs, so a domain prefix is effectively required to trigger
+   * the implement flow. The local server still listens on `webhookPort`. */
   webhookPublicUrl: string
   /** Prompt template for the create-issue flow. `{userRequest}` placeholder. */
   createIssuePrompt: string
@@ -38,7 +36,6 @@ export const SETTINGS_KEY = 'superpowers.settings'
 function defaults(): Settings {
   return {
     webhookPort: DEFAULT_WEBHOOK_PORT,
-    webhookHost: '',
     webhookPublicUrl: '',
     createIssuePrompt: DEFAULT_CREATE_ISSUE_PROMPT,
     implementPlanPrompt: DEFAULT_IMPLEMENT_PLAN_PROMPT,
@@ -54,9 +51,6 @@ export function getSettings(ctx: ExtensionContext): Settings {
     ? stored.webhookPort
     : base.webhookPort
 
-  // Empty-string sentinel means "use default" so the form can save a blank
-  // value verbatim and still fall back here.
-  const webhookHost = typeof stored.webhookHost === 'string' ? stored.webhookHost : base.webhookHost
   const webhookPublicUrl = typeof stored.webhookPublicUrl === 'string' ? stored.webhookPublicUrl : base.webhookPublicUrl
   const createIssuePrompt = typeof stored.createIssuePrompt === 'string' && stored.createIssuePrompt.length > 0
     ? stored.createIssuePrompt
@@ -67,7 +61,6 @@ export function getSettings(ctx: ExtensionContext): Settings {
 
   return {
     webhookPort,
-    webhookHost,
     webhookPublicUrl,
     createIssuePrompt,
     implementPlanPrompt,

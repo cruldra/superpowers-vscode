@@ -17,7 +17,7 @@ interface SubmitValues {
   host: string
   token: string
   webhookPort: number
-  webhookHost: string
+  webhookPublicUrl: string
   createIssuePrompt: string
   implementPlanPrompt: string
 }
@@ -28,7 +28,7 @@ export interface SettingsModalProps {
   errorMessage?: string
   canCancel?: boolean
   initialWebhookPort: number
-  initialWebhookHost: string
+  initialWebhookPublicUrl: string
   initialCreateIssuePrompt: string
   initialImplementPlanPrompt: string
   onSubmit: (values: SubmitValues) => void
@@ -81,7 +81,7 @@ export function SettingsModal({
   errorMessage,
   canCancel,
   initialWebhookPort,
-  initialWebhookHost,
+  initialWebhookPublicUrl,
   initialCreateIssuePrompt,
   initialImplementPlanPrompt,
   onSubmit,
@@ -91,7 +91,7 @@ export function SettingsModal({
   const [host, setHost] = useState(initialHost)
   const [token, setToken] = useState('')
   const [webhookPort, setWebhookPort] = useState<string>(String(initialWebhookPort))
-  const [webhookHost, setWebhookHost] = useState(initialWebhookHost)
+  const [webhookPublicUrl, setWebhookPublicUrl] = useState(initialWebhookPublicUrl)
   const [createIssuePrompt, setCreateIssuePrompt] = useState(initialCreateIssuePrompt)
   const [implementPlanPrompt, setImplementPlanPrompt] = useState(initialImplementPlanPrompt)
   const [errors, setErrors] = useState<Partial<Record<ErrorKey, string>>>({})
@@ -106,7 +106,7 @@ export function SettingsModal({
     setHost(initialHost)
     setToken('')
     setWebhookPort(String(initialWebhookPort))
-    setWebhookHost(initialWebhookHost)
+    setWebhookPublicUrl(initialWebhookPublicUrl)
     setCreateIssuePrompt(initialCreateIssuePrompt)
     setImplementPlanPrompt(initialImplementPlanPrompt)
     setErrors({})
@@ -165,7 +165,7 @@ export function SettingsModal({
       host: trimmedHost,
       token: trimmedToken,
       webhookPort: portNum,
-      webhookHost: webhookHost.trim(),
+      webhookPublicUrl: webhookPublicUrl.trim(),
       createIssuePrompt,
       implementPlanPrompt,
     })
@@ -275,7 +275,11 @@ export function SettingsModal({
 
             {activeGroup === 'network' && (
               <>
-                <Field label="Webhook 端口" error={errors.webhookPort}>
+                <Field
+                  label="本地端口"
+                  error={errors.webhookPort}
+                  hint="扩展 HTTP server 绑定的端口；frp/反向代理也指向此端口"
+                >
                   <input
                     type="number"
                     min={1}
@@ -286,12 +290,15 @@ export function SettingsModal({
                   />
                 </Field>
 
-                <Field label="Webhook 主机 IP">
+                <Field
+                  label="Webhook 回调 URL 前缀"
+                  hint="Gitea 拒绝 raw IP 回调，必须用域名。留空则无法触发实施流程。"
+                >
                   <input
                     type="text"
-                    value={webhookHost}
-                    onChange={e => setWebhookHost(e.target.value)}
-                    placeholder="留空自动检测"
+                    value={webhookPublicUrl}
+                    onChange={e => setWebhookPublicUrl(e.target.value)}
+                    placeholder="https://example.com 或 https://yourdomain.tld:8443"
                     className={inputClass}
                   />
                 </Field>
