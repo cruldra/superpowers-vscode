@@ -19,7 +19,7 @@ import { runReview } from '../cc/reviewFlow'
 import { deleteWebhook, listIssueComments } from '../gitea/api'
 import { detectRepo } from '../git/remote'
 import { loadIssues } from '../gitea/issueLoader'
-import { mergeStateJsonComment } from '../gitea/stateJson'
+import { mergeStateJsonComment, readStateJsonComment } from '../gitea/stateJson'
 import { logger } from '../logging/logger'
 import { getSettings } from '../settings/store'
 import type { KanbanWebviewPanel } from '../panel/KanbanPanel'
@@ -499,10 +499,46 @@ class WebhookCoordinator {
       })
     })
 
-    if (getSettings(this.ctx).autoReview) {
+    // Per-issue override takes precedence over the global setting. The
+    // state JSON's `autoReview` field is set the first time the user toggles
+    // the checkbox in the detail panel; absent ⇒ follow global.
+    let effectiveAutoReview = getSettings(this.ctx).autoReview
+    let autoReviewSource: 'issue' | 'global' = 'global'
+    try {
+      const stateJson = await readStateJsonComment({
+        host: ctx.host,
+        token: ctx.token,
+        owner: ctx.owner,
+        repo: ctx.repo,
+        issueNumber: event.issueNumber,
+      })
+      if (typeof stateJson.autoReview === 'boolean') {
+        effectiveAutoReview = stateJson.autoReview
+        autoReviewSource = 'issue'
+      }
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.add({
+        level: 'warn',
+        source: 'webhook',
+        message: '读取 state JSON 失败（autoReview override）',
+        details: message,
+      })
+    }
+
+    if (effectiveAutoReview) {
       // Fire-and-forget; the review can take minutes and we don't want to
       // block the webhook response or the panel refresh.
       void this.triggerReview(event.issueNumber, event.pr, undefined, ctx)
+    }
+    else {
+      logger.add({
+        level: 'info',
+        source: 'webhook',
+        message: `跳过自动审查 #${event.issueNumber}`,
+        details: `autoReview=off (source=${autoReviewSource})`,
+      })
     }
   }
 
@@ -514,15 +550,6 @@ class WebhookCoordinator {
   private async handlePrSynchronize(event: ResolvedWebhookEvent): Promise<void> {
     if (!this.ctx)
       return
-    if (!getSettings(this.ctx).autoReview) {
-      logger.add({
-        level: 'info',
-        source: 'webhook',
-        message: `未启用审查或未审过 synchronize #${event.issueNumber}`,
-        details: 'autoReview=off',
-      })
-      return
-    }
     const ctx = await this.resolveRepoContext(event.issueNumber)
     if (!ctx) {
       logger.add({
@@ -530,6 +557,41 @@ class WebhookCoordinator {
         source: 'webhook',
         message: `无法解析 #${event.issueNumber} 的仓库上下文，跳过`,
         details: `action=${event.action} pr=#${event.pr}`,
+      })
+      return
+    }
+
+    // Per-issue override takes precedence over the global setting.
+    let effectiveAutoReview = getSettings(this.ctx).autoReview
+    let autoReviewSource: 'issue' | 'global' = 'global'
+    try {
+      const stateJson = await readStateJsonComment({
+        host: ctx.host,
+        token: ctx.token,
+        owner: ctx.owner,
+        repo: ctx.repo,
+        issueNumber: event.issueNumber,
+      })
+      if (typeof stateJson.autoReview === 'boolean') {
+        effectiveAutoReview = stateJson.autoReview
+        autoReviewSource = 'issue'
+      }
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.add({
+        level: 'warn',
+        source: 'webhook',
+        message: '读取 state JSON 失败（autoReview override, synchronize）',
+        details: message,
+      })
+    }
+    if (!effectiveAutoReview) {
+      logger.add({
+        level: 'info',
+        source: 'webhook',
+        message: `未启用审查或未审过 synchronize #${event.issueNumber}`,
+        details: `autoReview=off (source=${autoReviewSource})`,
       })
       return
     }

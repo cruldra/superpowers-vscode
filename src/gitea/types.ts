@@ -53,4 +53,8 @@ export interface Issue {
    * first time a session is opened for this issue, persisted in the state
    * JSON so all subsequent sessions reuse the same tone. */
   color?: string
+  /** Per-issue override of the global `autoReview` setting. When set, the
+   * webhook coordinator uses this value instead of the global flag. Stored
+   * in the issue's state-JSON comment so it survives reloads. */
+  autoReview?: boolean
 }

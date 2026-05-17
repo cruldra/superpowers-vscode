@@ -12,7 +12,7 @@ export type ToastLevel = 'info' | 'success' | 'error'
 
 export type ExtensionToWebview =
   | { type: 'issues/loading' }
-  | { type: 'issues/update', issues: Issue[] }
+  | { type: 'issues/update', issues: Issue[], globalAutoReview: boolean }
   | { type: 'issues/error', message: string }
   | {
     type: 'settings/show'
@@ -69,5 +69,6 @@ export type WebviewToExtension =
   | { type: 'column/change', issueNumber: number, toColumn: IssueColumn }
   | { type: 'dependency/set', issueNumber: number, prerequisiteNumber: number }
   | { type: 'dependency/clear', issueNumber: number, prerequisiteNumber: number }
+  | { type: 'issue/update-auto-review', issueNumber: number, value: boolean }
   | { type: 'logs/fetch' }
   | { type: 'logs/clear' }

@@ -214,6 +214,10 @@ export class KanbanWebviewPanel {
       void this.handleClearDependency(msg.issueNumber, msg.prerequisiteNumber)
       return
     }
+    if (msg.type === 'issue/update-auto-review') {
+      void this.handleUpdateAutoReview(msg.issueNumber, msg.value)
+      return
+    }
     if (msg.type === 'logs/fetch') {
       this.postMessage({ type: 'logs/snapshot', entries: logger.snapshot() })
       return
@@ -1527,6 +1531,85 @@ export class KanbanWebviewPanel {
     void this.loadAndPush()
   }
 
+
+  /**
+   * Persist the per-issue `autoReview` override into the issue's state-JSON
+   * comment. The webhook coordinator reads this on every PR `opened` /
+   * `synchronize` to decide whether to fire a review. Set true/false → use
+   * that value; we never write back `undefined` (the user explicitly chose).
+   */
+  private async handleUpdateAutoReview(issueNumber: number, value: boolean): Promise<void> {
+    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    if (!workspaceRoot) {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: '请先打开一个工作区文件夹',
+        dismissOnTimer: 5000,
+      })
+      return
+    }
+
+    const remote = await detectRepo(workspaceRoot)
+    if (!remote) {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: '当前工作区没有 Gitea 远程仓库',
+        dismissOnTimer: 5000,
+      })
+      return
+    }
+
+    const token = await getToken(this.context, remote.host)
+    if (!token) {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: '请先完成 Gitea 配置',
+        dismissOnTimer: 5000,
+      })
+      return
+    }
+
+    try {
+      await mergeStateJsonComment({
+        host: remote.host,
+        owner: remote.owner,
+        repo: remote.repo,
+        token,
+        issueNumber,
+        extra: { autoReview: value },
+      })
+      logger.add({
+        level: 'info',
+        source: 'panel',
+        message: `工单 #${issueNumber} autoReview=${value} 已持久化`,
+      })
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.add({
+        level: 'error',
+        source: 'panel',
+        message: `持久化 autoReview 失败 (issue #${issueNumber})`,
+        details: message,
+      })
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: `保存工单 #${issueNumber} 自动审查开关失败: ${message}`,
+        dismissOnTimer: 6000,
+      })
+    }
+
+    void this.loadAndPush()
+  }
+
   /** Reloads issues from gitea and pushes to the webview. Public so the
    * always-on webhook coordinator can refresh us when a PR event arrives. */
   async loadAndPush(): Promise<void> {
@@ -1571,7 +1654,11 @@ export class KanbanWebviewPanel {
 
     try {
       const issues = await loadIssues({ host, token, owner, repo, workspaceRoot })
-      this.postMessage({ type: 'issues/update', issues })
+      this.postMessage({
+        type: 'issues/update',
+        issues,
+        globalAutoReview: getSettings(this.context).autoReview,
+      })
     }
     catch (err) {
       if (err instanceof GiteaApiError && err.status === 401) {

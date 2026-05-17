@@ -58,6 +58,10 @@ export interface ClaudeProfile {
 export interface UseIssuesResult {
   state: UseIssuesState
   settings: SettingsOverlayState | null
+  /** Latest known global `autoReview` value pushed alongside `issues/update`.
+   * Used by the detail panel to display the fallback value when an issue has
+   * no per-issue override. */
+  globalAutoReview: boolean
   toasts: ToastItem[]
   profiles: ClaudeProfile[]
   setIssues: (issues: Issue[]) => void
@@ -80,6 +84,7 @@ export interface UseIssuesResult {
   changeColumn: (issueNumber: number, toColumn: IssueColumn) => void
   setDependency: (issueNumber: number, prerequisiteNumber: number) => void
   clearDependency: (issueNumber: number, prerequisiteNumber: number) => void
+  updateIssueAutoReview: (issueNumber: number, value: boolean) => void
   logs: LogEntry[]
   fetchLogs: () => void
   clearLogs: () => void
@@ -88,6 +93,7 @@ export interface UseIssuesResult {
 export function useIssues(): UseIssuesResult {
   const [state, setState] = useState<UseIssuesState>({ status: 'loading' })
   const [settings, setSettings] = useState<SettingsOverlayState | null>(null)
+  const [globalAutoReview, setGlobalAutoReview] = useState<boolean>(true)
   const [toasts, setToasts] = useState<ToastItem[]>([])
   const [profiles, setProfiles] = useState<ClaudeProfile[]>([])
   const [logs, setLogs] = useState<LogEntry[]>([])
@@ -200,6 +206,10 @@ export function useIssues(): UseIssuesResult {
     postMessage({ type: 'dependency/clear', issueNumber, prerequisiteNumber })
   }, [])
 
+  const updateIssueAutoReview = useCallback((issueNumber: number, value: boolean): void => {
+    postMessage({ type: 'issue/update-auto-review', issueNumber, value })
+  }, [])
+
   const fetchLogs = useCallback((): void => {
     postMessage({ type: 'logs/fetch' })
   }, [])
@@ -220,6 +230,7 @@ export function useIssues(): UseIssuesResult {
           break
         case 'issues/update':
           setState({ status: 'ready', issues: msg.issues })
+          setGlobalAutoReview(msg.globalAutoReview)
           break
         case 'issues/error':
           setState({ status: 'error', message: msg.message })
@@ -284,5 +295,5 @@ export function useIssues(): UseIssuesResult {
     return cleanup
   }, [])
 
-  return { state, settings, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, focusSession, openFile, loadSessionFiles, implement, openPr, openWorktree, deleteWorktree, changeColumn, setDependency, clearDependency, logs, fetchLogs, clearLogs }
+  return { state, settings, globalAutoReview, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, focusSession, openFile, loadSessionFiles, implement, openPr, openWorktree, deleteWorktree, changeColumn, setDependency, clearDependency, updateIssueAutoReview, logs, fetchLogs, clearLogs }
 }

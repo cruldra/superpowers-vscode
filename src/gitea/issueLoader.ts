@@ -56,6 +56,7 @@ function parseColumnFromComments(comments: GiteaComment[]): {
   implementSessionId?: string
   reviewSessionId?: string
   color?: string
+  autoReview?: boolean
 } {
   if (comments.length === 0)
     return { column: null }
@@ -79,6 +80,7 @@ function parseColumnFromComments(comments: GiteaComment[]): {
         implementSessionId?: unknown
         reviewSessionId?: unknown
         color?: unknown
+        autoReview?: unknown
       }
       if (isIssueColumn(obj.column)) {
         const sessionId = typeof obj.sessionId === 'string' && obj.sessionId.length > 0
@@ -116,6 +118,7 @@ function parseColumnFromComments(comments: GiteaComment[]): {
         const color = typeof obj.color === 'string' && obj.color.length > 0
           ? obj.color
           : undefined
+        const autoReview = typeof obj.autoReview === 'boolean' ? obj.autoReview : undefined
         return {
           column: obj.column,
           sessionId,
@@ -129,6 +132,7 @@ function parseColumnFromComments(comments: GiteaComment[]): {
           implementSessionId,
           reviewSessionId,
           color,
+          autoReview,
         }
       }
     }
@@ -245,6 +249,7 @@ export async function loadIssues(opts: {
       implementSessionId,
       reviewSessionId,
       color,
+      autoReview,
     } = parseColumnFromComments(bucket)
     let column: IssueColumn
     if (fromComment) {
@@ -301,6 +306,7 @@ export async function loadIssues(opts: {
       ...(reviewSessionId ? { reviewSessionId } : {}),
       ...(prerequisite !== undefined ? { prerequisite } : {}),
       ...(color ? { color } : {}),
+      ...(autoReview !== undefined ? { autoReview } : {}),
       htmlUrl: issue.html_url,
     })
   }

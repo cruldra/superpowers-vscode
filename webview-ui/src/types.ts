@@ -39,6 +39,9 @@ export interface Issue {
   prerequisite?: number
   /** Terminal/tab color id chosen on first session open, persisted in state JSON. */
   color?: string
+  /** Per-issue override of the global `autoReview` setting. Undefined = follow
+   * global setting; true/false = explicit override stored in state JSON. */
+  autoReview?: boolean
 }
 
 export const COLUMN_ORDER: IssueColumn[] = ['todo', 'in-progress', 'review', 'done']

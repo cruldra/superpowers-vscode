@@ -15,6 +15,7 @@ export function App() {
   const {
     state,
     settings,
+    globalAutoReview,
     toasts,
     profiles,
     setIssues,
@@ -37,6 +38,7 @@ export function App() {
     changeColumn,
     setDependency,
     clearDependency,
+    updateIssueAutoReview,
     logs,
     clearLogs,
   } = useIssues()
@@ -221,6 +223,7 @@ export function App() {
               <IssueDetailPanel
                 issue={selectedIssue}
                 allIssues={state.issues}
+                globalAutoReview={globalAutoReview}
                 onOpenInBrowser={openUrl}
                 onResumeSession={resumeSession}
                 onResumeReviewSession={resumeReviewSession}
@@ -230,6 +233,7 @@ export function App() {
                 onOpenPr={openPr}
                 onOpenWorktree={openWorktree}
                 onDeleteWorktree={deleteWorktree}
+                onUpdateAutoReview={updateIssueAutoReview}
                 onOpenLogs={() => setShowLogs(true)}
               />
             </div>

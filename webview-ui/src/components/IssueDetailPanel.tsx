@@ -10,6 +10,8 @@ interface IssueDetailPanelProps {
   issue: Issue | null
   /** 当前所有 issues，用于解析前置依赖锁定态。 */
   allIssues: Issue[]
+  /** 全局 autoReview 当前值；用于工单未显式设置 autoReview 时的回退展示。 */
+  globalAutoReview: boolean
   onOpenInBrowser: (url: string) => void
   onResumeSession: (sessionId: string, profilePath?: string, cwd?: string, issueNumber?: number) => void
   /** Open a new terminal that runs `codex resume <id>` for the auto-review
@@ -28,6 +30,8 @@ interface IssueDetailPanelProps {
   onOpenWorktree: (path: string) => void
   /** Delete the worktree (`git worktree remove`) and clear it from state. */
   onDeleteWorktree: (issueNumber: number, path: string) => void
+  /** Persist a per-issue `autoReview` override into the state JSON. */
+  onUpdateAutoReview: (issueNumber: number, value: boolean) => void
   /** Open the in-webview log modal. */
   onOpenLogs: () => void
 }
@@ -43,6 +47,7 @@ interface IssueDetailPanelProps {
 export function IssueDetailPanel({
   issue,
   allIssues,
+  globalAutoReview,
   onOpenInBrowser,
   onResumeSession,
   onResumeReviewSession,
@@ -52,6 +57,7 @@ export function IssueDetailPanel({
   onOpenPr,
   onOpenWorktree,
   onDeleteWorktree,
+  onUpdateAutoReview,
   onOpenLogs,
 }: IssueDetailPanelProps) {
   // 前置工单未完成 → 锁定。锁定时禁用"实施"等启动新工作的动作按钮，
@@ -143,6 +149,12 @@ export function IssueDetailPanel({
                 readOnly: true,
                 description: 'worktree 已清理，无法 resume；仅保留 id 文本',
               },
+          {
+            key: 'autoReview',
+            label: '自动审查',
+            type: 'boolean',
+            description: `打开新 PR 时是否自动启动 codex 审查；未设置时跟随全局（当前全局：${globalAutoReview ? '开' : '关'}）`,
+          },
           {
             key: 'color',
             label: '颜色',
@@ -266,6 +278,7 @@ export function IssueDetailPanel({
     sessionId: issue.sessionId ?? null,
     implementSessionId: issue.implementSessionId ?? null,
     reviewSessionId: issue.reviewSessionId ?? null,
+    autoReview: issue.autoReview ?? globalAutoReview,
     color: issue.color ?? null,
     profilePath: issue.profilePath ?? null,
     specFile: issue.specFile ?? null,
@@ -310,7 +323,16 @@ export function IssueDetailPanel({
       </div>
 
       <div className="min-h-0 flex-1">
-        <PropertyGrid schema={schema} data={data} hideToolbar fillHeight />
+        <PropertyGrid
+          schema={schema}
+          data={data}
+          hideToolbar
+          fillHeight
+          onChange={(key, value) => {
+            if (key === 'autoReview' && issue && typeof value === 'boolean')
+              onUpdateAutoReview(issue.number, value)
+          }}
+        />
       </div>
     </div>
   )
