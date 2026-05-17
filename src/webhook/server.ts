@@ -35,6 +35,11 @@ export class WebhookServer {
 
   readonly onEvent: Event<WebhookEvent> = this.emitter.event
 
+  /** The port currently bound, or undefined if the server is not listening. */
+  get currentPort(): number | undefined {
+    return this.port
+  }
+
   /**
    * Start (or move) the server on `port`. If already listening on the same
    * port this is a no-op. If listening on a different port, the old server

@@ -22,30 +22,16 @@ import { detectRepo } from '../git/remote'
 import { createWorktree } from '../git/worktree'
 import {
   createWebhook,
-  deleteWebhook,
   GiteaApiError,
   listIssueComments,
   postIssueComment,
 } from '../gitea/api'
+import { mergeStateJsonComment } from '../gitea/stateJson'
 import { loadIssues } from '../gitea/issueLoader'
 import { logger } from '../logging/logger'
 import { getSettings, saveSettings } from '../settings/store'
 import { detectLocalHost } from '../webhook/host'
-import type { WebhookEvent } from '../webhook/server'
-import { WebhookServer } from '../webhook/server'
-
-/** workspaceState key for persisting in-flight webhook registrations across
- * VS Code restarts, so we can clean up if the extension is reloaded between
- * "click 实施" and "PR opened". */
-const PENDING_HOOKS_KEY = 'superpowers.pendingHooks'
-
-interface PendingHook {
-  hookId: number
-  host: string
-  owner: string
-  repo: string
-  feature: string
-}
+import { webhookCoordinator } from '../webhook/coordinator'
 
 const DEFAULT_PROFILE_PATH = '/home/cruldra/Sources/cruldra-profile/claude-config/profiles/offical.json'
 
@@ -74,12 +60,6 @@ export class KanbanWebviewPanel {
    */
   private terminalGroupColumn?: ViewColumn
 
-  /** Lazy-spawned HTTP server that receives gitea pull_request webhooks. */
-  private webhookServer?: WebhookServer
-  /** issueNumber → bookkeeping for in-flight webhook registrations. Mirrored
-   * to `workspaceState[PENDING_HOOKS_KEY]` so we can survive a reload. */
-  private pendingHooks = new Map<number, PendingHook>()
-
   private constructor(private readonly context: ExtensionContext, panel: WebviewPanel) {
     this.panel = panel
 
@@ -92,13 +72,8 @@ export class KanbanWebviewPanel {
 
     this.panel.webview.html = this.buildHtml()
 
-    // Restore pending webhook registrations from workspaceState.
-    const stored = this.context.workspaceState.get<Record<string, PendingHook>>(PENDING_HOOKS_KEY) ?? {}
-    for (const [k, v] of Object.entries(stored)) {
-      const n = Number(k)
-      if (Number.isFinite(n) && v && typeof v === 'object')
-        this.pendingHooks.set(n, v)
-    }
+    // Let the always-on webhook coordinator know who to refresh + toast for.
+    webhookCoordinator.setActivePanel(this)
 
     this.disposables.push(
       this.panel.onDidDispose(() => this.dispose()),
@@ -453,16 +428,16 @@ export class KanbanWebviewPanel {
    *   1. Detect repo + token, compute a stable feature_name from the plan path.
    *   2. Move the issue to in-progress and stamp branch/worktreePath/status
    *      into the state-JSON comment.
-   *   3. Ensure the local webhook HTTP server is listening, then register a
-   *      gitea webhook scoped to the feature branch.
+   *   3. Confirm the always-on webhook coordinator is bound to the current
+   *      port, then register a gitea webhook scoped to the feature branch
+   *      and hand the bookkeeping to the coordinator.
    *   4. Spawn `claude` in an editor-tab terminal with a /goal prompt that
    *      tells cc to create the worktree, implement the plan, and emit
    *      `<request_review>$pr_no</request_review>` when done.
    *
-   * The webhook receiver — registered once in `ensureWebhookServer` — picks
-   * up the resulting PR event, writes back the PR number, and deletes the
-   * webhook. Restart safety: pendingHooks is mirrored to workspaceState so
-   * a VS Code reload between click-and-PR doesn't leak listeners.
+   * The webhook coordinator (see src/webhook/coordinator.ts) receives the
+   * resulting PR event, writes back the PR number, and deletes the gitea
+   * hook — even if this panel has since been closed.
    */
   private async handleImplement(
     issueNumber: number,
@@ -552,8 +527,10 @@ export class KanbanWebviewPanel {
     const host = detectLocalHost(hostOverride)
     const publicUrl = settings.webhookPublicUrl.trim()
 
+    // The webhook coordinator is started at extension activation; just
+    // ensure the port matches the current setting (no-op if unchanged).
     try {
-      await this.ensureWebhookServer(port)
+      await webhookCoordinator.ensurePort(port)
     }
     catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -620,14 +597,13 @@ export class KanbanWebviewPanel {
       return
     }
 
-    this.pendingHooks.set(issueNumber, {
+    await webhookCoordinator.addPending(issueNumber, {
       hookId,
       host: remote.host,
       owner: remote.owner,
       repo: remote.repo,
       feature,
     })
-    await this.persistPendingHooks()
     logger.add({
       level: 'info',
       source: 'implement',
@@ -638,41 +614,18 @@ export class KanbanWebviewPanel {
     // Merge into the latest state-JSON comment so we don't clobber spec/plan/
     // sessionId etc that earlier steps wrote.
     try {
-      const comments = await listIssueComments({
+      await mergeStateJsonComment({
         host: remote.host,
-        token,
         owner: remote.owner,
         repo: remote.repo,
-        index: issueNumber,
-      })
-      let currentState: Record<string, unknown> = {}
-      if (comments.length > 0) {
-        const lastBody = (comments[comments.length - 1].body ?? '').trim()
-        if (lastBody) {
-          try {
-            const parsed = JSON.parse(lastBody) as unknown
-            if (parsed && typeof parsed === 'object')
-              currentState = parsed as Record<string, unknown>
-          }
-          catch {
-            // Last comment wasn't JSON; start fresh.
-          }
-        }
-      }
-      const merged: Record<string, unknown> = {
-        ...currentState,
-        column: 'in-progress',
-        branch,
-        worktreePath: relativeWorktreePath,
-        implementStatus: 'running',
-      }
-      await postIssueComment({
-        host: remote.host,
         token,
-        owner: remote.owner,
-        repo: remote.repo,
-        index: issueNumber,
-        body: JSON.stringify(merged),
+        issueNumber,
+        extra: {
+          column: 'in-progress',
+          branch,
+          worktreePath: relativeWorktreePath,
+          implementStatus: 'running',
+        },
       })
       void this.loadAndPush()
     }
@@ -726,38 +679,13 @@ export class KanbanWebviewPanel {
         message: `已捕获实施会话 ${sid}`,
       })
       try {
-        const comments = await listIssueComments({
+        await mergeStateJsonComment({
           host: remote.host,
-          token,
           owner: remote.owner,
           repo: remote.repo,
-          index: issueNumber,
-        })
-        let currentState: Record<string, unknown> = {}
-        if (comments.length > 0) {
-          const lastBody = (comments[comments.length - 1].body ?? '').trim()
-          if (lastBody) {
-            try {
-              const parsed = JSON.parse(lastBody) as unknown
-              if (parsed && typeof parsed === 'object')
-                currentState = parsed as Record<string, unknown>
-            }
-            catch {
-              // not JSON
-            }
-          }
-        }
-        const merged: Record<string, unknown> = {
-          ...currentState,
-          implementSessionId: sid,
-        }
-        await postIssueComment({
-          host: remote.host,
           token,
-          owner: remote.owner,
-          repo: remote.repo,
-          index: issueNumber,
-          body: JSON.stringify(merged),
+          issueNumber,
+          extra: { implementSessionId: sid },
         })
         void this.loadAndPush()
       }
@@ -793,132 +721,9 @@ export class KanbanWebviewPanel {
     void env.openExternal(Uri.parse(url))
   }
 
-  /**
-   * Idempotent: start the webhook server on the given port (or move it if
-   * already running on a different port) and subscribe our event handler
-   * exactly once. Subsequent calls just re-check the port.
-   */
-  private async ensureWebhookServer(port: number): Promise<void> {
-    if (!this.webhookServer) {
-      this.webhookServer = new WebhookServer()
-      this.disposables.push(
-        this.webhookServer.onEvent((event: WebhookEvent) => {
-          void this.handleWebhookEvent(event)
-        }),
-      )
-    }
-    await this.webhookServer.start(port)
-  }
-
-  /**
-   * Process a single `pull_request` webhook delivery: merge the PR number
-   * into the issue's state-JSON comment, delete the gitea webhook, and
-   * refresh the kanban so the new fields surface immediately.
-   */
-  private async handleWebhookEvent(event: WebhookEvent): Promise<void> {
-    logger.add({
-      level: 'info',
-      source: 'webhook',
-      message: `收到 webhook 事件 issue=#${event.issueNumber} pr=#${event.pr}`,
-    })
-    const pending = this.pendingHooks.get(event.issueNumber)
-    if (!pending) {
-      logger.add({
-        level: 'warn',
-        source: 'webhook',
-        message: `收到未跟踪的 issue 回调 #${event.issueNumber}`,
-      })
-      return
-    }
-    const token = await getToken(this.context, pending.host)
-    if (!token) {
-      // eslint-disable-next-line no-console
-      console.warn('[superpowers/webhook] missing token for', pending.host)
-      return
-    }
-    try {
-      const comments = await listIssueComments({
-        host: pending.host,
-        token,
-        owner: pending.owner,
-        repo: pending.repo,
-        index: event.issueNumber,
-      })
-      let currentState: Record<string, unknown> = {}
-      if (comments.length > 0) {
-        const lastBody = (comments[comments.length - 1].body ?? '').trim()
-        if (lastBody) {
-          try {
-            const parsed = JSON.parse(lastBody) as unknown
-            if (parsed && typeof parsed === 'object')
-              currentState = parsed as Record<string, unknown>
-          }
-          catch {
-            // Last comment wasn't JSON; start fresh.
-          }
-        }
-      }
-      const merged: Record<string, unknown> = {
-        ...currentState,
-        pr: event.pr,
-        implementStatus: 'done',
-      }
-      await postIssueComment({
-        host: pending.host,
-        token,
-        owner: pending.owner,
-        repo: pending.repo,
-        index: event.issueNumber,
-        body: JSON.stringify(merged),
-      })
-    }
-    catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      logger.add({
-        level: 'error',
-        source: 'webhook',
-        message: '更新 state JSON 失败',
-        details: message,
-      })
-      // eslint-disable-next-line no-console
-      console.error('[superpowers/webhook] failed to update state comment:', err)
-    }
-
-    try {
-      await deleteWebhook({
-        host: pending.host,
-        token,
-        owner: pending.owner,
-        repo: pending.repo,
-        hookId: pending.hookId,
-      })
-    }
-    catch (err) {
-      // eslint-disable-next-line no-console
-      console.warn('[superpowers/webhook] failed to delete hook:', err)
-    }
-
-    this.pendingHooks.delete(event.issueNumber)
-    await this.persistPendingHooks()
-    void this.loadAndPush()
-
-    const action = 'Open PR'
-    const pick = await window.showInformationMessage(
-      `#${event.issueNumber} 已关联 PR !${event.pr}`,
-      action,
-    )
-    if (pick === action)
-      void env.openExternal(Uri.parse(event.htmlUrl))
-  }
-
-  private async persistPendingHooks(): Promise<void> {
-    const obj: Record<string, PendingHook> = {}
-    for (const [k, v] of this.pendingHooks)
-      obj[String(k)] = v
-    await this.context.workspaceState.update(PENDING_HOOKS_KEY, obj)
-  }
-
-  private async loadAndPush(): Promise<void> {
+  /** Reloads issues from gitea and pushes to the webview. Public so the
+   * always-on webhook coordinator can refresh us when a PR event arrives. */
+  async loadAndPush(): Promise<void> {
     this.postMessage({ type: 'issues/loading' })
 
     const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
@@ -1016,6 +821,19 @@ export class KanbanWebviewPanel {
       implementPlanPrompt: payload.implementPlanPrompt,
     })
     await setToken(this.context, trimmedHost, trimmedToken)
+    // Honor a port change without requiring a window reload.
+    try {
+      await webhookCoordinator.ensurePort(getSettings(this.context).webhookPort)
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.add({
+        level: 'warn',
+        source: 'webhook',
+        message: 'ensurePort 失败',
+        details: message,
+      })
+    }
     await this.loadAndPush()
   }
 
@@ -1164,14 +982,10 @@ export class KanbanWebviewPanel {
 
   private dispose(): void {
     KanbanWebviewPanel.current = undefined
+    webhookCoordinator.setActivePanel(undefined)
     while (this.disposables.length) {
       const d = this.disposables.pop()
       d?.dispose()
-    }
-    if (this.webhookServer) {
-      const srv = this.webhookServer
-      this.webhookServer = undefined
-      void srv.stop()
     }
     this.panel.dispose()
   }

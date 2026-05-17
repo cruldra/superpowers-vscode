@@ -6,6 +6,7 @@ import type {
 } from 'vscode'
 import { EventEmitter, commands, window } from 'vscode'
 import { KanbanWebviewPanel } from './panel/KanbanPanel'
+import { webhookCoordinator } from './webhook/coordinator'
 
 /**
  * 侧边栏 TreeView 永远没有 item —— 它存在的唯一目的是接住活动栏图标
@@ -25,6 +26,13 @@ class EmptyTreeProvider implements TreeDataProvider<never> {
 }
 
 export function activate(context: ExtensionContext): void {
+  // Start the webhook server immediately so PR callbacks are received even
+  // when the Kanban panel is closed. Disposed automatically via subscriptions.
+  webhookCoordinator.init(context)
+  context.subscriptions.push({
+    dispose: () => { void webhookCoordinator.dispose() },
+  })
+
   const treeView = window.createTreeView('superpowers.kanban', {
     treeDataProvider: new EmptyTreeProvider(),
     showCollapseAll: false,
