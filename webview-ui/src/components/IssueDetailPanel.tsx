@@ -56,7 +56,7 @@ export function IssueDetailPanel({
           },
           {
             key: 'sessionId',
-            label: '会话id',
+            label: '头脑风暴会话id',
             type: 'action',
             description: '点击在新终端运行 claude --resume <id> 恢复对话',
             actionIcon: <Terminal className="size-3.5" />,
