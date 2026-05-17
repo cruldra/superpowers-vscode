@@ -387,16 +387,17 @@ class WebhookCoordinator {
       }
     }
 
+    // Fire-and-forget the toast — `showInformationMessage` is sticky until the
+    // user clicks, so awaiting it would block the auto-review trigger below
+    // indefinitely.
     const action = 'Open PR'
-    try {
-      const pick = await window.showInformationMessage(
-        `#${event.issueNumber} 已关联 PR !${event.pr}`,
-        action,
-      )
+    void window.showInformationMessage(
+      `#${event.issueNumber} 已关联 PR !${event.pr}`,
+      action,
+    ).then((pick) => {
       if (pick === action)
         void env.openExternal(Uri.parse(event.htmlUrl))
-    }
-    catch (err) {
+    }, (err) => {
       const message = err instanceof Error ? err.message : String(err)
       logger.add({
         level: 'warn',
@@ -404,7 +405,7 @@ class WebhookCoordinator {
         message: '展示 toast 失败',
         details: message,
       })
-    }
+    })
 
     if (getSettings(this.ctx).autoReview) {
       // Fire-and-forget; the review can take minutes and we don't want to
