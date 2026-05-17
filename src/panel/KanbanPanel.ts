@@ -1,17 +1,50 @@
 import type {
   ExtensionContext,
+  Terminal,
   WebviewPanel,
 } from 'vscode'
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
+import { execFile } from 'node:child_process'
 import * as fs from 'node:fs'
+import { promises as fsp } from 'node:fs'
 import * as path from 'node:path'
-import { env, Uri, ViewColumn, window, workspace } from 'vscode'
+import { commands, env, Uri, ViewColumn, window, workspace } from 'vscode'
 import type { ExtensionToWebview, WebviewToExtension } from './messages'
 import { deleteToken, getToken, setToken } from '../auth/secrets'
 import { createIssueViaClaude } from '../cc/createIssueFlow'
+import { listClaudeProfiles } from '../cc/profiles'
+import { getImplementPlanPrompt } from '../cc/prompts'
+import { scanSessionFiles } from '../cc/sessionTranscript'
+import { projectsDirFor, watchForNewSession } from '../cc/sessionWatcher'
 import { detectRepo } from '../git/remote'
-import { GiteaApiError } from '../gitea/api'
+import { createWorktree } from '../git/worktree'
+import {
+  createWebhook,
+  deleteWebhook,
+  GiteaApiError,
+  listIssueComments,
+  postIssueComment,
+} from '../gitea/api'
 import { loadIssues } from '../gitea/issueLoader'
+import { getSettings, saveSettings } from '../settings/store'
+import { detectLocalHost } from '../webhook/host'
+import type { WebhookEvent } from '../webhook/server'
+import { WebhookServer } from '../webhook/server'
+
+/** workspaceState key for persisting in-flight webhook registrations across
+ * VS Code restarts, so we can clean up if the extension is reloaded between
+ * "click 实施" and "PR opened". */
+const PENDING_HOOKS_KEY = 'superpowers.pendingHooks'
+
+interface PendingHook {
+  hookId: number
+  host: string
+  owner: string
+  repo: string
+  feature: string
+}
+
+const DEFAULT_PROFILE_PATH = '/home/cruldra/Sources/cruldra-profile/claude-config/profiles/offical.json'
 
 export class KanbanWebviewPanel {
   static readonly viewType = 'superpowers.kanbanPanel'
@@ -20,6 +53,20 @@ export class KanbanWebviewPanel {
 
   private readonly panel: WebviewPanel
   private readonly disposables: { dispose: () => void }[] = []
+  /**
+   * sessionId → its dedicated terminal in the editor area. Populated when the
+   * user presses Enter on a card; entry is removed when the terminal is
+   * closed (so a re-resume spawns a fresh tab). Letting selection changes
+   * `terminal.show(true)` an existing entry is what gives the user "switch
+   * card → switch terminal tab" behaviour.
+   */
+  private readonly terminals = new Map<string, Terminal>()
+
+  /** Lazy-spawned HTTP server that receives gitea pull_request webhooks. */
+  private webhookServer?: WebhookServer
+  /** issueNumber → bookkeeping for in-flight webhook registrations. Mirrored
+   * to `workspaceState[PENDING_HOOKS_KEY]` so we can survive a reload. */
+  private pendingHooks = new Map<number, PendingHook>()
 
   private constructor(private readonly context: ExtensionContext, panel: WebviewPanel) {
     this.panel = panel
@@ -33,9 +80,28 @@ export class KanbanWebviewPanel {
 
     this.panel.webview.html = this.buildHtml()
 
+    // Restore pending webhook registrations from workspaceState.
+    const stored = this.context.workspaceState.get<Record<string, PendingHook>>(PENDING_HOOKS_KEY) ?? {}
+    for (const [k, v] of Object.entries(stored)) {
+      const n = Number(k)
+      if (Number.isFinite(n) && v && typeof v === 'object')
+        this.pendingHooks.set(n, v)
+    }
+
     this.disposables.push(
       this.panel.onDidDispose(() => this.dispose()),
       this.panel.webview.onDidReceiveMessage((msg: WebviewToExtension) => this.handleMessage(msg)),
+      // Drop tracked terminals when the user closes them, so the next Enter
+      // on that card spawns a fresh tab instead of trying to .show() a dead
+      // handle.
+      window.onDidCloseTerminal((closed) => {
+        for (const [sid, t] of this.terminals) {
+          if (t === closed) {
+            this.terminals.delete(sid)
+            break
+          }
+        }
+      }),
     )
   }
 
@@ -69,16 +135,20 @@ export class KanbanWebviewPanel {
       void this.loadAndPush()
       return
     }
-    if (msg.type === 'auth/save') {
-      void this.handleAuthSave(msg.host, msg.token)
+    if (msg.type === 'settings/save') {
+      void this.handleSettingsSave(msg)
       return
     }
-    if (msg.type === 'auth/edit-request') {
-      void this.handleEditAuthRequest()
+    if (msg.type === 'settings/edit-request') {
+      void this.handleEditSettingsRequest()
       return
     }
     if (msg.type === 'issue/create') {
-      void this.handleIssueCreate(msg.userRequest, msg.images)
+      void this.handleIssueCreate(msg.userRequest, msg.images, msg.profilePath)
+      return
+    }
+    if (msg.type === 'profiles/list') {
+      void this.handleProfilesList()
       return
     }
     if (msg.type === 'toast/open-url') {
@@ -86,19 +156,666 @@ export class KanbanWebviewPanel {
       return
     }
     if (msg.type === 'session/resume') {
-      this.handleResumeSession(msg.sessionId)
+      this.handleResumeSession(msg.sessionId, msg.profilePath, msg.cwd)
+      return
+    }
+    if (msg.type === 'session/focus') {
+      this.handleSessionFocus(msg.sessionId)
+      return
+    }
+    if (msg.type === 'editor/open-file') {
+      void this.handleOpenFile(msg.path)
+      return
+    }
+    if (msg.type === 'session/load-files') {
+      void this.handleLoadFiles(msg.sessionId, msg.issueNumber)
+      return
+    }
+    if (msg.type === 'issue/implement') {
+      void this.handleImplement(msg.issueNumber, msg.planFile, msg.profilePath, msg.sessionId)
+      return
+    }
+    if (msg.type === 'pr/open') {
+      void this.handleOpenPr(msg.pr)
     }
   }
 
 
-  private handleResumeSession(sessionId: string): void {
+  private handleResumeSession(sessionId: string, profilePath?: string, relCwd?: string): void {
+    const existing = this.terminals.get(sessionId)
+    if (existing) {
+      existing.show(false)
+      return
+    }
+    const effectiveProfilePath =
+      profilePath && profilePath.trim() !== '' ? profilePath : DEFAULT_PROFILE_PATH
+    // Reject paths containing single quotes — we shell-quote with single
+    // quotes below, and embedded quotes would break out of the wrap. In
+    // practice profile paths live under `/home/<user>/...` so this is a
+    // defensive guard that should never fire.
+    if (effectiveProfilePath.includes('\'')) {
+      void window.showErrorMessage(
+        `resume 失败：profilePath 含单引号，拒绝执行 (${effectiveProfilePath})`,
+      )
+      return
+    }
     const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    // Implementation sessions live in a worktree; the caller can pass a
+    // workspace-relative `relCwd` so `--resume` runs from the right place.
+    const effectiveCwd = relCwd && workspaceRoot
+      ? path.join(workspaceRoot, relCwd)
+      : workspaceRoot
+    // Open the terminal as an editor tab beside the kanban (not in the
+    // bottom panel), so the user can see both side-by-side. `Beside` opens
+    // in a new editor group when needed.
     const terminal = window.createTerminal({
       name: `Claude · ${sessionId.slice(0, 8)}`,
-      cwd: workspaceRoot,
+      cwd: effectiveCwd,
+      location: { viewColumn: ViewColumn.Beside, preserveFocus: false },
+    })
+    this.terminals.set(sessionId, terminal)
+    terminal.show()
+    const cmd = `claude --dangerously-skip-permissions --settings '${effectiveProfilePath}' --resume ${sessionId}`
+    terminal.sendText(cmd)
+  }
+
+  /**
+   * Focus an already-open terminal for `sessionId` without stealing focus
+   * from the kanban. Called when the webview's selection changes via arrow
+   * keys / clicks — if there's no terminal for this session yet, this is a
+   * no-op (user has to press Enter to spawn one).
+   */
+  private handleSessionFocus(sessionId: string): void {
+    const existing = this.terminals.get(sessionId)
+    if (!existing)
+      return
+    existing.show(true)
+  }
+
+  /**
+   * Resolve a workspace-relative path against the current workspace root and
+   * open it in VS Code. Markdown files (`.md`) are opened in the rendered
+   * preview via `markdown.showPreview`; other file types fall back to
+   * `vscode.open`. Surfaces failures as an error toast (e.g. file deleted on
+   * disk after we recorded its path).
+   */
+  private async handleOpenFile(relPath: string): Promise<void> {
+    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    if (!workspaceRoot) {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: '请先打开一个工作区文件夹',
+        dismissOnTimer: 5000,
+      })
+      return
+    }
+    const abs = path.join(workspaceRoot, relPath)
+    const isMarkdown = abs.toLowerCase().endsWith('.md')
+    try {
+      if (isMarkdown) {
+        await commands.executeCommand('markdown.showPreview', Uri.file(abs))
+      }
+      else {
+        await commands.executeCommand('vscode.open', Uri.file(abs))
+      }
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: `打开文件失败: ${message}`,
+        dismissOnTimer: 6000,
+      })
+    }
+  }
+
+  /**
+   * Scan the Claude Code session transcript for `sessionId` to find the
+   * latest spec/plan file references, then merge them into the issue's
+   * state-JSON last comment by posting an updated comment. Refreshes the
+   * kanban afterwards so the new fields show up in the detail panel.
+   *
+   * Re-fetches the issue's comments fresh from Gitea rather than relying on
+   * webview state, since the webview's copy is loaded once per refresh and
+   * may be stale.
+   */
+  private async handleLoadFiles(sessionId: string, issueNumber: number): Promise<void> {
+    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    if (!workspaceRoot) {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: '请先打开一个工作区文件夹',
+        dismissOnTimer: 5000,
+      })
+      return
+    }
+
+    const remote = await detectRepo(workspaceRoot)
+    if (!remote) {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: '当前工作区没有 Gitea 远程仓库',
+        dismissOnTimer: 5000,
+      })
+      return
+    }
+
+    const token = await getToken(this.context, remote.host)
+    if (!token) {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: '请先完成 Gitea 配置',
+        dismissOnTimer: 5000,
+      })
+      return
+    }
+
+    const toastId = makeNonce()
+    this.postMessage({
+      type: 'toast/show',
+      id: toastId,
+      level: 'info',
+      message: '正在扫描 spec/plan…',
+      spinner: true,
+    })
+
+    try {
+      const scan = await scanSessionFiles({ workspaceRoot, sessionId })
+
+      if (!scan.specFile && !scan.planFile) {
+        this.postMessage({
+          type: 'toast/show',
+          id: toastId,
+          level: 'error',
+          message: '未在会话中找到 docs/superpowers 文件',
+          dismissOnTimer: 6000,
+        })
+        return
+      }
+
+      // Re-fetch this issue's comments so we mutate the freshest state JSON.
+      const comments = await listIssueComments({
+        host: remote.host,
+        token,
+        owner: remote.owner,
+        repo: remote.repo,
+        index: issueNumber,
+      })
+
+      let currentState: Record<string, unknown> = {}
+      if (comments.length > 0) {
+        const lastBody = (comments[comments.length - 1].body ?? '').trim()
+        if (lastBody) {
+          try {
+            const parsed = JSON.parse(lastBody) as unknown
+            if (parsed && typeof parsed === 'object')
+              currentState = parsed as Record<string, unknown>
+          }
+          catch {
+            // Last comment wasn't JSON; start fresh.
+          }
+        }
+      }
+
+      const merged: Record<string, unknown> = { ...currentState }
+      if (scan.specFile)
+        merged.specFile = scan.specFile
+      if (scan.planFile)
+        merged.planFile = scan.planFile
+
+      await postIssueComment({
+        host: remote.host,
+        token,
+        owner: remote.owner,
+        repo: remote.repo,
+        index: issueNumber,
+        body: JSON.stringify(merged),
+      })
+
+      this.postMessage({
+        type: 'toast/show',
+        id: toastId,
+        level: 'success',
+        message: '已写入 spec/plan 引用',
+        dismissOnTimer: 5000,
+      })
+
+      void this.loadAndPush()
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      this.postMessage({
+        type: 'toast/show',
+        id: toastId,
+        level: 'error',
+        message: `扫描失败: ${message}`,
+        dismissOnTimer: 8000,
+      })
+    }
+  }
+
+
+  /**
+   * Kick off the end-to-end "implement this plan" flow:
+   *   1. Detect repo + token, compute a stable feature_name from the plan path.
+   *   2. Move the issue to in-progress and stamp branch/worktreePath/status
+   *      into the state-JSON comment.
+   *   3. Ensure the local webhook HTTP server is listening, then register a
+   *      gitea webhook scoped to the feature branch.
+   *   4. Spawn `claude` in an editor-tab terminal with a /goal prompt that
+   *      tells cc to create the worktree, implement the plan, and emit
+   *      `<request_review>$pr_no</request_review>` when done.
+   *
+   * The webhook receiver — registered once in `ensureWebhookServer` — picks
+   * up the resulting PR event, writes back the PR number, and deletes the
+   * webhook. Restart safety: pendingHooks is mirrored to workspaceState so
+   * a VS Code reload between click-and-PR doesn't leak listeners.
+   */
+  private async handleImplement(
+    issueNumber: number,
+    planFile: string,
+    profilePath?: string,
+    _sessionId?: string,
+  ): Promise<void> {
+    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    if (!workspaceRoot) {
+      void window.showErrorMessage('请先打开一个工作区文件夹')
+      return
+    }
+    const remote = await detectRepo(workspaceRoot)
+    if (!remote) {
+      void window.showErrorMessage('当前工作区没有 Gitea 远程仓库')
+      return
+    }
+    const token = await getToken(this.context, remote.host)
+    if (!token) {
+      void window.showErrorMessage('请先完成 Gitea 配置')
+      return
+    }
+
+    const feature = createHash('sha256').update(planFile).digest('hex').slice(0, 8)
+    const branch = `feature/${feature}`
+    const relativeWorktreePath = `.claude/worktrees/${feature}`
+    const worktreePath = path.join(workspaceRoot, relativeWorktreePath)
+
+    // Pre-flight: refuse if either the directory or the branch already
+    // exists, since `git worktree add -b` would fail and we'd have to
+    // unwind partial state.
+    let worktreeExists = false
+    try {
+      await fsp.stat(worktreePath)
+      worktreeExists = true
+    }
+    catch {
+      // ENOENT — good.
+    }
+    let branchExists = false
+    try {
+      branchExists = await new Promise<boolean>((resolve) => {
+        execFile(
+          'git',
+          ['-C', workspaceRoot, 'branch', '--list', branch],
+          { timeout: 10_000 },
+          (err, stdout) => {
+            if (err) {
+              resolve(false)
+              return
+            }
+            resolve((stdout ?? '').trim().length > 0)
+          },
+        )
+      })
+    }
+    catch {
+      branchExists = false
+    }
+    if (worktreeExists || branchExists) {
+      void window.showErrorMessage(
+        `feature ${feature} 的 worktree 或分支已存在，请先清理`,
+      )
+      return
+    }
+
+    const effectiveProfilePath
+      = profilePath && profilePath.trim() !== '' ? profilePath : DEFAULT_PROFILE_PATH
+    // Same guard as handleResumeSession — we wrap with single quotes and
+    // embedded quotes would break out of the wrap. Defensive only.
+    if (effectiveProfilePath.includes('\'')) {
+      void window.showErrorMessage(
+        `实施失败：profilePath 含单引号，拒绝执行 (${effectiveProfilePath})`,
+      )
+      return
+    }
+
+    const settings = getSettings(this.context)
+    const port = settings.webhookPort
+    const hostOverride = settings.webhookHost
+    const host = detectLocalHost(hostOverride)
+
+    try {
+      await this.ensureWebhookServer(port)
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      void window.showErrorMessage(`webhook 服务启动失败: ${message}`)
+      return
+    }
+
+    const webhookUrl = `http://${host}:${port}/webhook/${issueNumber}`
+
+    // Create the worktree before the webhook, so a worktree-add failure
+    // doesn't leave a dangling hook on gitea.
+    try {
+      await createWorktree({ workspaceRoot, worktreePath, branch })
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      void window.showErrorMessage(message)
+      return
+    }
+
+    // Ensure the claude projects subdir exists *before* spawning the
+    // terminal so the watcher can't miss the create event.
+    const projDir = projectsDirFor(worktreePath)
+    try {
+      await fsp.mkdir(projDir, { recursive: true })
+    }
+    catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('[superpowers] failed to mkdir claude projects dir:', err)
+    }
+
+    // Kick off the watcher *before* spawning the terminal so we don't race.
+    const watchPromise = watchForNewSession({ projectsDir: projDir, timeoutMs: 120_000 })
+
+    let hookId: number
+    try {
+      const created = await createWebhook({
+        host: remote.host,
+        token,
+        owner: remote.owner,
+        repo: remote.repo,
+        url: webhookUrl,
+        branchFilter: branch,
+      })
+      hookId = created.id
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      void window.showErrorMessage(`创建 gitea webhook 失败: ${message}`)
+      return
+    }
+
+    this.pendingHooks.set(issueNumber, {
+      hookId,
+      host: remote.host,
+      owner: remote.owner,
+      repo: remote.repo,
+      feature,
+    })
+    await this.persistPendingHooks()
+
+    // Merge into the latest state-JSON comment so we don't clobber spec/plan/
+    // sessionId etc that earlier steps wrote.
+    try {
+      const comments = await listIssueComments({
+        host: remote.host,
+        token,
+        owner: remote.owner,
+        repo: remote.repo,
+        index: issueNumber,
+      })
+      let currentState: Record<string, unknown> = {}
+      if (comments.length > 0) {
+        const lastBody = (comments[comments.length - 1].body ?? '').trim()
+        if (lastBody) {
+          try {
+            const parsed = JSON.parse(lastBody) as unknown
+            if (parsed && typeof parsed === 'object')
+              currentState = parsed as Record<string, unknown>
+          }
+          catch {
+            // Last comment wasn't JSON; start fresh.
+          }
+        }
+      }
+      const merged: Record<string, unknown> = {
+        ...currentState,
+        column: 'in-progress',
+        branch,
+        worktreePath: relativeWorktreePath,
+        implementStatus: 'running',
+      }
+      await postIssueComment({
+        host: remote.host,
+        token,
+        owner: remote.owner,
+        repo: remote.repo,
+        index: issueNumber,
+        body: JSON.stringify(merged),
+      })
+      void this.loadAndPush()
+    }
+    catch (err) {
+      // Non-fatal: terminal still spawns. Surface so the user knows the
+      // comment didn't update.
+      const message = err instanceof Error ? err.message : String(err)
+      void window.showWarningMessage(`写入 state JSON 失败: ${message}`)
+    }
+
+    // Build the prompt. The extension already created the worktree, so cc
+    // just implements the plan. `$pr_no` is left as-is for cc to fill in
+    // via tool calls.
+    const prompt = getImplementPlanPrompt(this.context, { planFile })
+    if (prompt.includes('\'')) {
+      void window.showErrorMessage('实施失败：prompt 含单引号，拒绝执行')
+      return
+    }
+
+    const terminal = window.createTerminal({
+      name: `Claude · 实施 #${issueNumber}`,
+      cwd: worktreePath,
+      location: { viewColumn: ViewColumn.Beside, preserveFocus: false },
     })
     terminal.show()
-    terminal.sendText(`claude --dangerously-skip-permissions --resume ${sessionId}`)
+    const cmd = `claude --dangerously-skip-permissions --settings '${effectiveProfilePath}' '${prompt}'`
+    terminal.sendText(cmd)
+
+    // Wait in the background for the session jsonl to materialize; merge
+    // the captured implementSessionId back into the state-JSON comment so
+    // the user can resume from the detail panel later.
+    watchPromise.then(async (sid) => {
+      if (!sid) {
+        // eslint-disable-next-line no-console
+        console.warn('[superpowers] implementation session id watch timed out')
+        return
+      }
+      try {
+        const comments = await listIssueComments({
+          host: remote.host,
+          token,
+          owner: remote.owner,
+          repo: remote.repo,
+          index: issueNumber,
+        })
+        let currentState: Record<string, unknown> = {}
+        if (comments.length > 0) {
+          const lastBody = (comments[comments.length - 1].body ?? '').trim()
+          if (lastBody) {
+            try {
+              const parsed = JSON.parse(lastBody) as unknown
+              if (parsed && typeof parsed === 'object')
+                currentState = parsed as Record<string, unknown>
+            }
+            catch {
+              // not JSON
+            }
+          }
+        }
+        const merged: Record<string, unknown> = {
+          ...currentState,
+          implementSessionId: sid,
+        }
+        await postIssueComment({
+          host: remote.host,
+          token,
+          owner: remote.owner,
+          repo: remote.repo,
+          index: issueNumber,
+          body: JSON.stringify(merged),
+        })
+        void this.loadAndPush()
+      }
+      catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn('[superpowers] failed to persist implementSessionId:', err)
+      }
+    }).catch((err) => {
+      // eslint-disable-next-line no-console
+      console.warn('[superpowers] session watch failed:', err)
+    })
+
+    void window.showInformationMessage(`已开始实施 #${issueNumber}`)
+  }
+
+  /**
+   * Resolve the gitea PR URL for the current workspace's remote and open it
+   * in the user's default browser. Called from the webview's pr-link
+   * button.
+   */
+  private async handleOpenPr(pr: string): Promise<void> {
+    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    if (!workspaceRoot) {
+      void window.showErrorMessage('请先打开一个工作区文件夹')
+      return
+    }
+    const remote = await detectRepo(workspaceRoot)
+    if (!remote) {
+      void window.showErrorMessage('当前工作区没有 Gitea 远程仓库')
+      return
+    }
+    const url = `https://${remote.host}/${remote.owner}/${remote.repo}/pulls/${pr}`
+    void env.openExternal(Uri.parse(url))
+  }
+
+  /**
+   * Idempotent: start the webhook server on the given port (or move it if
+   * already running on a different port) and subscribe our event handler
+   * exactly once. Subsequent calls just re-check the port.
+   */
+  private async ensureWebhookServer(port: number): Promise<void> {
+    if (!this.webhookServer) {
+      this.webhookServer = new WebhookServer()
+      this.disposables.push(
+        this.webhookServer.onEvent((event: WebhookEvent) => {
+          void this.handleWebhookEvent(event)
+        }),
+      )
+    }
+    await this.webhookServer.start(port)
+  }
+
+  /**
+   * Process a single `pull_request` webhook delivery: merge the PR number
+   * into the issue's state-JSON comment, delete the gitea webhook, and
+   * refresh the kanban so the new fields surface immediately.
+   */
+  private async handleWebhookEvent(event: WebhookEvent): Promise<void> {
+    const pending = this.pendingHooks.get(event.issueNumber)
+    if (!pending) {
+      // eslint-disable-next-line no-console
+      console.warn('[superpowers/webhook] no pending hook for issue', event.issueNumber)
+      return
+    }
+    const token = await getToken(this.context, pending.host)
+    if (!token) {
+      // eslint-disable-next-line no-console
+      console.warn('[superpowers/webhook] missing token for', pending.host)
+      return
+    }
+    try {
+      const comments = await listIssueComments({
+        host: pending.host,
+        token,
+        owner: pending.owner,
+        repo: pending.repo,
+        index: event.issueNumber,
+      })
+      let currentState: Record<string, unknown> = {}
+      if (comments.length > 0) {
+        const lastBody = (comments[comments.length - 1].body ?? '').trim()
+        if (lastBody) {
+          try {
+            const parsed = JSON.parse(lastBody) as unknown
+            if (parsed && typeof parsed === 'object')
+              currentState = parsed as Record<string, unknown>
+          }
+          catch {
+            // Last comment wasn't JSON; start fresh.
+          }
+        }
+      }
+      const merged: Record<string, unknown> = {
+        ...currentState,
+        pr: event.pr,
+        implementStatus: 'done',
+      }
+      await postIssueComment({
+        host: pending.host,
+        token,
+        owner: pending.owner,
+        repo: pending.repo,
+        index: event.issueNumber,
+        body: JSON.stringify(merged),
+      })
+    }
+    catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[superpowers/webhook] failed to update state comment:', err)
+    }
+
+    try {
+      await deleteWebhook({
+        host: pending.host,
+        token,
+        owner: pending.owner,
+        repo: pending.repo,
+        hookId: pending.hookId,
+      })
+    }
+    catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('[superpowers/webhook] failed to delete hook:', err)
+    }
+
+    this.pendingHooks.delete(event.issueNumber)
+    await this.persistPendingHooks()
+    void this.loadAndPush()
+
+    const action = 'Open PR'
+    const pick = await window.showInformationMessage(
+      `#${event.issueNumber} 已关联 PR !${event.pr}`,
+      action,
+    )
+    if (pick === action)
+      void env.openExternal(Uri.parse(event.htmlUrl))
+  }
+
+  private async persistPendingHooks(): Promise<void> {
+    const obj: Record<string, PendingHook> = {}
+    for (const [k, v] of this.pendingHooks)
+      obj[String(k)] = v
+    await this.context.workspaceState.update(PENDING_HOOKS_KEY, obj)
   }
 
   private async loadAndPush(): Promise<void> {
@@ -127,7 +844,15 @@ export class KanbanWebviewPanel {
     const { host, owner, repo } = remote
     const token = await getToken(this.context, host)
     if (!token) {
-      this.postMessage({ type: 'auth/required', host })
+      const s = getSettings(this.context)
+      this.postMessage({
+        type: 'settings/show',
+        host,
+        webhookPort: s.webhookPort,
+        webhookHost: s.webhookHost,
+        createIssuePrompt: s.createIssuePrompt,
+        implementPlanPrompt: s.implementPlanPrompt,
+      })
       return
     }
 
@@ -138,10 +863,15 @@ export class KanbanWebviewPanel {
     catch (err) {
       if (err instanceof GiteaApiError && err.status === 401) {
         await deleteToken(this.context, host)
+        const s = getSettings(this.context)
         this.postMessage({
-          type: 'auth/required',
+          type: 'settings/show',
           host,
           errorMessage: 'Token 无效或已过期，请重新填写',
+          webhookPort: s.webhookPort,
+          webhookHost: s.webhookHost,
+          createIssuePrompt: s.createIssuePrompt,
+          implementPlanPrompt: s.implementPlanPrompt,
         })
         return
       }
@@ -151,22 +881,40 @@ export class KanbanWebviewPanel {
     }
   }
 
-  private async handleAuthSave(host: string, token: string): Promise<void> {
-    const trimmedHost = host.trim()
-    const trimmedToken = token.trim()
+  private async handleSettingsSave(payload: {
+    host: string
+    token: string
+    webhookPort: number
+    webhookHost: string
+    createIssuePrompt: string
+    implementPlanPrompt: string
+  }): Promise<void> {
+    const trimmedHost = payload.host.trim()
+    const trimmedToken = payload.token.trim()
     if (!trimmedHost || !trimmedToken) {
+      const s = getSettings(this.context)
       this.postMessage({
-        type: 'auth/required',
+        type: 'settings/show',
         host: trimmedHost,
         errorMessage: 'Host 和 Token 都不能为空',
+        webhookPort: payload.webhookPort,
+        webhookHost: payload.webhookHost,
+        createIssuePrompt: payload.createIssuePrompt || s.createIssuePrompt,
+        implementPlanPrompt: payload.implementPlanPrompt || s.implementPlanPrompt,
       })
       return
     }
+    await saveSettings(this.context, {
+      webhookPort: payload.webhookPort,
+      webhookHost: payload.webhookHost,
+      createIssuePrompt: payload.createIssuePrompt,
+      implementPlanPrompt: payload.implementPlanPrompt,
+    })
     await setToken(this.context, trimmedHost, trimmedToken)
     await this.loadAndPush()
   }
 
-  private async handleEditAuthRequest(): Promise<void> {
+  private async handleEditSettingsRequest(): Promise<void> {
     const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
     let host = ''
     if (workspaceRoot) {
@@ -174,13 +922,23 @@ export class KanbanWebviewPanel {
       if (remote)
         host = remote.host
     }
+    const s = getSettings(this.context)
     // User clicked the gear themselves — let them back out without saving.
-    this.postMessage({ type: 'auth/required', host, canCancel: true })
+    this.postMessage({
+      type: 'settings/show',
+      host,
+      canCancel: true,
+      webhookPort: s.webhookPort,
+      webhookHost: s.webhookHost,
+      createIssuePrompt: s.createIssuePrompt,
+      implementPlanPrompt: s.implementPlanPrompt,
+    })
   }
 
   private async handleIssueCreate(
     userRequest: string,
     images?: Array<{ mediaType: string, base64: string }>,
+    profilePath?: string,
   ): Promise<void> {
     const trimmed = userRequest.trim()
     if (!trimmed) {
@@ -236,6 +994,7 @@ export class KanbanWebviewPanel {
       token,
       userRequest: trimmed,
       images,
+      profilePath,
       onProgress: (event) => {
         if (event.kind === 'started') {
           this.postMessage({
@@ -272,9 +1031,25 @@ export class KanbanWebviewPanel {
     })
   }
 
+
+  /**
+   * Read profiles from the hardcoded directory and push the list to the
+   * webview. Failures are swallowed and surfaced as an empty list so the
+   * modal simply hides its profile selector.
+   */
+  private async handleProfilesList(): Promise<void> {
+    try {
+      const profiles = await listClaudeProfiles()
+      this.postMessage({ type: 'profiles/update', profiles })
+    }
+    catch {
+      this.postMessage({ type: 'profiles/update', profiles: [] })
+    }
+  }
+
   /** Forces the open panel (if any) into the setup-auth state. */
   static requestEditAuth(): void {
-    void KanbanWebviewPanel.current?.handleEditAuthRequest()
+    void KanbanWebviewPanel.current?.handleEditSettingsRequest()
   }
 
   private postMessage(msg: ExtensionToWebview): void {
@@ -286,6 +1061,11 @@ export class KanbanWebviewPanel {
     while (this.disposables.length) {
       const d = this.disposables.pop()
       d?.dispose()
+    }
+    if (this.webhookServer) {
+      const srv = this.webhookServer
+      this.webhookServer = undefined
+      void srv.stop()
     }
     this.panel.dispose()
   }

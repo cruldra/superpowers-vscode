@@ -13,10 +13,18 @@ interface PastedImageWithId extends PastedImage {
   id: string
 }
 
+/** Mirror of the extension-side ClaudeProfile in src/cc/profiles.ts. */
+export interface ClaudeProfile {
+  name: string
+  path: string
+}
+
 interface Props {
   open: boolean
   onCancel: () => void
-  onSubmit: (userRequest: string, images: PastedImage[]) => void
+  onSubmit: (userRequest: string, images: PastedImage[], profilePath?: string) => void
+  profiles: ClaudeProfile[]
+  defaultProfileName?: string
 }
 
 function readClipboardImage(file: File): Promise<PastedImage | null> {
@@ -41,16 +49,29 @@ function readClipboardImage(file: File): Promise<PastedImage | null> {
   })
 }
 
-export function NewIssueModal({ open, onCancel, onSubmit }: Props) {
+export function NewIssueModal({ open, onCancel, onSubmit, profiles, defaultProfileName }: Props) {
   const [value, setValue] = useState('')
   const [images, setImages] = useState<PastedImageWithId[]>([])
+  const [selectedProfile, setSelectedProfile] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     if (!open) {
       setValue('')
       setImages([])
+      setSelectedProfile(null)
       return
+    }
+    // Pick default profile when the modal opens. Prefer the one matching
+    // `defaultProfileName`, otherwise fall back to the first alphabetically.
+    if (profiles.length > 0) {
+      const match = defaultProfileName
+        ? profiles.find(p => p.name === defaultProfileName)
+        : undefined
+      setSelectedProfile(match ? match.name : profiles[0].name)
+    }
+    else {
+      setSelectedProfile(null)
     }
     const t = setTimeout(() => textareaRef.current?.focus(), 0)
     function handleKey(e: KeyboardEvent): void {
@@ -62,7 +83,7 @@ export function NewIssueModal({ open, onCancel, onSubmit }: Props) {
       clearTimeout(t)
       document.removeEventListener('keydown', handleKey)
     }
-  }, [open, onCancel])
+  }, [open, onCancel, profiles, defaultProfileName])
 
   const handlePaste = useCallback(async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const items = e.clipboardData?.items
@@ -103,7 +124,14 @@ export function NewIssueModal({ open, onCancel, onSubmit }: Props) {
   function handleSubmit(): void {
     if (!canSubmit)
       return
-    onSubmit(trimmed, images.map(({ mediaType, base64, previewDataUrl }) => ({ mediaType, base64, previewDataUrl })))
+    const profilePath = selectedProfile
+      ? profiles.find(p => p.name === selectedProfile)?.path
+      : undefined
+    onSubmit(
+      trimmed,
+      images.map(({ mediaType, base64, previewDataUrl }) => ({ mediaType, base64, previewDataUrl })),
+      profilePath,
+    )
   }
 
   return (
@@ -122,6 +150,27 @@ export function NewIssueModal({ open, onCancel, onSubmit }: Props) {
           placeholder="用 Markdown 描述你的需求…（可 Ctrl+V 粘贴截图）"
           className="mb-2 h-72 w-full resize-none rounded border border-[var(--vscode-input-border,transparent)] bg-[var(--vscode-input-background)] p-2 font-mono text-xs text-[var(--vscode-input-foreground)] outline-none focus:border-[var(--vscode-focusBorder)]"
         />
+
+        {profiles.length > 0 && (
+          <fieldset className="mb-3 border-0 p-0">
+            <legend className="mb-1 text-xs opacity-70">配置文件</legend>
+            <div className="flex flex-wrap gap-3 text-xs">
+              {profiles.map(p => (
+                <label key={p.name} className="flex cursor-pointer items-center gap-1">
+                  <input
+                    type="radio"
+                    name="claude-profile"
+                    value={p.name}
+                    checked={selectedProfile === p.name}
+                    onChange={() => setSelectedProfile(p.name)}
+                    className="accent-[var(--vscode-focusBorder)]"
+                  />
+                  <span>{p.name}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        )}
 
         {images.length > 0 && (
           <div className="mb-3 flex flex-wrap gap-2">

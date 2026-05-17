@@ -43,6 +43,14 @@ function defaultColumnForState(state: string): IssueColumn {
 function parseColumnFromComments(comments: GiteaComment[]): {
   column: IssueColumn | null
   sessionId?: string
+  profilePath?: string
+  specFile?: string
+  planFile?: string
+  pr?: string
+  branch?: string
+  worktreePath?: string
+  implementStatus?: 'running' | 'done' | 'failed'
+  implementSessionId?: string
 } {
   if (comments.length === 0)
     return { column: null }
@@ -53,10 +61,60 @@ function parseColumnFromComments(comments: GiteaComment[]): {
   try {
     const parsed = JSON.parse(body) as unknown
     if (parsed && typeof parsed === 'object' && 'column' in parsed) {
-      const obj = parsed as { column: unknown, sessionId?: unknown }
+      const obj = parsed as {
+        column: unknown
+        sessionId?: unknown
+        profilePath?: unknown
+        specFile?: unknown
+        planFile?: unknown
+        pr?: unknown
+        branch?: unknown
+        worktreePath?: unknown
+        implementStatus?: unknown
+        implementSessionId?: unknown
+      }
       if (isIssueColumn(obj.column)) {
-        const sessionId = typeof obj.sessionId === 'string' ? obj.sessionId : undefined
-        return { column: obj.column, sessionId }
+        const sessionId = typeof obj.sessionId === 'string' && obj.sessionId.length > 0
+          ? obj.sessionId
+          : undefined
+        const profilePath = typeof obj.profilePath === 'string' && obj.profilePath.length > 0
+          ? obj.profilePath
+          : undefined
+        const specFile = typeof obj.specFile === 'string' && obj.specFile.length > 0
+          ? obj.specFile
+          : undefined
+        const planFile = typeof obj.planFile === 'string' && obj.planFile.length > 0
+          ? obj.planFile
+          : undefined
+        const pr = typeof obj.pr === 'string' && obj.pr.length > 0
+          ? obj.pr
+          : undefined
+        const branch = typeof obj.branch === 'string' && obj.branch.length > 0
+          ? obj.branch
+          : undefined
+        const worktreePath = typeof obj.worktreePath === 'string' && obj.worktreePath.length > 0
+          ? obj.worktreePath
+          : undefined
+        const implementStatus = obj.implementStatus === 'running'
+          || obj.implementStatus === 'done'
+          || obj.implementStatus === 'failed'
+          ? obj.implementStatus
+          : undefined
+        const implementSessionId = typeof obj.implementSessionId === 'string' && obj.implementSessionId.length > 0
+          ? obj.implementSessionId
+          : undefined
+        return {
+          column: obj.column,
+          sessionId,
+          profilePath,
+          specFile,
+          planFile,
+          pr,
+          branch,
+          worktreePath,
+          implementStatus,
+          implementSessionId,
+        }
       }
     }
   }
@@ -139,7 +197,18 @@ export async function loadIssues(opts: {
   for (const issue of merged) {
     const id = `${owner}/${repo}#${issue.number}`
     const bucket = buckets.get(issue.number) ?? []
-    const { column: fromComment, sessionId } = parseColumnFromComments(bucket)
+    const {
+      column: fromComment,
+      sessionId,
+      profilePath,
+      specFile,
+      planFile,
+      pr,
+      branch,
+      worktreePath,
+      implementStatus,
+      implementSessionId,
+    } = parseColumnFromComments(bucket)
     let column: IssueColumn
     if (fromComment) {
       column = fromComment
@@ -170,6 +239,14 @@ export async function loadIssues(opts: {
       title: issue.title,
       column,
       ...(sessionId ? { sessionId } : {}),
+      ...(profilePath ? { profilePath } : {}),
+      ...(specFile ? { specFile } : {}),
+      ...(planFile ? { planFile } : {}),
+      ...(pr ? { pr } : {}),
+      ...(branch ? { branch } : {}),
+      ...(worktreePath ? { worktreePath } : {}),
+      ...(implementStatus ? { implementStatus } : {}),
+      ...(implementSessionId ? { implementSessionId } : {}),
       htmlUrl: issue.html_url,
     })
   }

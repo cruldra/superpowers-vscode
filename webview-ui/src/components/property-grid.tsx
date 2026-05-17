@@ -9,7 +9,7 @@
  * 背景色，依赖 VS Code 主题 CSS 变量。
  */
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
   ChevronDown,
@@ -17,6 +17,7 @@ import {
   Eye,
   EyeOff,
   Info,
+  RefreshCw,
   RotateCcw,
   Save,
   Search,
@@ -35,6 +36,8 @@ export type FieldType =
   | 'color'
   | 'password'
   | 'action'
+  | 'file-link'
+  | 'pr-link'
 
 /** 属性定义 */
 export interface PropertyDef {
@@ -50,10 +53,24 @@ export interface PropertyDef {
   options?: Array<{ label: string, value: string | number }>
   /** 是否只读 */
   readOnly?: boolean
-  /** type='action' 专用：点击值时的回调 */
+  /** type='action' / 'pr-link' 专用：点击值时的回调 */
   onAction?: (value: unknown) => void
   /** type='action' 专用：值前的图标 */
   actionIcon?: ReactNode
+  /** type='file-link' 专用：点击文件名时调用，参数为 value（workspace 相对路径） */
+  onOpen?: (path: string) => void
+  /** type='file-link' 专用：点击右侧图标按钮时调用，用于重新扫描/加载 */
+  onReload?: () => void
+  /** type='file-link' 专用：重新加载按钮的图标，默认为 RefreshCw */
+  reloadIcon?: ReactNode
+  /** type='file-link' 专用：第二个右侧按钮的图标，缺省则不渲染该按钮 */
+  secondaryActionIcon?: ReactNode
+  /** type='file-link' 专用：第二个右侧按钮的 tooltip */
+  secondaryActionTitle?: string
+  /** type='file-link' 专用：第二个右侧按钮的点击回调 */
+  onSecondaryAction?: () => void
+  /** type='file-link' 专用：第二个右侧按钮是否禁用 */
+  secondaryDisabled?: boolean
 }
 
 /** 属性分组定义 */
@@ -111,10 +128,18 @@ function PropertyRow({
   propDef,
   value,
   onChange,
+  fullKey,
+  isSelected,
+  onSelect,
+  registerCellRef,
 }: {
   propDef: PropertyDef
   value: unknown
   onChange: (key: string, value: unknown) => void
+  fullKey: string
+  isSelected: boolean
+  onSelect: (fullKey: string) => void
+  registerCellRef: (fullKey: string, el: HTMLDivElement | null) => void
 }) {
   const [showPassword, setShowPassword] = useState(false)
   const ro = propDef.readOnly
@@ -230,6 +255,7 @@ function PropertyRow({
         return (
           <button
             type="button"
+            data-property-action="primary"
             onClick={() => propDef.onAction?.(value)}
             disabled={ro}
             className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left text-xs text-[var(--vscode-textLink-foreground)] hover:text-[var(--vscode-textLink-activeForeground)] disabled:cursor-not-allowed disabled:opacity-50"
@@ -240,6 +266,81 @@ function PropertyRow({
             </span>
           </button>
         )
+
+      case 'file-link': {
+        const hasValue = typeof value === 'string' && value.length > 0
+        const reloadIcon = propDef.reloadIcon ?? <RefreshCw className="size-3.5" />
+        const hasSecondary = propDef.secondaryActionIcon != null
+        const secondaryDisabled = !!propDef.secondaryDisabled
+        return (
+          <div className="flex w-full items-center gap-1.5 px-2 py-1.5">
+            {hasValue
+              ? (
+                  <button
+                    type="button"
+                    data-property-action="primary"
+                    onClick={() => propDef.onOpen?.(value as string)}
+                    title={value as string}
+                    className="min-w-0 flex-1 truncate text-left text-xs font-mono text-[var(--vscode-textLink-foreground)] underline-offset-2 hover:text-[var(--vscode-textLink-activeForeground)] hover:underline"
+                  >
+                    {value as string}
+                  </button>
+                )
+              : (
+                  <span className="min-w-0 flex-1 truncate text-xs opacity-50">未加载</span>
+                )}
+            <button
+              type="button"
+              onClick={() => propDef.onReload?.()}
+              aria-label="重新加载"
+              className="grid size-5 shrink-0 place-items-center opacity-60 hover:opacity-100"
+            >
+              {reloadIcon}
+            </button>
+            {hasSecondary && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (secondaryDisabled)
+                    return
+                  propDef.onSecondaryAction?.()
+                }}
+                disabled={secondaryDisabled}
+                title={propDef.secondaryActionTitle}
+                aria-label={propDef.secondaryActionTitle ?? '次要操作'}
+                className={`grid size-5 shrink-0 place-items-center ${
+                  secondaryDisabled
+                    ? 'cursor-not-allowed opacity-30'
+                    : 'opacity-60 hover:opacity-100'
+                }`}
+              >
+                {propDef.secondaryActionIcon}
+              </button>
+            )}
+          </div>
+        )
+      }
+
+      case 'pr-link': {
+        const hasValue = typeof value === 'string' && value.length > 0
+        if (!hasValue) {
+          return (
+            <span className="block truncate px-2 py-1.5 text-xs opacity-50">未关联 PR</span>
+          )
+        }
+        return (
+          <button
+            type="button"
+            data-property-action="primary"
+            onClick={() => propDef.onAction?.(value)}
+            className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left text-xs text-[var(--vscode-textLink-foreground)] hover:text-[var(--vscode-textLink-activeForeground)]"
+          >
+            <span className="truncate font-mono underline-offset-2 hover:underline">
+              {`#${value as string}`}
+            </span>
+          </button>
+        )
+      }
 
       case 'string':
       default:
@@ -276,8 +377,26 @@ function PropertyRow({
 
       {/* 值编辑列 */}
       <div
+        ref={el => registerCellRef(fullKey, el)}
+        data-property-cell={fullKey}
+        onClickCapture={(e) => {
+          if (!isSelected) {
+            e.stopPropagation()
+            e.preventDefault()
+            onSelect(fullKey)
+          }
+        }}
         className={`flex min-w-0 flex-1 ${
           propDef.type === 'multiline' ? 'items-stretch' : 'items-center'
+        } ${
+          isSelected ? 'rounded ring-2 ring-inset ring-[var(--vscode-focusBorder)]' : ''
+        } ${
+          !isSelected
+          && (propDef.type === 'action'
+            || propDef.type === 'file-link'
+            || propDef.type === 'pr-link')
+            ? 'cursor-pointer'
+            : ''
         }`}
       >
         {renderControl()}
@@ -322,16 +441,37 @@ export function PropertyGrid({
 }: PropertyGridProps) {
   const [searchTerm, setSearchTerm] = useState('')
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({})
+  const [selectedKey, setSelectedKey] = useState<string | null>(null)
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  const cellRefsRef = useRef<Map<string, HTMLDivElement>>(new Map())
 
-  function toggleGroup(groupId: string): void {
-    setCollapsedGroups(prev => ({ ...prev, [groupId]: !prev[groupId] }))
+  /** 切换到新 data 时清空选中 */
+  useEffect(() => {
+    setSelectedKey(null)
+  }, [data])
+
+  /** 点击网格外部时清空选中 */
+  useEffect(() => {
+    if (selectedKey == null)
+      return
+    function handleMouseDown(e: MouseEvent): void {
+      const root = rootRef.current
+      if (root && e.target instanceof Node && !root.contains(e.target))
+        setSelectedKey(null)
+    }
+    document.addEventListener('mousedown', handleMouseDown)
+    return () => document.removeEventListener('mousedown', handleMouseDown)
+  }, [selectedKey])
+
+  /** 注册/解除每个 value cell 的 DOM 引用，便于 scrollIntoView */
+  function registerCellRef(fullKey: string, el: HTMLDivElement | null): void {
+    if (el)
+      cellRefsRef.current.set(fullKey, el)
+    else
+      cellRefsRef.current.delete(fullKey)
   }
 
-  function handleChange(key: string, value: unknown): void {
-    onChange?.(key, value)
-  }
-
-  /** 根据搜索词过滤 schema */
+  /** 根据搜索词过滤 schema（提前声明，供键盘 effect 使用） */
   const filteredSchema = useMemo(() => {
     if (!searchTerm.trim())
       return schema
@@ -346,8 +486,77 @@ export function PropertyGrid({
       .filter(g => g.properties.length > 0)
   }, [schema, searchTerm])
 
+  /** 当前可见的 value cell 顺序列表（折叠分组的属性被排除） */
+  const visibleCellKeys = useMemo(() => {
+    const keys: string[] = []
+    for (const group of filteredSchema) {
+      if (collapsedGroups[group.id])
+        continue
+      for (const prop of group.properties)
+        keys.push(`${group.id}/${prop.key}`)
+    }
+    return keys
+  }, [filteredSchema, collapsedGroups])
+
+  /** 选中后启用键盘导航（捕获阶段，优先于 App 全局 window 监听） */
+  useEffect(() => {
+    if (selectedKey == null)
+      return
+
+    function handleKeyDown(e: KeyboardEvent): void {
+      if (selectedKey == null)
+        return
+
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        const idx = visibleCellKeys.indexOf(selectedKey)
+        if (idx < 0)
+          return
+        e.preventDefault()
+        e.stopPropagation()
+        const next = e.key === 'ArrowDown'
+          ? Math.min(idx + 1, visibleCellKeys.length - 1)
+          : Math.max(idx - 1, 0)
+        const nextKey = visibleCellKeys[next]
+        if (nextKey !== selectedKey) {
+          setSelectedKey(nextKey)
+          // 滚动到视野内（异步等待 DOM 更新 ref）
+          requestAnimationFrame(() => {
+            const el = cellRefsRef.current.get(nextKey)
+            el?.scrollIntoView({ block: 'nearest' })
+          })
+        }
+        return
+      }
+
+      if (e.key === 'Enter') {
+        const cell = cellRefsRef.current.get(selectedKey)
+        if (!cell)
+          return
+        const action = cell.querySelector<HTMLElement>('[data-property-action="primary"]')
+        if (!action)
+          return
+        e.preventDefault()
+        e.stopPropagation()
+        action.click()
+      }
+      // ArrowLeft / ArrowRight / 其他键：不处理，让事件继续冒泡给 App 全局监听
+    }
+
+    document.addEventListener('keydown', handleKeyDown, true)
+    return () => document.removeEventListener('keydown', handleKeyDown, true)
+  }, [selectedKey, visibleCellKeys])
+
+  function toggleGroup(groupId: string): void {
+    setCollapsedGroups(prev => ({ ...prev, [groupId]: !prev[groupId] }))
+  }
+
+  function handleChange(key: string, value: unknown): void {
+    onChange?.(key, value)
+  }
+
   return (
     <div
+      ref={rootRef}
       data-testid="property-grid-root"
       data-fill-height={fillHeight ? 'true' : 'false'}
       className="flex w-full flex-col"
@@ -419,14 +628,21 @@ export function PropertyGrid({
                     </button>
 
                     {/* 分组属性行列表 */}
-                    {!isCollapsed && group.properties.map(prop => (
-                      <PropertyRow
-                        key={prop.key}
-                        propDef={prop}
-                        value={data[prop.key]}
-                        onChange={handleChange}
-                      />
-                    ))}
+                    {!isCollapsed && group.properties.map((prop) => {
+                      const fullKey = `${group.id}/${prop.key}`
+                      return (
+                        <PropertyRow
+                          key={prop.key}
+                          propDef={prop}
+                          value={data[prop.key]}
+                          onChange={handleChange}
+                          fullKey={fullKey}
+                          isSelected={selectedKey === fullKey}
+                          onSelect={setSelectedKey}
+                          registerCellRef={registerCellRef}
+                        />
+                      )
+                    })}
                   </div>
                 )
               })

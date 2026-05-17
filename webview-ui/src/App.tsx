@@ -14,21 +14,27 @@ export function App() {
   const {
     state,
     toasts,
+    profiles,
     setIssues,
     refresh,
-    saveAuth,
+    saveSettings,
     requestEditAuth,
     createIssue,
     dismissToast,
     openUrl,
     resumeSession,
+    focusSession,
+    openFile,
+    loadSessionFiles,
+    implement,
+    openPr,
   } = useIssues()
   const [showNewIssueModal, setShowNewIssueModal] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
-  function handleSubmitNewIssue(userRequest: string, images: PastedImage[]): void {
+  function handleSubmitNewIssue(userRequest: string, images: PastedImage[], profilePath?: string): void {
     const payload = images.map(({ mediaType, base64 }) => ({ mediaType, base64 }))
-    createIssue(userRequest, payload.length > 0 ? payload : undefined)
+    createIssue(userRequest, payload.length > 0 ? payload : undefined, profilePath)
     setShowNewIssueModal(false)
   }
 
@@ -54,6 +60,12 @@ export function App() {
       return null
     return readyIssues.find(i => i.id === selectedId) ?? null
   }, [readyIssues, selectedId])
+
+  // Auto-focus the terminal tab whenever the selected card has a session.
+  useEffect(() => {
+    if (selectedIssue?.sessionId)
+      focusSession(selectedIssue.sessionId)
+  }, [selectedIssue?.sessionId, focusSession])
 
   // Global keyboard navigation.
   useEffect(() => {
@@ -81,9 +93,12 @@ export function App() {
       }
 
       if (e.key === 'Enter') {
-        if (selectedIssue?.sessionId) {
+        const sid = selectedIssue?.implementSessionId || selectedIssue?.sessionId
+        if (sid) {
           e.preventDefault()
-          resumeSession(selectedIssue.sessionId)
+          const isImpl = !!selectedIssue?.implementSessionId
+          const cwd = isImpl ? selectedIssue?.worktreePath : undefined
+          resumeSession(sid, selectedIssue?.profilePath, cwd)
         }
         return
       }
@@ -157,7 +172,12 @@ export function App() {
         <SetupForm
           host={state.host}
           errorMessage={state.errorMessage}
-          onSubmit={saveAuth}
+          canCancel={state.canCancel}
+          initialWebhookPort={state.webhookPort}
+          initialWebhookHost={state.webhookHost}
+          initialCreateIssuePrompt={state.createIssuePrompt}
+          initialImplementPlanPrompt={state.implementPlanPrompt}
+          onSubmit={saveSettings}
           onCancel={state.canCancel ? refresh : undefined}
         />
       )}
@@ -186,6 +206,10 @@ export function App() {
                 issue={selectedIssue}
                 onOpenInBrowser={openUrl}
                 onResumeSession={resumeSession}
+                onOpenFile={openFile}
+                onLoadFiles={loadSessionFiles}
+                onImplement={implement}
+                onOpenPr={openPr}
               />
             </div>
           </div>
@@ -224,6 +248,8 @@ export function App() {
         open={showNewIssueModal}
         onCancel={() => setShowNewIssueModal(false)}
         onSubmit={handleSubmitNewIssue}
+        profiles={profiles}
+        defaultProfileName="offical"
       />
       <ToastStack toasts={toasts} onDismiss={dismissToast} onOpenUrl={openUrl} />
     </div>

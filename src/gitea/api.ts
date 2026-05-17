@@ -144,6 +144,42 @@ export async function listAllRepoComments(opts: {
   return out
 }
 
+/**
+ * Fetches comments for a single issue via
+ * `/repos/{owner}/{repo}/issues/{index}/comments`. Paginated until a short
+ * page is returned. Used when we need the freshest view of one issue's
+ * state-JSON comment (e.g. mutating the last comment in place).
+ */
+export async function listIssueComments(opts: {
+  host: string
+  token: string
+  owner: string
+  repo: string
+  index: number
+}): Promise<GiteaComment[]> {
+  const out: GiteaComment[] = []
+  let page = 1
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const url = new URL(
+      `${baseUrl(opts.host)}/repos/${opts.owner}/${opts.repo}/issues/${opts.index}/comments`,
+    )
+    url.searchParams.set('limit', String(PAGE_SIZE))
+    url.searchParams.set('page', String(page))
+
+    const res = await fetch(url.toString(), { headers: authHeaders(opts.token) })
+    await ensureOk(res)
+    const batch = await res.json() as GiteaComment[]
+    if (!Array.isArray(batch) || batch.length === 0)
+      break
+    out.push(...batch)
+    if (batch.length < PAGE_SIZE)
+      break
+    page += 1
+  }
+  return out
+}
+
 export async function postIssueComment(opts: {
   host: string
   token: string
@@ -163,5 +199,61 @@ export async function postIssueComment(opts: {
       body: JSON.stringify({ body: opts.body }),
     },
   )
+  await ensureOk(res)
+}
+
+
+export async function createWebhook(opts: {
+  host: string
+  token: string
+  owner: string
+  repo: string
+  url: string
+  branchFilter: string
+}): Promise<{ id: number }> {
+  const res = await fetch(
+    `${baseUrl(opts.host)}/repos/${opts.owner}/${opts.repo}/hooks`,
+    {
+      method: 'POST',
+      headers: {
+        ...authHeaders(opts.token),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        type: 'gitea',
+        active: true,
+        events: ['pull_request'],
+        branch_filter: opts.branchFilter,
+        config: {
+          url: opts.url,
+          content_type: 'json',
+        },
+      }),
+    },
+  )
+  await ensureOk(res)
+  const data = (await res.json()) as { id?: unknown }
+  const id = typeof data.id === 'number' ? data.id : Number(data.id)
+  if (!Number.isFinite(id))
+    throw new GiteaApiError(500, 'createWebhook: response missing id')
+  return { id }
+}
+
+export async function deleteWebhook(opts: {
+  host: string
+  token: string
+  owner: string
+  repo: string
+  hookId: number
+}): Promise<void> {
+  const res = await fetch(
+    `${baseUrl(opts.host)}/repos/${opts.owner}/${opts.repo}/hooks/${opts.hookId}`,
+    {
+      method: 'DELETE',
+      headers: authHeaders(opts.token),
+    },
+  )
+  if (res.status === 404)
+    return
   await ensureOk(res)
 }

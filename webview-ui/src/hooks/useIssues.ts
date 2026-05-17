@@ -2,7 +2,7 @@
  * Subscribes to the extension host's issue stream.
  *
  * State machine:
- *   - setup   : token absent or invalid; show the auth form
+ *   - setup   : token absent or invalid; show the settings form
  *   - loading : initial mount + any time the host pushes `issues/loading`
  *   - ready   : host pushed `issues/update`; carries the current list
  *   - error   : host pushed `issues/error`; carries the user-facing message
@@ -16,48 +16,88 @@ import type { Issue } from '../types'
 import type { ToastItem } from '../components/ToastStack'
 import { onMessage, postMessage } from '../lib/vscode'
 
+export interface SettingsValues {
+  host: string
+  token: string
+  webhookPort: number
+  webhookHost: string
+  createIssuePrompt: string
+  implementPlanPrompt: string
+}
+
 export type UseIssuesState =
-  | { status: 'setup', host: string, errorMessage?: string, canCancel?: boolean }
+  | {
+    status: 'setup'
+    host: string
+    errorMessage?: string
+    canCancel?: boolean
+    webhookPort: number
+    webhookHost: string
+    createIssuePrompt: string
+    implementPlanPrompt: string
+  }
   | { status: 'loading' }
   | { status: 'ready', issues: Issue[] }
   | { status: 'error', message: string }
 
+/** Mirror of the extension-side ClaudeProfile in src/cc/profiles.ts. */
+export interface ClaudeProfile {
+  name: string
+  path: string
+}
+
 export interface UseIssuesResult {
   state: UseIssuesState
   toasts: ToastItem[]
+  profiles: ClaudeProfile[]
   setIssues: (issues: Issue[]) => void
   refresh: () => void
-  saveAuth: (host: string, token: string) => void
+  saveSettings: (values: SettingsValues) => void
   requestEditAuth: () => void
-  createIssue: (userRequest: string, images?: Array<{ mediaType: string, base64: string }>) => void
+  createIssue: (userRequest: string, images?: Array<{ mediaType: string, base64: string }>, profilePath?: string) => void
   dismissToast: (id: string) => void
   openUrl: (url: string) => void
-  resumeSession: (sessionId: string) => void
+  resumeSession: (sessionId: string, profilePath?: string, cwd?: string) => void
+  focusSession: (sessionId: string) => void
+  openFile: (path: string) => void
+  loadSessionFiles: (sessionId: string | undefined, issueNumber: number) => void
+  implement: (issueNumber: number, planFile: string, profilePath?: string, sessionId?: string) => void
+  openPr: (pr: string) => void
 }
 
 export function useIssues(): UseIssuesResult {
   const [state, setState] = useState<UseIssuesState>({ status: 'loading' })
   const [toasts, setToasts] = useState<ToastItem[]>([])
+  const [profiles, setProfiles] = useState<ClaudeProfile[]>([])
 
   const refresh = useCallback((): void => {
     setState({ status: 'loading' })
     postMessage({ type: 'issues/refresh' })
   }, [])
 
-  const saveAuth = useCallback((host: string, token: string): void => {
+  const saveSettings = useCallback((values: SettingsValues): void => {
     setState({ status: 'loading' })
-    postMessage({ type: 'auth/save', host, token })
+    postMessage({
+      type: 'settings/save',
+      host: values.host,
+      token: values.token,
+      webhookPort: values.webhookPort,
+      webhookHost: values.webhookHost,
+      createIssuePrompt: values.createIssuePrompt,
+      implementPlanPrompt: values.implementPlanPrompt,
+    })
   }, [])
 
   const requestEditAuth = useCallback((): void => {
-    postMessage({ type: 'auth/edit-request' })
+    postMessage({ type: 'settings/edit-request' })
   }, [])
 
   const createIssue = useCallback((
     userRequest: string,
     images?: Array<{ mediaType: string, base64: string }>,
+    profilePath?: string,
   ): void => {
-    postMessage({ type: 'issue/create', userRequest, images })
+    postMessage({ type: 'issue/create', userRequest, images, profilePath })
   }, [])
 
   const dismissToast = useCallback((id: string): void => {
@@ -68,8 +108,38 @@ export function useIssues(): UseIssuesResult {
     postMessage({ type: 'toast/open-url', url })
   }, [])
 
-  const resumeSession = useCallback((sessionId: string): void => {
-    postMessage({ type: 'session/resume', sessionId })
+  const resumeSession = useCallback((sessionId: string, profilePath?: string, cwd?: string): void => {
+    postMessage({ type: 'session/resume', sessionId, profilePath, cwd })
+  }, [])
+
+  const focusSession = useCallback((sessionId: string): void => {
+    postMessage({ type: 'session/focus', sessionId })
+  }, [])
+
+  const openFile = useCallback((path: string): void => {
+    postMessage({ type: 'editor/open-file', path })
+  }, [])
+
+  const loadSessionFiles = useCallback((sessionId: string | undefined, issueNumber: number): void => {
+    if (!sessionId) {
+      // eslint-disable-next-line no-console
+      console.warn('[superpowers] loadSessionFiles called without sessionId')
+      return
+    }
+    postMessage({ type: 'session/load-files', sessionId, issueNumber })
+  }, [])
+
+  const implement = useCallback((
+    issueNumber: number,
+    planFile: string,
+    profilePath?: string,
+    sessionId?: string,
+  ): void => {
+    postMessage({ type: 'issue/implement', issueNumber, planFile, profilePath, sessionId })
+  }, [])
+
+  const openPr = useCallback((pr: string): void => {
+    postMessage({ type: 'pr/open', pr })
   }, [])
 
   const setIssues = useCallback((issues: Issue[]): void => {
@@ -88,8 +158,17 @@ export function useIssues(): UseIssuesResult {
         case 'issues/error':
           setState({ status: 'error', message: msg.message })
           break
-        case 'auth/required':
-          setState({ status: 'setup', host: msg.host, errorMessage: msg.errorMessage, canCancel: msg.canCancel })
+        case 'settings/show':
+          setState({
+            status: 'setup',
+            host: msg.host,
+            errorMessage: msg.errorMessage,
+            canCancel: msg.canCancel,
+            webhookPort: msg.webhookPort,
+            webhookHost: msg.webhookHost,
+            createIssuePrompt: msg.createIssuePrompt,
+            implementPlanPrompt: msg.implementPlanPrompt,
+          })
           break
         case 'toast/show': {
           const toast: ToastItem = {
@@ -114,11 +193,15 @@ export function useIssues(): UseIssuesResult {
         case 'toast/dismiss':
           setToasts(prev => prev.filter(t => t.id !== msg.id))
           break
+        case 'profiles/update':
+          setProfiles(msg.profiles)
+          break
       }
     })
     postMessage({ type: 'issues/refresh' })
+    postMessage({ type: 'profiles/list' })
     return cleanup
   }, [])
 
-  return { state, toasts, setIssues, refresh, saveAuth, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession }
+  return { state, toasts, profiles, setIssues, refresh, saveSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, focusSession, openFile, loadSessionFiles, implement, openPr }
 }

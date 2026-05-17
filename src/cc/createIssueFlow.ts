@@ -10,6 +10,7 @@
 import { randomUUID } from 'node:crypto'
 import type { ExtensionContext } from 'vscode'
 import { GiteaApiError, postIssueComment } from '../gitea/api'
+import { getCreateIssuePrompt } from './prompts'
 import type { ClaudeImage } from './spawnClaude'
 import { ClaudeError, ClaudeTimeoutError, spawnClaude } from './spawnClaude'
 
@@ -17,10 +18,6 @@ export type ProgressEvent =
   | { kind: 'started', toastId: string }
   | { kind: 'success', toastId: string, issueNumber: number, issueUrl: string }
   | { kind: 'failed', toastId: string, message: string }
-
-function buildPrompt(userRequest: string): string {
-  return `/goal 我现在有这样一个需求 ${userRequest}, 你用tea命令先帮我建好gitea工单, 具体细节等下再讨论, 以 <gitea_issue_no>编号</gitea_issue_no> 形式输出创建好的工单编号`
-}
 
 function extractIssueNumber(resultText: string): number | null {
   const m = resultText.match(/<gitea_issue_no>(\d+)<\/gitea_issue_no>/)
@@ -39,12 +36,13 @@ export async function createIssueViaClaude(opts: {
   token: string
   userRequest: string
   images?: ClaudeImage[]
+  profilePath?: string
   onProgress: (event: ProgressEvent) => void
 }): Promise<void> {
   const toastId = randomUUID()
   opts.onProgress({ kind: 'started', toastId })
 
-  const prompt = buildPrompt(opts.userRequest)
+  const prompt = getCreateIssuePrompt(opts.ctx, { userRequest: opts.userRequest })
 
   let sessionId: string
   let resultText: string
@@ -54,6 +52,7 @@ export async function createIssueViaClaude(opts: {
       prompt,
       cwd: opts.workspaceRoot,
       images: opts.images,
+      profilePath: opts.profilePath,
     })
     sessionId = out.sessionId
     resultText = out.resultText
@@ -100,7 +99,13 @@ export async function createIssueViaClaude(opts: {
       owner: opts.owner,
       repo: opts.repo,
       index: issueNumber,
-      body: JSON.stringify({ column: 'todo', sessionId }),
+      body: JSON.stringify({
+        column: 'todo',
+        sessionId,
+        ...(typeof opts.profilePath === 'string' && opts.profilePath.length > 0
+          ? { profilePath: opts.profilePath }
+          : {}),
+      }),
     })
   }
   catch (err) {

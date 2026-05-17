@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { ExternalLink, Terminal } from 'lucide-react'
+import { ExternalLink, Play, Terminal } from 'lucide-react'
 import type { Issue, IssueColumn } from '../types'
 import { COLUMN_LABELS, COLUMN_ORDER } from '../types'
 import type { PropertyGroup } from './property-grid'
@@ -8,7 +8,16 @@ import { PropertyGrid } from './property-grid'
 interface IssueDetailPanelProps {
   issue: Issue | null
   onOpenInBrowser: (url: string) => void
-  onResumeSession: (sessionId: string) => void
+  onResumeSession: (sessionId: string, profilePath?: string, cwd?: string) => void
+  /** Open a workspace-relative file in the editor. */
+  onOpenFile: (path: string) => void
+  /** Scan the Claude session transcript for `sessionId` and merge any
+   * discovered spec/plan paths into the issue's state-JSON comment. */
+  onLoadFiles: (sessionId: string | undefined, issueNumber: number) => void
+  /** Kick off the end-to-end implementation flow for the given plan file. */
+  onImplement: (issueNumber: number, planFile: string, profilePath?: string, sessionId?: string) => void
+  /** Open the gitea PR page in the browser. */
+  onOpenPr: (pr: string) => void
 }
 
 /**
@@ -23,6 +32,10 @@ export function IssueDetailPanel({
   issue,
   onOpenInBrowser,
   onResumeSession,
+  onOpenFile,
+  onLoadFiles,
+  onImplement,
+  onOpenPr,
 }: IssueDetailPanelProps) {
   const schema = useMemo<PropertyGroup[]>(
     () => [
@@ -32,7 +45,7 @@ export function IssueDetailPanel({
         properties: [
           {
             key: 'column',
-            label: 'column',
+            label: '状态',
             type: 'select',
             readOnly: true,
             description: '工单所在的看板列；写入 issue 最后一条 JSON 评论的 column 字段',
@@ -43,19 +56,114 @@ export function IssueDetailPanel({
           },
           {
             key: 'sessionId',
-            label: 'sessionId',
+            label: '会话id',
             type: 'action',
             description: '点击在新终端运行 claude --resume <id> 恢复对话',
             actionIcon: <Terminal className="size-3.5" />,
             onAction: (v) => {
               if (typeof v === 'string' && v.length > 0)
-                onResumeSession(v)
+                onResumeSession(v, issue?.profilePath)
             },
+          },
+          {
+            key: 'implementSessionId',
+            label: '实施会话id',
+            type: 'action',
+            description: '点击在新终端运行 claude --resume <id> 恢复实施对话（cwd 为 worktree）',
+            actionIcon: <Terminal className="size-3.5" />,
+            onAction: (v) => {
+              if (typeof v === 'string' && v.length > 0)
+                onResumeSession(v, issue?.profilePath, issue?.worktreePath)
+            },
+          },
+          {
+            key: 'profilePath',
+            label: '配置文件',
+            type: 'string',
+            readOnly: true,
+            description: '创建工单时使用的 Claude 配置文件；resume 时会自动带上',
+          },
+          {
+            key: 'specFile',
+            label: '规格文件',
+            type: 'file-link',
+            description: '点击文件名在编辑器打开；点击右侧按钮重新扫描会话',
+            onOpen: (p: string) => onOpenFile(p),
+            onReload: () => {
+              if (!issue)
+                return
+              if (!issue.sessionId) {
+                // eslint-disable-next-line no-console
+                console.warn('[superpowers] cannot load spec/plan: issue has no sessionId')
+                return
+              }
+              onLoadFiles(issue.sessionId, issue.number)
+            },
+          },
+          {
+            key: 'planFile',
+            label: '计划文件',
+            type: 'file-link',
+            description: '点击文件名在编辑器打开；点击重载按钮重新扫描会话；点击实施按钮启动实施流程',
+            onOpen: (p: string) => onOpenFile(p),
+            onReload: () => {
+              if (!issue)
+                return
+              if (!issue.sessionId) {
+                // eslint-disable-next-line no-console
+                console.warn('[superpowers] cannot load spec/plan: issue has no sessionId')
+                return
+              }
+              onLoadFiles(issue.sessionId, issue.number)
+            },
+            // Hide the "实施" button entirely when there's no plan file.
+            secondaryActionIcon: issue?.planFile
+              ? <Play className="size-3.5" />
+              : undefined,
+            secondaryActionTitle: '实施此计划',
+            // Disable while running or already done. The user can still click
+            // when status === 'failed' or never been run. Re-clicking while
+            // 'running' is blocked at the UI to avoid registering duplicate
+            // webhooks. To retry after a perceived failure with status still
+            // 'running', edit the state-JSON comment manually for now.
+            secondaryDisabled:
+              !issue?.planFile
+              || issue?.implementStatus === 'running'
+              || issue?.implementStatus === 'done',
+            onSecondaryAction: () => {
+              if (!issue?.planFile)
+                return
+              onImplement(issue.number, issue.planFile, issue.profilePath, issue.sessionId)
+            },
+          },
+          {
+            key: 'pr',
+            label: '合并请求',
+            type: 'pr-link',
+            description: '点击在浏览器打开关联的 PR',
+            onAction: (v) => {
+              if (typeof v === 'string' && v.length > 0)
+                onOpenPr(v)
+            },
+          },
+          {
+            key: 'branch',
+            label: '分支',
+            type: 'string',
+            readOnly: true,
+            description: '实施流程创建的分支名',
+          },
+          {
+            key: 'worktreePath',
+            label: '工作树',
+            type: 'string',
+            readOnly: true,
+            description: '实施流程创建的 git worktree 路径（workspace 相对）',
           },
         ],
       },
     ],
-    [onResumeSession],
+    [onResumeSession, onOpenFile, onLoadFiles, onImplement, onOpenPr, issue],
   )
 
   if (!issue) {
@@ -69,6 +177,13 @@ export function IssueDetailPanel({
   const data: Record<string, unknown> = {
     column: issue.column,
     sessionId: issue.sessionId ?? null,
+    implementSessionId: issue.implementSessionId ?? null,
+    profilePath: issue.profilePath ?? null,
+    specFile: issue.specFile ?? null,
+    planFile: issue.planFile ?? null,
+    pr: issue.pr ?? null,
+    branch: issue.branch ?? null,
+    worktreePath: issue.worktreePath ?? null,
   }
 
   return (

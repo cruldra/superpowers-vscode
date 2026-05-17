@@ -45,7 +45,7 @@ export function KanbanColumn({ column, issues, children, onCreate }: KanbanColum
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
+      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 py-1">
         {issues.length === 0
           ? (
               <div className="flex flex-1 items-center justify-center rounded-md border border-dashed border-[var(--vscode-foreground)] border-opacity-20 p-4 text-xs text-muted-foreground opacity-60">

@@ -5,7 +5,31 @@ export interface Issue {
   number: number
   title: string
   column: IssueColumn
+  /** Optional Claude Code session id stored alongside the column marker in
+   * the issue's state-JSON comment. Used to resume the conversation. */
   sessionId?: string
+  /** Absolute path to the Claude settings profile used at creation; passed
+   * as --settings on resume. */
+  profilePath?: string
+  /** Optional workspace-relative path to the spec file for this issue, as
+   * surfaced from the Claude session transcript. Lives under
+   * `docs/superpowers/specs/*.md`. */
+  specFile?: string
+  /** Optional workspace-relative path to the plan file for this issue, as
+   * surfaced from the Claude session transcript. Lives under
+   * `docs/superpowers/plans/*.md`. */
+  planFile?: string
+  /** PR number associated with this issue (set after webhook fires). */
+  pr?: string
+  /** Branch name created for implementation, e.g. `feature/<hash>`. */
+  branch?: string
+  /** Workspace-relative path to the implementation worktree. */
+  worktreePath?: string
+  /** Lifecycle of the implementation flow. */
+  implementStatus?: 'running' | 'done' | 'failed'
+  /** Session id of the implementation conversation (separate from
+   * discussion-session `sessionId`). */
+  implementSessionId?: string
   htmlUrl: string
 }
 

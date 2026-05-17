@@ -126,23 +126,26 @@ export async function spawnClaude(opts: {
   cwd: string
   timeoutMs?: number
   images?: ClaudeImage[]
+  profilePath?: string
 }): Promise<ClaudeResult> {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const hasImages = !!opts.images && opts.images.length > 0
 
   if (!hasImages) {
-    return spawnClaudeText(opts.prompt, opts.cwd, timeoutMs)
+    return spawnClaudeText(opts.prompt, opts.cwd, timeoutMs, opts.profilePath)
   }
-  return spawnClaudeStreamed(opts.prompt, opts.cwd, timeoutMs, opts.images!)
+  return spawnClaudeStreamed(opts.prompt, opts.cwd, timeoutMs, opts.images!, opts.profilePath)
 }
 
 function spawnClaudeText(
   prompt: string,
   cwd: string,
   timeoutMs: number,
+  profilePath?: string,
 ): Promise<ClaudeResult> {
   const args = [
     '--dangerously-skip-permissions',
+    ...(profilePath ? ['--settings', profilePath] : []),
     '-p',
     prompt,
     '--output-format',
@@ -208,6 +211,7 @@ function spawnClaudeStreamed(
   cwd: string,
   timeoutMs: number,
   images: ClaudeImage[],
+  profilePath?: string,
 ): Promise<ClaudeResult> {
   // Local Claude Code v2.1.143 enforces that --input-format=stream-json must
   // be paired with --output-format=stream-json (the friendlier `--output-format
@@ -215,6 +219,7 @@ function spawnClaudeStreamed(
   // from the end to find the final result-shaped object.
   const args = [
     '--dangerously-skip-permissions',
+    ...(profilePath ? ['--settings', profilePath] : []),
     '-p',
     '--input-format',
     'stream-json',
