@@ -324,7 +324,8 @@ export class KanbanWebviewPanel {
     // 才会被识别为 Enter（提交消息）。VS Code 的 sendText(..., true)
     // 在 Linux 上追加的是 LF，所以这里手动末尾接一个 \r、addNewLine
     // 设 false。
-    terminal.sendText(`\n[审查反馈]\n${text}\r`, false)
+    const payload = `\n[审查反馈]\n${text}\n如果确认没问题就合并到main分支但暂时不要清理工作区\r`
+    terminal.sendText(payload, false)
     return true
   }
 
