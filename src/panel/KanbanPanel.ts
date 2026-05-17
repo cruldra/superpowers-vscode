@@ -389,6 +389,16 @@ export class KanbanWebviewPanel {
     const terminalName = issueNumber !== undefined
       ? `issue-${issueNumber}-${sessionRole}`
       : `Claude · ${sessionId.slice(0, 8)}`
+    // Scan live terminals before creating a new one — survives panel
+    // reload / webview rebuild where `this.terminals` got wiped but the
+    // tab is still open. Refresh the Map too so subsequent lookups (and
+    // selection-change focus calls) keep working.
+    const existingByName = this.findExistingTerminal(terminalName)
+    if (existingByName) {
+      this.terminals.set(sessionId, existingByName)
+      existingByName.show(false)
+      return
+    }
     // VS Code's default editor-tab icon (`>` arrow) does NOT honor the
     // `color` option — only the panel-view icon does. Force a `circle-filled`
     // codicon so the tab actually shows the issue color. Keep `color` too:
@@ -453,6 +463,29 @@ export class KanbanWebviewPanel {
     return true
   }
 
+  /**
+   * Scan `vscode.window.terminals` for an existing terminal whose name
+   * matches `expectedName`. Matches exact, or `startsWith(expectedName + ' ')`
+   * so a shell that appended a git branch suffix (e.g. "issue-48-实施
+   * 5f56026c") still counts. Skips terminals whose process already exited
+   * (`exitStatus !== undefined`) — those are zombie tabs and shouldn't block
+   * a fresh spawn.
+   *
+   * Why this exists: every session entry (`handleResumeSession`,
+   * `handleResumeReviewSession`, `handleImplement`) used to dedupe via its
+   * own in-memory Map (sessionId → Terminal). Panel reload / webview rebuild
+   * wipes those Maps, but the terminal stays alive in `window.terminals`,
+   * so re-clicking the link spawned a duplicate tab. Scanning the live
+   * terminal list survives reloads and prevents cross-map blind spots.
+   */
+  private findExistingTerminal(expectedName: string): Terminal | undefined {
+    return window.terminals.find(
+      t =>
+        t.exitStatus === undefined
+        && (t.name === expectedName || t.name.startsWith(`${expectedName} `)),
+    )
+  }
+
   private async handleResumeReviewSession(sessionId: string, issueNumber: number, relCwd?: string): Promise<void> {
     // Server-side prerequisite gate — consistent with handleResumeSession /
     // handleImplement. In practice review sessions imply the issue has
@@ -484,12 +517,22 @@ export class KanbanWebviewPanel {
       void window.showErrorMessage(`审查会话无法恢复 #${issueNumber}：worktree 不存在 ${worktreeAbs}`)
       return
     }
+    // Scan live terminals before creating a new one — survives panel
+    // reload / webview rebuild where `this.reviewTerminals` got wiped but
+    // the tab is still open.
+    const reviewTerminalName = `issue-${issueNumber}-审查`
+    const existingByName = this.findExistingTerminal(reviewTerminalName)
+    if (existingByName) {
+      this.reviewTerminals.set(sessionId, existingByName)
+      existingByName.show(false)
+      return
+    }
     // VS Code's default editor-tab icon (`>` arrow) does NOT honor the
     // `color` option. Force a `circle-filled` codicon so the tab actually
     // shows the issue color; keep `color` too for panel-view fallback.
     const themeColor = await this.resolveIssueThemeColor(issueNumber)
     const terminal = window.createTerminal({
-      name: `issue-${issueNumber}-审查`,
+      name: reviewTerminalName,
       cwd: worktreeAbs,
       location: this.resolveTerminalLocation(false),
       iconPath: new ThemeIcon('circle-filled', themeColor),
@@ -724,6 +767,27 @@ export class KanbanWebviewPanel {
         message: `拒绝实施 #${issueNumber}：前置 #${lockCheck.prerequisiteNumber} 未完成`,
       })
       await window.showWarningMessage(`等待前置工单 #${lockCheck.prerequisiteNumber} 完成`)
+      return
+    }
+
+    // Reuse an already-open 实施 terminal before doing anything else.
+    // Re-clicking the implement button must not run `git worktree add`,
+    // re-mkdir the claude projects dir, re-start the session watcher, or
+    // re-send the prompt — those are first-time-only side effects, and
+    // repeating them would crash on the existing worktree / clobber state.
+    // Scanning live terminals (instead of just `this.implTerminals`)
+    // survives panel reload / webview rebuild where the Map got wiped but
+    // the tab is still alive.
+    const implTerminalName = `issue-${issueNumber}-实施`
+    const existingImpl = this.findExistingTerminal(implTerminalName)
+    if (existingImpl) {
+      this.implTerminals.set(issueNumber, existingImpl)
+      existingImpl.show(false)
+      logger.add({
+        level: 'info',
+        source: 'implement',
+        message: `复用已有实施终端 #${issueNumber}，跳过 worktree 创建`,
+      })
       return
     }
 
