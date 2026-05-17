@@ -320,7 +320,11 @@ export class KanbanWebviewPanel {
     }
     if (!terminal)
       return false
-    terminal.sendText(`\n[审查反馈]\n${text}\n`, true)
+    // cc 的 TUI 在 raw 模式下，LF (\n) 只算输入框内的换行，CR (\r)
+    // 才会被识别为 Enter（提交消息）。VS Code 的 sendText(..., true)
+    // 在 Linux 上追加的是 LF，所以这里手动末尾接一个 \r、addNewLine
+    // 设 false。
+    terminal.sendText(`\n[审查反馈]\n${text}\r`, false)
     return true
   }
 
