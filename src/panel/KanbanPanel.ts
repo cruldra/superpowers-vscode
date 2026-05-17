@@ -188,21 +188,56 @@ export class KanbanWebviewPanel {
     }
   }
 
-  private captureTerminalGroupColumn(terminal: Terminal): void {
-    // Assumption: terminal `name` is unique across tab groups. Our naming
-    // convention (`Claude · <8-char-sid>` and `Claude · 实施 #<N>`) makes
-    // collisions extremely unlikely; if names ever collide, the first match
-    // wins.
-    if (this.terminalGroupColumn !== undefined)
-      return
+  private scanForTerminalColumn(terminal: Terminal): boolean {
     for (const group of window.tabGroups.all) {
       for (const tab of group.tabs) {
-        if (tab.input instanceof TabInputTerminal && tab.label === terminal.name) {
+        if (tab.input instanceof TabInputTerminal && tab.label.startsWith(terminal.name)) {
           this.terminalGroupColumn = group.viewColumn
-          return
+          return true
         }
       }
     }
+    return false
+  }
+
+  private captureTerminalGroupColumn(terminal: Terminal): void {
+    // Already known? Nothing to do.
+    if (this.terminalGroupColumn !== undefined)
+      return
+
+    // Sync scan in case the tab is already present (rare but cheap to check).
+    if (this.scanForTerminalColumn(terminal))
+      return
+
+    // Otherwise subscribe to tab-open events until we see our terminal.
+    // Match by prefix because the shell may append a git branch suffix to
+    // the tab label (e.g. "Claude · b3f68c6d" becomes "Claude · b3f68c6d feat/foo").
+    const sub = window.tabGroups.onDidChangeTabs((e) => {
+      if (this.terminalGroupColumn !== undefined) {
+        sub.dispose()
+        return
+      }
+      for (const tab of e.opened) {
+        if (tab.input instanceof TabInputTerminal && tab.label.startsWith(terminal.name)) {
+          // Find which group this tab belongs to.
+          for (const group of window.tabGroups.all) {
+            if (group.tabs.includes(tab)) {
+              this.terminalGroupColumn = group.viewColumn
+              sub.dispose()
+              return
+            }
+          }
+        }
+      }
+    })
+
+    // Don't leak the listener if the tab never shows up (e.g. terminal failed
+    // to launch). 5 seconds is plenty for VS Code to materialize the tab.
+    const timer = setTimeout(() => {
+      sub.dispose()
+    }, 5000)
+
+    this.disposables.push(sub, { dispose: () => clearTimeout(timer) })
   }
 
   private handleResumeSession(sessionId: string, profilePath?: string, relCwd?: string, issueNumber?: number): void {
