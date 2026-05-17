@@ -811,7 +811,6 @@ export class KanbanWebviewPanel {
         host,
         tokenSaved: false,
         webhookPort: s.webhookPort,
-        webhookPublicUrl: s.webhookPublicUrl,
         createIssuePrompt: s.createIssuePrompt,
         implementPlanPrompt: s.implementPlanPrompt,
         autoReview: s.autoReview,
@@ -834,7 +833,6 @@ export class KanbanWebviewPanel {
           errorMessage: 'Token 无效或已过期，请重新填写',
           tokenSaved: false,
           webhookPort: s.webhookPort,
-          webhookPublicUrl: s.webhookPublicUrl,
           createIssuePrompt: s.createIssuePrompt,
           implementPlanPrompt: s.implementPlanPrompt,
           autoReview: s.autoReview,
@@ -852,7 +850,6 @@ export class KanbanWebviewPanel {
     host: string
     token: string
     webhookPort: number
-    webhookPublicUrl: string
     createIssuePrompt: string
     implementPlanPrompt: string
     autoReview: boolean
@@ -860,7 +857,6 @@ export class KanbanWebviewPanel {
   }): Promise<void> {
     const trimmedHost = payload.host.trim()
     const trimmedToken = payload.token.trim()
-    const trimmedUrl = payload.webhookPublicUrl.trim()
     const prev = getSettings(this.context)
     // Capture the previous token *for this host* before overwriting it, so
     // we can decide below whether the kanban needs a re-fetch. (Only host
@@ -877,7 +873,6 @@ export class KanbanWebviewPanel {
         errorMessage: 'Host 和 Token 都不能为空',
         tokenSaved: !!oldToken,
         webhookPort: payload.webhookPort,
-        webhookPublicUrl: trimmedUrl,
         createIssuePrompt: payload.createIssuePrompt || prev.createIssuePrompt,
         implementPlanPrompt: payload.implementPlanPrompt || prev.implementPlanPrompt,
         autoReview: payload.autoReview,
@@ -887,7 +882,6 @@ export class KanbanWebviewPanel {
     }
     await saveSettings(this.context, {
       webhookPort: payload.webhookPort,
-      webhookPublicUrl: trimmedUrl,
       createIssuePrompt: payload.createIssuePrompt,
       implementPlanPrompt: payload.implementPlanPrompt,
       autoReview: payload.autoReview,
@@ -944,7 +938,6 @@ export class KanbanWebviewPanel {
       canCancel: true,
       tokenSaved,
       webhookPort: s.webhookPort,
-      webhookPublicUrl: s.webhookPublicUrl,
       createIssuePrompt: s.createIssuePrompt,
       implementPlanPrompt: s.implementPlanPrompt,
       autoReview: s.autoReview,

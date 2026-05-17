@@ -274,7 +274,6 @@ export function App() {
         canCancel={settings?.canCancel}
         initialTokenSaved={settings?.tokenSaved ?? false}
         initialWebhookPort={settings?.webhookPort ?? 17421}
-        initialWebhookPublicUrl={settings?.webhookPublicUrl ?? ''}
         initialCreateIssuePrompt={settings?.createIssuePrompt ?? ''}
         initialImplementPlanPrompt={settings?.implementPlanPrompt ?? ''}
         initialAutoReview={settings?.autoReview ?? true}

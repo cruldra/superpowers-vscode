@@ -17,7 +17,6 @@ interface SubmitValues {
   host: string
   token: string
   webhookPort: number
-  webhookPublicUrl: string
   createIssuePrompt: string
   implementPlanPrompt: string
   autoReview: boolean
@@ -31,7 +30,6 @@ export interface SettingsModalProps {
   canCancel?: boolean
   initialTokenSaved: boolean
   initialWebhookPort: number
-  initialWebhookPublicUrl: string
   initialCreateIssuePrompt: string
   initialImplementPlanPrompt: string
   initialAutoReview: boolean
@@ -87,7 +85,6 @@ export function SettingsModal({
   canCancel,
   initialTokenSaved,
   initialWebhookPort,
-  initialWebhookPublicUrl,
   initialCreateIssuePrompt,
   initialImplementPlanPrompt,
   initialAutoReview,
@@ -99,7 +96,6 @@ export function SettingsModal({
   const [host, setHost] = useState(initialHost)
   const [token, setToken] = useState('')
   const [webhookPort, setWebhookPort] = useState<string>(String(initialWebhookPort))
-  const [webhookPublicUrl, setWebhookPublicUrl] = useState(initialWebhookPublicUrl)
   const [createIssuePrompt, setCreateIssuePrompt] = useState(initialCreateIssuePrompt)
   const [implementPlanPrompt, setImplementPlanPrompt] = useState(initialImplementPlanPrompt)
   const [autoReview, setAutoReview] = useState(initialAutoReview)
@@ -116,7 +112,6 @@ export function SettingsModal({
     setHost(initialHost)
     setToken('')
     setWebhookPort(String(initialWebhookPort))
-    setWebhookPublicUrl(initialWebhookPublicUrl)
     setCreateIssuePrompt(initialCreateIssuePrompt)
     setImplementPlanPrompt(initialImplementPlanPrompt)
     setAutoReview(initialAutoReview)
@@ -182,7 +177,6 @@ export function SettingsModal({
       // extension side detects empty + existing-saved as "preserve".
       token: trimmedToken,
       webhookPort: portNum,
-      webhookPublicUrl: webhookPublicUrl.trim(),
       createIssuePrompt,
       implementPlanPrompt,
       autoReview,
@@ -303,7 +297,14 @@ export function SettingsModal({
                 <Field
                   label="本地端口"
                   error={errors.webhookPort}
-                  hint="扩展 HTTP server 绑定的端口；frp/反向代理也指向此端口"
+                  hint={(
+                    <>
+                      扩展 HTTP server 绑定的端口。在 gitea 仓库 Webhooks 配置里把目标 URL 指向
+                      {' '}
+                      <code>{'http://<你的本机/公网域名>:<此端口>/webhook'}</code>
+                      ，事件选 合并请求 + 合并请求已同步。
+                    </>
+                  )}
                 >
                   <input
                     type="number"
@@ -311,26 +312,6 @@ export function SettingsModal({
                     max={65535}
                     value={webhookPort}
                     onChange={e => setWebhookPort(e.target.value)}
-                    className={inputClass}
-                  />
-                </Field>
-
-                <Field
-                  label="Webhook 回调 URL 前缀"
-                  hint={(
-                    <>
-                      在 gitea 仓库 Webhooks 配置里指向
-                      {' '}
-                      <code>{'<此值>/webhook'}</code>
-                      ，事件选 Pull Request（含 opened / closed / synchronize / deleted）。插件不再自动建/删 webhook。
-                    </>
-                  )}
-                >
-                  <input
-                    type="text"
-                    value={webhookPublicUrl}
-                    onChange={e => setWebhookPublicUrl(e.target.value)}
-                    placeholder="https://example.com 或 https://yourdomain.tld:8443"
                     className={inputClass}
                   />
                 </Field>

@@ -2,8 +2,8 @@
  * Non-secret extension settings persisted in `globalState`.
  *
  * Token stays in `context.secrets` (see `src/auth/secrets.ts`); everything
- * else (webhook port, public URL prefix, prompt templates) lives here under
- * a single JSON blob keyed by `SETTINGS_KEY`.
+ * else (webhook port, prompt templates) lives here under a single JSON blob
+ * keyed by `SETTINGS_KEY`.
  *
  * Empty-string values for prompts are treated as "use the default" so the
  * form can save user input verbatim and still fall back when the user clears
@@ -24,10 +24,6 @@ export const DEFAULT_WEBHOOK_PORT = 17421
 export interface Settings {
   /** Local HTTP port for receiving gitea webhook callbacks. */
   webhookPort: number
-  /** Public URL prefix registered with gitea (e.g. via frp/Caddy). Gitea
-   * rejects raw IPs, so a domain prefix is effectively required to trigger
-   * the implement flow. The local server still listens on `webhookPort`. */
-  webhookPublicUrl: string
   /** Prompt template for the create-issue flow. `{userRequest}` placeholder. */
   createIssuePrompt: string
   /** Prompt template for the implement-plan flow. `{planFile}` placeholder. */
@@ -43,7 +39,6 @@ export const SETTINGS_KEY = 'superpowers.settings'
 function defaults(): Settings {
   return {
     webhookPort: DEFAULT_WEBHOOK_PORT,
-    webhookPublicUrl: '',
     createIssuePrompt: DEFAULT_CREATE_ISSUE_PROMPT,
     implementPlanPrompt: DEFAULT_IMPLEMENT_PLAN_PROMPT,
     autoReview: true,
@@ -60,7 +55,6 @@ export function getSettings(ctx: ExtensionContext): Settings {
     ? stored.webhookPort
     : base.webhookPort
 
-  const webhookPublicUrl = typeof stored.webhookPublicUrl === 'string' ? stored.webhookPublicUrl : base.webhookPublicUrl
   const createIssuePrompt = typeof stored.createIssuePrompt === 'string' && stored.createIssuePrompt.length > 0
     ? stored.createIssuePrompt
     : base.createIssuePrompt
@@ -74,7 +68,6 @@ export function getSettings(ctx: ExtensionContext): Settings {
 
   return {
     webhookPort,
-    webhookPublicUrl,
     createIssuePrompt,
     implementPlanPrompt,
     autoReview,
