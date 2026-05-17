@@ -37,6 +37,8 @@ export interface Issue {
   htmlUrl: string
   /** 前置任务 issue number (Gitea dependencies 取第一个) */
   prerequisite?: number
+  /** Terminal/tab color id chosen on first session open, persisted in state JSON. */
+  color?: string
 }
 
 export const COLUMN_ORDER: IssueColumn[] = ['todo', 'in-progress', 'review', 'done']

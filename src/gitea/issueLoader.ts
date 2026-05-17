@@ -55,6 +55,7 @@ function parseColumnFromComments(comments: GiteaComment[]): {
   implementStatus?: 'running' | 'done' | 'failed'
   implementSessionId?: string
   reviewSessionId?: string
+  color?: string
 } {
   if (comments.length === 0)
     return { column: null }
@@ -77,6 +78,7 @@ function parseColumnFromComments(comments: GiteaComment[]): {
         implementStatus?: unknown
         implementSessionId?: unknown
         reviewSessionId?: unknown
+        color?: unknown
       }
       if (isIssueColumn(obj.column)) {
         const sessionId = typeof obj.sessionId === 'string' && obj.sessionId.length > 0
@@ -111,6 +113,9 @@ function parseColumnFromComments(comments: GiteaComment[]): {
         const reviewSessionId = typeof obj.reviewSessionId === 'string' && obj.reviewSessionId.length > 0
           ? obj.reviewSessionId
           : undefined
+        const color = typeof obj.color === 'string' && obj.color.length > 0
+          ? obj.color
+          : undefined
         return {
           column: obj.column,
           sessionId,
@@ -123,6 +128,7 @@ function parseColumnFromComments(comments: GiteaComment[]): {
           implementStatus,
           implementSessionId,
           reviewSessionId,
+          color,
         }
       }
     }
@@ -238,6 +244,7 @@ export async function loadIssues(opts: {
       implementStatus,
       implementSessionId,
       reviewSessionId,
+      color,
     } = parseColumnFromComments(bucket)
     let column: IssueColumn
     if (fromComment) {
@@ -293,6 +300,7 @@ export async function loadIssues(opts: {
       ...(implementSessionId ? { implementSessionId } : {}),
       ...(reviewSessionId ? { reviewSessionId } : {}),
       ...(prerequisite !== undefined ? { prerequisite } : {}),
+      ...(color ? { color } : {}),
       htmlUrl: issue.html_url,
     })
   }

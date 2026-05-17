@@ -59,3 +59,42 @@ export async function mergeStateJsonComment(opts: MergeStateJsonCommentOpts): Pr
     body: JSON.stringify(merged),
   })
 }
+
+export interface ReadStateJsonCommentOpts {
+  host: string
+  owner: string
+  repo: string
+  token: string
+  issueNumber: number
+}
+
+/**
+ * Read the latest state-JSON comment of the issue and return it as a parsed
+ * object. Returns an empty object if there are no comments, the last comment
+ * is empty, or it doesn't parse as JSON. Throws on network/API failure.
+ */
+export async function readStateJsonComment(
+  opts: ReadStateJsonCommentOpts,
+): Promise<Record<string, unknown>> {
+  const comments = await listIssueComments({
+    host: opts.host,
+    token: opts.token,
+    owner: opts.owner,
+    repo: opts.repo,
+    index: opts.issueNumber,
+  })
+  if (comments.length === 0)
+    return {}
+  const lastBody = (comments[comments.length - 1].body ?? '').trim()
+  if (!lastBody)
+    return {}
+  try {
+    const parsed = JSON.parse(lastBody) as unknown
+    if (parsed && typeof parsed === 'object')
+      return parsed as Record<string, unknown>
+  }
+  catch {
+    // Last comment wasn't JSON; treat as empty state.
+  }
+  return {}
+}

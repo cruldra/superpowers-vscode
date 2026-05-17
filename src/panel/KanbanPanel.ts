@@ -9,9 +9,9 @@ import { execFile } from 'node:child_process'
 import * as fs from 'node:fs'
 import { promises as fsp } from 'node:fs'
 import * as path from 'node:path'
-import { commands, env, TabInputTerminal, Uri, ViewColumn, window, workspace } from 'vscode'
+import { commands, env, TabInputTerminal, ThemeColor, Uri, ViewColumn, window, workspace } from 'vscode'
 import type { ExtensionToWebview, WebviewToExtension } from './messages'
-import { issueTerminalColor } from './issueColor'
+import { issueTerminalColor, resolveIssueColor } from './issueColor'
 import { deleteToken, getToken, setToken } from '../auth/secrets'
 import { createIssueViaClaude } from '../cc/createIssueFlow'
 import { listClaudeProfiles } from '../cc/profiles'
@@ -29,7 +29,7 @@ import {
   removeDependency,
 } from '../gitea/api'
 import type { IssueColumn } from '../gitea/types'
-import { mergeStateJsonComment } from '../gitea/stateJson'
+import { mergeStateJsonComment, readStateJsonComment } from '../gitea/stateJson'
 import { loadIssues } from '../gitea/issueLoader'
 import { logger } from '../logging/logger'
 import { getSettings, saveSettings } from '../settings/store'
@@ -262,6 +262,71 @@ export class KanbanWebviewPanel {
     return { viewColumn: ViewColumn.Beside, preserveFocus }
   }
 
+
+  /**
+   * Resolve the ThemeColor to use for an issue's terminal/tab. Reads the
+   * stored color from the issue's state JSON; if absent or invalid, picks a
+   * random palette entry and asynchronously persists it back so future
+   * sessions reuse the same tone.
+   *
+   * Always returns a ThemeColor (never undefined) — caller is expected to
+   * only call this once it has a usable workspace + Gitea remote + token.
+   * Persistence failures are logged and swallowed.
+   */
+  private async resolveIssueThemeColor(issueNumber: number): Promise<ThemeColor> {
+    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    if (!workspaceRoot) {
+      // No workspace → can't talk to Gitea; fall back to deterministic color
+      // so we still distinguish issues visually.
+      return issueTerminalColor(issueNumber)
+    }
+    const remote = await detectRepo(workspaceRoot)
+    if (!remote)
+      return issueTerminalColor(issueNumber)
+    const token = await getToken(this.context, remote.host)
+    if (!token)
+      return issueTerminalColor(issueNumber)
+
+    let stored: string | undefined
+    try {
+      const state = await readStateJsonComment({
+        host: remote.host,
+        owner: remote.owner,
+        repo: remote.repo,
+        token,
+        issueNumber,
+      })
+      if (typeof state.color === 'string' && state.color.length > 0)
+        stored = state.color
+    }
+    catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('[superpowers] failed to read state JSON for color:', err)
+    }
+
+    const { id, isNew } = resolveIssueColor(stored)
+    if (isNew) {
+      // Fire-and-forget: don't block terminal creation on the network round
+      // trip. Failures are non-fatal — the next session just picks again.
+      void mergeStateJsonComment({
+        host: remote.host,
+        owner: remote.owner,
+        repo: remote.repo,
+        token,
+        issueNumber,
+        extra: { color: id },
+      })
+        .then(() => {
+          void this.loadAndPush()
+        })
+        .catch((err) => {
+          // eslint-disable-next-line no-console
+          console.warn('[superpowers] failed to persist issue color:', err)
+        })
+    }
+    return new ThemeColor(id)
+  }
+
   
 
   
@@ -320,11 +385,14 @@ export class KanbanWebviewPanel {
     const terminalName = issueNumber !== undefined
       ? `issue-${issueNumber}-${sessionRole}`
       : `Claude · ${sessionId.slice(0, 8)}`
+    const themeColor = issueNumber !== undefined
+      ? await this.resolveIssueThemeColor(issueNumber)
+      : undefined
     const terminal = window.createTerminal({
       name: terminalName,
       cwd: effectiveCwd,
       location: this.resolveTerminalLocation(false),
-      ...(issueNumber !== undefined ? { color: issueTerminalColor(issueNumber) } : {}),
+      ...(themeColor ? { color: themeColor } : {}),
     })
     this.terminals.set(sessionId, terminal)
     terminal.show(false)
@@ -411,7 +479,7 @@ export class KanbanWebviewPanel {
       name: `issue-${issueNumber}-审查`,
       cwd: worktreeAbs,
       location: this.resolveTerminalLocation(false),
-      color: issueTerminalColor(issueNumber),
+      color: await this.resolveIssueThemeColor(issueNumber),
     })
     this.reviewTerminals.set(sessionId, terminal)
     terminal.show(false)
@@ -807,7 +875,7 @@ export class KanbanWebviewPanel {
       name: `issue-${issueNumber}-实施`,
       cwd: worktreePath,
       location: this.resolveTerminalLocation(false),
-      color: issueTerminalColor(issueNumber),
+      color: await this.resolveIssueThemeColor(issueNumber),
     })
     terminal.show(false)
     // Track for the auto-review flow: synchronize callbacks call

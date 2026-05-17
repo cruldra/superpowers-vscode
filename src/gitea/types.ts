@@ -49,4 +49,8 @@ export interface Issue {
   htmlUrl: string
   /** 前置任务 issue number (Gitea dependencies 取第一个) */
   prerequisite?: number
+  /** Terminal/tab color id (a `terminal.ansi*` ThemeColor key) chosen the
+   * first time a session is opened for this issue, persisted in the state
+   * JSON so all subsequent sessions reuse the same tone. */
+  color?: string
 }
