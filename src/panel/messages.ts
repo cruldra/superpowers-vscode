@@ -67,5 +67,7 @@ export type WebviewToExtension =
   | { type: 'worktree/open', path: string }
   | { type: 'worktree/delete', issueNumber: number, path: string }
   | { type: 'column/change', issueNumber: number, toColumn: IssueColumn }
+  | { type: 'dependency/set', issueNumber: number, prerequisiteNumber: number }
+  | { type: 'dependency/clear', issueNumber: number, prerequisiteNumber: number }
   | { type: 'logs/fetch' }
   | { type: 'logs/clear' }

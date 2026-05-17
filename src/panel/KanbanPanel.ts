@@ -21,10 +21,12 @@ import { projectsDirFor, watchForNewSession } from '../cc/sessionWatcher'
 import { detectRepo } from '../git/remote'
 import { createWorktree } from '../git/worktree'
 import {
+  addDependency,
   GiteaApiError,
   getPullRequest,
   listIssueComments,
   postIssueComment,
+  removeDependency,
 } from '../gitea/api'
 import type { IssueColumn } from '../gitea/types'
 import { mergeStateJsonComment } from '../gitea/stateJson'
@@ -202,6 +204,14 @@ export class KanbanWebviewPanel {
     }
     if (msg.type === 'column/change') {
       void this.handleColumnChange(msg.issueNumber, msg.toColumn)
+      return
+    }
+    if (msg.type === 'dependency/set') {
+      void this.handleSetDependency(msg.issueNumber, msg.prerequisiteNumber)
+      return
+    }
+    if (msg.type === 'dependency/clear') {
+      void this.handleClearDependency(msg.issueNumber, msg.prerequisiteNumber)
       return
     }
     if (msg.type === 'logs/fetch') {
@@ -1205,6 +1215,140 @@ export class KanbanWebviewPanel {
       message: `工单 #${issueNumber} 已完成，worktree 已清理`,
       dismissOnTimer: 5000,
     })
+  }
+
+  private async handleSetDependency(issueNumber: number, prerequisiteNumber: number): Promise<void> {
+    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    if (!workspaceRoot) {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: '请先打开一个工作区文件夹',
+        dismissOnTimer: 5000,
+      })
+      return
+    }
+
+    const remote = await detectRepo(workspaceRoot)
+    if (!remote) {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: '当前工作区没有 Gitea 远程仓库',
+        dismissOnTimer: 5000,
+      })
+      return
+    }
+
+    const token = await getToken(this.context, remote.host)
+    if (!token) {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: '请先完成 Gitea 配置',
+        dismissOnTimer: 5000,
+      })
+      return
+    }
+
+    try {
+      await addDependency({
+        host: remote.host,
+        token,
+        owner: remote.owner,
+        repo: remote.repo,
+        index: issueNumber,
+        dependencyIndex: prerequisiteNumber,
+      })
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.add({
+        level: 'warn',
+        source: 'panel',
+        message: `设置工单 #${issueNumber} 依赖 #${prerequisiteNumber} 失败`,
+        details: message,
+      })
+      void window.showWarningMessage(`设置工单 #${issueNumber} 依赖 #${prerequisiteNumber} 失败: ${message}`)
+      return
+    }
+
+    logger.add({
+      level: 'info',
+      source: 'panel',
+      message: `工单 #${issueNumber} 已设置前置依赖 #${prerequisiteNumber}`,
+    })
+    void this.loadAndPush()
+  }
+
+  private async handleClearDependency(issueNumber: number, prerequisiteNumber: number): Promise<void> {
+    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    if (!workspaceRoot) {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: '请先打开一个工作区文件夹',
+        dismissOnTimer: 5000,
+      })
+      return
+    }
+
+    const remote = await detectRepo(workspaceRoot)
+    if (!remote) {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: '当前工作区没有 Gitea 远程仓库',
+        dismissOnTimer: 5000,
+      })
+      return
+    }
+
+    const token = await getToken(this.context, remote.host)
+    if (!token) {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: '请先完成 Gitea 配置',
+        dismissOnTimer: 5000,
+      })
+      return
+    }
+
+    try {
+      await removeDependency({
+        host: remote.host,
+        token,
+        owner: remote.owner,
+        repo: remote.repo,
+        index: issueNumber,
+        dependencyIndex: prerequisiteNumber,
+      })
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.add({
+        level: 'warn',
+        source: 'panel',
+        message: `清除工单 #${issueNumber} 依赖 #${prerequisiteNumber} 失败`,
+        details: message,
+      })
+      void window.showWarningMessage(`清除工单 #${issueNumber} 依赖 #${prerequisiteNumber} 失败: ${message}`)
+      return
+    }
+
+    logger.add({
+      level: 'info',
+      source: 'panel',
+      message: `工单 #${issueNumber} 已清除前置依赖 #${prerequisiteNumber}`,
+    })
+    void this.loadAndPush()
   }
 
   /** Reloads issues from gitea and pushes to the webview. Public so the
