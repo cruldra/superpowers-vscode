@@ -51,8 +51,8 @@ export async function runReview(opts: RunReviewOpts): Promise<RunReviewResult> {
   )
 
   const args: string[] = opts.resumeFrom
-    ? ['exec', 'resume', opts.resumeFrom, '--json', '-o', tmpFile, opts.prompt]
-    : ['exec', 'review', '--json', '-o', tmpFile, opts.prompt]
+    ? ['exec', 'resume', '--dangerously-bypass-approvals-and-sandbox', opts.resumeFrom, '--json', '-o', tmpFile, opts.prompt]
+    : ['exec', 'review', '--dangerously-bypass-approvals-and-sandbox', '--json', '-o', tmpFile, opts.prompt]
 
   const { stdout, stderr } = await new Promise<{ stdout: string, stderr: string }>((resolve, reject) => {
     execFile(

@@ -339,7 +339,7 @@ export class KanbanWebviewPanel {
     })
     this.reviewTerminals.set(sessionId, terminal)
     terminal.show(false)
-    terminal.sendText(`codex resume ${sessionId}`)
+    terminal.sendText(`codex resume --dangerously-bypass-approvals-and-sandbox ${sessionId}`)
     logger.add({
       level: 'info',
       source: 'terminal',
