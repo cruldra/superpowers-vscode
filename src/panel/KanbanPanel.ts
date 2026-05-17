@@ -9,7 +9,7 @@ import { execFile } from 'node:child_process'
 import * as fs from 'node:fs'
 import { promises as fsp } from 'node:fs'
 import * as path from 'node:path'
-import { commands, env, Uri, ViewColumn, window, workspace } from 'vscode'
+import { commands, env, TabInputTerminal, Uri, ViewColumn, window, workspace } from 'vscode'
 import type { ExtensionToWebview, WebviewToExtension } from './messages'
 import { issueTerminalColor } from './issueColor'
 import { deleteToken, getToken, setToken } from '../auth/secrets'
@@ -189,12 +189,21 @@ export class KanbanWebviewPanel {
     }
   }
 
-  private captureTerminalGroupColumn(): void {
+  private captureTerminalGroupColumn(terminal: Terminal): void {
+    // Assumption: terminal `name` is unique across tab groups. Our naming
+    // convention (`Claude · <8-char-sid>` and `Claude · 实施 #<N>`) makes
+    // collisions extremely unlikely; if names ever collide, the first match
+    // wins.
     if (this.terminalGroupColumn !== undefined)
       return
-    const col = window.tabGroups.activeTabGroup?.viewColumn
-    if (col !== undefined)
-      this.terminalGroupColumn = col
+    for (const group of window.tabGroups.all) {
+      for (const tab of group.tabs) {
+        if (tab.input instanceof TabInputTerminal && tab.label === terminal.name) {
+          this.terminalGroupColumn = group.viewColumn
+          return
+        }
+      }
+    }
   }
 
   private handleResumeSession(sessionId: string, profilePath?: string, relCwd?: string, issueNumber?: number): void {
@@ -232,7 +241,7 @@ export class KanbanWebviewPanel {
     })
     this.terminals.set(sessionId, terminal)
     terminal.show(false)
-    this.captureTerminalGroupColumn()
+    this.captureTerminalGroupColumn(terminal)
     const cmd = `claude --dangerously-skip-permissions --settings '${effectiveProfilePath}' --resume ${sessionId}`
     terminal.sendText(cmd)
   }
@@ -652,7 +661,7 @@ export class KanbanWebviewPanel {
       color: issueTerminalColor(issueNumber),
     })
     terminal.show(false)
-    this.captureTerminalGroupColumn()
+    this.captureTerminalGroupColumn(terminal)
     const cmd = `claude --dangerously-skip-permissions --settings '${effectiveProfilePath}' '${prompt}'`
     terminal.sendText(cmd)
     logger.add({
