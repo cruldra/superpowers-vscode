@@ -17,7 +17,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
-import type { Issue } from '../types'
+import type { Issue, IssueColumn } from '../types'
 import type { ToastItem } from '../components/ToastStack'
 import type { LogEntry } from '../lib/messages'
 import { onMessage, postMessage } from '../lib/vscode'
@@ -77,6 +77,7 @@ export interface UseIssuesResult {
   openPr: (pr: string) => void
   openWorktree: (path: string) => void
   deleteWorktree: (issueNumber: number, path: string) => void
+  changeColumn: (issueNumber: number, toColumn: IssueColumn) => void
   logs: LogEntry[]
   fetchLogs: () => void
   clearLogs: () => void
@@ -185,6 +186,10 @@ export function useIssues(): UseIssuesResult {
     postMessage({ type: 'worktree/delete', issueNumber, path })
   }, [])
 
+  const changeColumn = useCallback((issueNumber: number, toColumn: IssueColumn): void => {
+    postMessage({ type: 'column/change', issueNumber, toColumn })
+  }, [])
+
   const fetchLogs = useCallback((): void => {
     postMessage({ type: 'logs/fetch' })
   }, [])
@@ -269,5 +274,5 @@ export function useIssues(): UseIssuesResult {
     return cleanup
   }, [])
 
-  return { state, settings, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, focusSession, openFile, loadSessionFiles, implement, openPr, openWorktree, deleteWorktree, logs, fetchLogs, clearLogs }
+  return { state, settings, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, focusSession, openFile, loadSessionFiles, implement, openPr, openWorktree, deleteWorktree, changeColumn, logs, fetchLogs, clearLogs }
 }

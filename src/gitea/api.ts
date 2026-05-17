@@ -205,6 +205,48 @@ export async function postIssueComment(opts: {
 }
 
 
+export interface GiteaPullRequest {
+  number: number
+  merged: boolean
+  state: string
+  merged_at?: string | null
+  html_url: string
+}
+
+/**
+ * Fetches a single pull request by index via
+ * `/repos/{owner}/{repo}/pulls/{index}`. Used by the kanban "done" drop
+ * handler to verify a PR is merged before persisting `column='done'`.
+ */
+export async function getPullRequest(opts: {
+  host: string
+  token: string
+  owner: string
+  repo: string
+  index: number
+}): Promise<GiteaPullRequest> {
+  const res = await fetch(
+    `${baseUrl(opts.host)}/repos/${opts.owner}/${opts.repo}/pulls/${opts.index}`,
+    { headers: authHeaders(opts.token) },
+  )
+  await ensureOk(res)
+  const data = await res.json() as {
+    number?: unknown
+    merged?: unknown
+    state?: unknown
+    merged_at?: unknown
+    html_url?: unknown
+  }
+  return {
+    number: typeof data.number === 'number' ? data.number : Number(data.number),
+    merged: data.merged === true,
+    state: typeof data.state === 'string' ? data.state : '',
+    merged_at: typeof data.merged_at === 'string' ? data.merged_at : null,
+    html_url: typeof data.html_url === 'string' ? data.html_url : '',
+  }
+}
+
+
 // no longer auto-invoked by the implement flow; kept for future manual ops
 export async function createWebhook(opts: {
   host: string

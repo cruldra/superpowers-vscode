@@ -26,6 +26,12 @@ interface KanbanBoardProps {
   onCreateIssue?: () => void
   selectedId?: string | null
   onSelectIssue?: (id: string | null) => void
+  /**
+   * Called when a card moves to a new column via drag-and-drop, in addition
+   * to the optimistic `onIssuesChange`. Currently only invoked for moves
+   * targeting `done`; other column changes remain client-visual-only.
+   */
+  onColumnChange?: (issueNumber: number, toColumn: IssueColumn) => void
 }
 
 function isColumnId(id: string): id is IssueColumn {
@@ -38,6 +44,7 @@ export function KanbanBoard({
   onCreateIssue,
   selectedId,
   onSelectIssue,
+  onColumnChange,
 }: KanbanBoardProps) {
   const [activeId, setActiveId] = useState<string | null>(null)
 
@@ -98,6 +105,8 @@ export function KanbanBoard({
       next.splice(activeIndex, 1)
       next.push({ ...activeItem, column: overIdStr })
       onIssuesChange(next)
+      if (overIdStr === 'done')
+        onColumnChange?.(activeItem.number, overIdStr)
       return
     }
 
@@ -119,6 +128,8 @@ export function KanbanBoard({
     const insertAt = newOverIndex < 0 ? next.length : newOverIndex
     next.splice(insertAt, 0, { ...activeItem, column: overItem.column })
     onIssuesChange(next)
+    if (overItem.column === 'done')
+      onColumnChange?.(activeItem.number, overItem.column)
   }
 
   return (

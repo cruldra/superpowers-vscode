@@ -1,4 +1,4 @@
-import type { Issue } from '../gitea/types'
+import type { Issue, IssueColumn } from '../gitea/types'
 import type { LogEntry } from '../logging/logger'
 
 export type { LogEntry } from '../logging/logger'
@@ -66,5 +66,6 @@ export type WebviewToExtension =
   | { type: 'pr/open', pr: string }
   | { type: 'worktree/open', path: string }
   | { type: 'worktree/delete', issueNumber: number, path: string }
+  | { type: 'column/change', issueNumber: number, toColumn: IssueColumn }
   | { type: 'logs/fetch' }
   | { type: 'logs/clear' }

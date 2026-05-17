@@ -34,6 +34,7 @@ export function App() {
     openPr,
     openWorktree,
     deleteWorktree,
+    changeColumn,
     logs,
     clearLogs,
   } = useIssues()
@@ -209,6 +210,7 @@ export function App() {
                 onCreateIssue={() => setShowNewIssueModal(true)}
                 selectedId={selectedId}
                 onSelectIssue={setSelectedId}
+                onColumnChange={changeColumn}
               />
             </div>
             <div className="h-[40vh] shrink-0">

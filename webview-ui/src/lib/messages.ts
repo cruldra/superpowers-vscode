@@ -83,5 +83,6 @@ export type WebviewToExtension =
   | { type: 'pr/open', pr: string }
   | { type: 'worktree/open', path: string }
   | { type: 'worktree/delete', issueNumber: number, path: string }
+  | { type: 'column/change', issueNumber: number, toColumn: 'todo' | 'in-progress' | 'review' | 'done' }
   | { type: 'logs/fetch' }
   | { type: 'logs/clear' }

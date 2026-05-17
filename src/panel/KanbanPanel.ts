@@ -22,9 +22,11 @@ import { detectRepo } from '../git/remote'
 import { createWorktree } from '../git/worktree'
 import {
   GiteaApiError,
+  getPullRequest,
   listIssueComments,
   postIssueComment,
 } from '../gitea/api'
+import type { IssueColumn } from '../gitea/types'
 import { mergeStateJsonComment } from '../gitea/stateJson'
 import { loadIssues } from '../gitea/issueLoader'
 import { logger } from '../logging/logger'
@@ -196,6 +198,10 @@ export class KanbanWebviewPanel {
     }
     if (msg.type === 'worktree/delete') {
       void this.handleDeleteWorktree(msg.issueNumber, msg.path)
+      return
+    }
+    if (msg.type === 'column/change') {
+      void this.handleColumnChange(msg.issueNumber, msg.toColumn)
       return
     }
     if (msg.type === 'logs/fetch') {
@@ -906,6 +912,290 @@ export class KanbanWebviewPanel {
 
     void this.loadAndPush()
     void window.showInformationMessage(`已删除 worktree #${issueNumber}`)
+  }
+
+
+  /**
+   * Persist a kanban column change to Gitea state JSON. Today we only handle
+   * `toColumn === 'done'` — other targets stay client-visual-only.
+   *
+   * Done flow:
+   *   1. Re-fetch the issue's last comment, parse state JSON for `pr` and
+   *      `worktreePath`.
+   *   2. Require a `pr` field; require the PR is merged on gitea. Otherwise
+   *      reject with an error toast and refresh to visually revert the
+   *      optimistic move.
+   *   3. Merge `{column: 'done'}` into state JSON.
+   *   4. Best-effort: `git worktree remove --force` the worktree if it still
+   *      exists (force is OK here since the work is already shipped via PR).
+   *   5. Refresh + success toast.
+   */
+  private async handleColumnChange(issueNumber: number, toColumn: IssueColumn): Promise<void> {
+    if (toColumn !== 'done') {
+      logger.add({
+        level: 'info',
+        source: 'panel',
+        message: `暂不处理 toColumn=${toColumn} 的拖放持久化 (issue #${issueNumber})`,
+      })
+      return
+    }
+
+    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    if (!workspaceRoot) {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: '请先打开一个工作区文件夹',
+        dismissOnTimer: 5000,
+      })
+      return
+    }
+
+    const remote = await detectRepo(workspaceRoot)
+    if (!remote) {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: '当前工作区没有 Gitea 远程仓库',
+        dismissOnTimer: 5000,
+      })
+      return
+    }
+
+    const token = await getToken(this.context, remote.host)
+    if (!token) {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: '请先完成 Gitea 配置',
+        dismissOnTimer: 5000,
+      })
+      return
+    }
+
+    // 1. Re-fetch latest state JSON for this issue.
+    let prStr: string | undefined
+    let worktreePath: string | undefined
+    try {
+      const comments = await listIssueComments({
+        host: remote.host,
+        token,
+        owner: remote.owner,
+        repo: remote.repo,
+        index: issueNumber,
+      })
+      if (comments.length > 0) {
+        const lastBody = (comments[comments.length - 1].body ?? '').trim()
+        if (lastBody) {
+          try {
+            const parsed = JSON.parse(lastBody) as unknown
+            if (parsed && typeof parsed === 'object') {
+              const obj = parsed as Record<string, unknown>
+              if (typeof obj.pr === 'string' && obj.pr.length > 0)
+                prStr = obj.pr
+              if (typeof obj.worktreePath === 'string' && obj.worktreePath.length > 0)
+                worktreePath = obj.worktreePath
+            }
+          }
+          catch {
+            // Non-JSON last comment; leave both undefined.
+          }
+        }
+      }
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.add({
+        level: 'error',
+        source: 'panel',
+        message: `读取工单 #${issueNumber} 状态失败`,
+        details: message,
+      })
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: `读取工单 #${issueNumber} 状态失败: ${message}`,
+        dismissOnTimer: 6000,
+      })
+      void this.loadAndPush()
+      return
+    }
+
+    // 2. Require a PR association.
+    if (!prStr) {
+      logger.add({
+        level: 'warn',
+        source: 'panel',
+        message: `工单 #${issueNumber} 无关联 PR，无法标记完成`,
+      })
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: `工单 #${issueNumber} 无关联 PR，无法标记完成`,
+        dismissOnTimer: 6000,
+      })
+      void this.loadAndPush()
+      return
+    }
+
+    const prIndex = Number.parseInt(prStr, 10)
+    if (!Number.isFinite(prIndex)) {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: `工单 #${issueNumber} 的 PR 字段无效: ${prStr}`,
+        dismissOnTimer: 6000,
+      })
+      void this.loadAndPush()
+      return
+    }
+
+    // 3. Look up PR state on gitea.
+    let pullRequest: Awaited<ReturnType<typeof getPullRequest>>
+    try {
+      pullRequest = await getPullRequest({
+        host: remote.host,
+        token,
+        owner: remote.owner,
+        repo: remote.repo,
+        index: prIndex,
+      })
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.add({
+        level: 'error',
+        source: 'panel',
+        message: `读取 PR #${prIndex} 状态失败 (issue #${issueNumber})`,
+        details: message,
+      })
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: `无法读取 PR #${prIndex} 状态: ${message}`,
+        dismissOnTimer: 6000,
+      })
+      void this.loadAndPush()
+      return
+    }
+
+    if (!pullRequest.merged) {
+      logger.add({
+        level: 'warn',
+        source: 'panel',
+        message: `PR #${prIndex} 尚未合并，工单 #${issueNumber} 不能完成`,
+      })
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: `PR #${prIndex} 尚未合并，工单 #${issueNumber} 不能完成`,
+        dismissOnTimer: 6000,
+      })
+      void this.loadAndPush()
+      return
+    }
+
+    // 4. PR is merged — persist column='done' to state JSON.
+    try {
+      await mergeStateJsonComment({
+        host: remote.host,
+        owner: remote.owner,
+        repo: remote.repo,
+        token,
+        issueNumber,
+        extra: { column: 'done' },
+      })
+      logger.add({
+        level: 'info',
+        source: 'panel',
+        message: `工单 #${issueNumber} column=done 已持久化`,
+      })
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.add({
+        level: 'error',
+        source: 'panel',
+        message: `持久化 column=done 失败 (issue #${issueNumber})`,
+        details: message,
+      })
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: `保存工单 #${issueNumber} 状态失败: ${message}`,
+        dismissOnTimer: 6000,
+      })
+      void this.loadAndPush()
+      return
+    }
+
+    // 5. Best-effort cleanup of the worktree. Failures are non-fatal — the
+    // state JSON already records done, user can manually clean later.
+    if (worktreePath) {
+      const abs = path.isAbsolute(worktreePath)
+        ? worktreePath
+        : path.join(workspaceRoot, worktreePath)
+      if (fs.existsSync(abs)) {
+        try {
+          await new Promise<void>((resolve, reject) => {
+            execFile(
+              'git',
+              ['-C', workspaceRoot, 'worktree', 'remove', '--force', abs],
+              { timeout: 30_000 },
+              (err, _stdout, stderr) => {
+                if (err) {
+                  const detail = (stderr ?? '').trim() || err.message
+                  reject(new Error(detail))
+                  return
+                }
+                resolve()
+              },
+            )
+          })
+          logger.add({
+            level: 'info',
+            source: 'panel',
+            message: `已清理 worktree ${worktreePath} (issue #${issueNumber})`,
+          })
+        }
+        catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          logger.add({
+            level: 'warn',
+            source: 'panel',
+            message: `清理 worktree 失败 (issue #${issueNumber})`,
+            details: message,
+          })
+          this.postMessage({
+            type: 'toast/show',
+            id: makeNonce(),
+            level: 'error',
+            message: `工单 #${issueNumber} 已完成，但 worktree 清理失败: ${message}`,
+            dismissOnTimer: 6000,
+          })
+          void this.loadAndPush()
+          return
+        }
+      }
+    }
+
+    void this.loadAndPush()
+    this.postMessage({
+      type: 'toast/show',
+      id: makeNonce(),
+      level: 'success',
+      message: `工单 #${issueNumber} 已完成，worktree 已清理`,
+      dismissOnTimer: 5000,
+    })
   }
 
   /** Reloads issues from gitea and pushes to the webview. Public so the
