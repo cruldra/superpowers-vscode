@@ -16,6 +16,8 @@ export const DEFAULT_CREATE_ISSUE_PROMPT = '/goal 我现在有这样一个需求
 
 export const DEFAULT_IMPLEMENT_PLAN_PROMPT = '/goal 使用子代理全程绿灯实施 @{planFile}，完成后输出 <request_review>$pr_no</request_review>'
 
+export const DEFAULT_REVIEW_PROMPT = '用 tea 拿到这个仓库的 #{prNumber} PR，然后对其进行审查'
+
 export const DEFAULT_WEBHOOK_PORT = 17421
 
 export interface Settings {
@@ -29,6 +31,10 @@ export interface Settings {
   createIssuePrompt: string
   /** Prompt template for the implement-plan flow. `{planFile}` placeholder. */
   implementPlanPrompt: string
+  /** Whether to automatically run `codex exec review` when a PR opens. */
+  autoReview: boolean
+  /** Prompt template for the auto-review flow. `{prNumber}` placeholder. */
+  reviewPrompt: string
 }
 
 export const SETTINGS_KEY = 'superpowers.settings'
@@ -39,6 +45,8 @@ function defaults(): Settings {
     webhookPublicUrl: '',
     createIssuePrompt: DEFAULT_CREATE_ISSUE_PROMPT,
     implementPlanPrompt: DEFAULT_IMPLEMENT_PLAN_PROMPT,
+    autoReview: true,
+    reviewPrompt: DEFAULT_REVIEW_PROMPT,
   }
 }
 
@@ -58,12 +66,18 @@ export function getSettings(ctx: ExtensionContext): Settings {
   const implementPlanPrompt = typeof stored.implementPlanPrompt === 'string' && stored.implementPlanPrompt.length > 0
     ? stored.implementPlanPrompt
     : base.implementPlanPrompt
+  const autoReview = typeof stored.autoReview === 'boolean' ? stored.autoReview : base.autoReview
+  const reviewPrompt = typeof stored.reviewPrompt === 'string' && stored.reviewPrompt.length > 0
+    ? stored.reviewPrompt
+    : base.reviewPrompt
 
   return {
     webhookPort,
     webhookPublicUrl,
     createIssuePrompt,
     implementPlanPrompt,
+    autoReview,
+    reviewPrompt,
   }
 }
 

@@ -49,6 +49,15 @@ export class KanbanWebviewPanel {
    * card → switch terminal tab" behaviour.
    */
   private readonly terminals = new Map<string, Terminal>()
+  /**
+   * issueNumber → its implementation cc terminal (the one spawned by
+   * `handleImplement`). Used by the auto-review flow to `sendText` review
+   * feedback back into the running implementation conversation. Kept
+   * separate from `terminals` because at spawn time we don't yet have a
+   * sessionId, and even later the impl session id lives in a different
+   * field of the state JSON.
+   */
+  private readonly implTerminals = new Map<number, Terminal>()
 
   private constructor(private readonly context: ExtensionContext, panel: WebviewPanel) {
     this.panel = panel
@@ -78,6 +87,12 @@ export class KanbanWebviewPanel {
         for (const [sid, t] of this.terminals) {
           if (t === closed) {
             this.terminals.delete(sid)
+            break
+          }
+        }
+        for (const [n, t] of this.implTerminals) {
+          if (t === closed) {
+            this.implTerminals.delete(n)
             break
           }
         }
@@ -141,6 +156,10 @@ export class KanbanWebviewPanel {
     }
     if (msg.type === 'session/focus') {
       this.handleSessionFocus(msg.sessionId)
+      return
+    }
+    if (msg.type === 'session/resume-review') {
+      this.handleResumeReviewSession(msg.sessionId, msg.issueNumber)
       return
     }
     if (msg.type === 'editor/open-file') {
@@ -245,6 +264,51 @@ export class KanbanWebviewPanel {
     })
     const cmd = `claude --dangerously-skip-permissions --settings '${effectiveProfilePath}' --resume ${sessionId}`
     terminal.sendText(cmd)
+  }
+
+  /**
+   * Inject review feedback into the implementation terminal for `issueNumber`.
+   * Called from the webhook coordinator's auto-review path. Returns `true`
+   * when a terminal was found and `sendText` was called; `false` otherwise
+   * (so the caller can log a warning).
+   *
+   * Falls back to looking up by terminal name when the in-memory map miss
+   * happens — e.g. after a window reload, the impl terminal might still be
+   * present in `window.terminals` but absent from `this.implTerminals`.
+   */
+  injectIntoImplTerminal(issueNumber: number, text: string): boolean {
+    let terminal = this.implTerminals.get(issueNumber)
+    if (!terminal) {
+      const wantedName = `Claude · 实施 #${issueNumber}`
+      for (const t of window.terminals) {
+        if (t.name === wantedName) {
+          terminal = t
+          this.implTerminals.set(issueNumber, t)
+          break
+        }
+      }
+    }
+    if (!terminal)
+      return false
+    terminal.sendText(`\n[审查反馈]\n${text}\n`, true)
+    return true
+  }
+
+  private handleResumeReviewSession(sessionId: string, issueNumber: number): void {
+    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    const terminal = window.createTerminal({
+      name: `Codex · 审查 #${issueNumber}`,
+      cwd: workspaceRoot,
+      location: this.resolveTerminalLocation(false),
+      color: issueTerminalColor(issueNumber),
+    })
+    terminal.show(false)
+    terminal.sendText(`codex resume ${sessionId}`)
+    logger.add({
+      level: 'info',
+      source: 'terminal',
+      message: `已创建审查会话终端 #${issueNumber}`,
+    })
   }
 
   /**
@@ -658,6 +722,10 @@ export class KanbanWebviewPanel {
       color: issueTerminalColor(issueNumber),
     })
     terminal.show(false)
+    // Track for the auto-review flow: synchronize callbacks call
+    // `injectIntoImplTerminal(issueNumber, text)` to feed review feedback
+    // back into the same running cc session.
+    this.implTerminals.set(issueNumber, terminal)
     logger.add({
       level: 'info',
       source: 'terminal',
@@ -767,6 +835,8 @@ export class KanbanWebviewPanel {
         webhookPublicUrl: s.webhookPublicUrl,
         createIssuePrompt: s.createIssuePrompt,
         implementPlanPrompt: s.implementPlanPrompt,
+        autoReview: s.autoReview,
+        reviewPrompt: s.reviewPrompt,
       })
       return
     }
@@ -787,6 +857,8 @@ export class KanbanWebviewPanel {
           webhookPublicUrl: s.webhookPublicUrl,
           createIssuePrompt: s.createIssuePrompt,
           implementPlanPrompt: s.implementPlanPrompt,
+          autoReview: s.autoReview,
+          reviewPrompt: s.reviewPrompt,
         })
         return
       }
@@ -803,6 +875,8 @@ export class KanbanWebviewPanel {
     webhookPublicUrl: string
     createIssuePrompt: string
     implementPlanPrompt: string
+    autoReview: boolean
+    reviewPrompt: string
   }): Promise<void> {
     const trimmedHost = payload.host.trim()
     const trimmedToken = payload.token.trim()
@@ -817,6 +891,8 @@ export class KanbanWebviewPanel {
         webhookPublicUrl: trimmedUrl,
         createIssuePrompt: payload.createIssuePrompt || prev.createIssuePrompt,
         implementPlanPrompt: payload.implementPlanPrompt || prev.implementPlanPrompt,
+        autoReview: payload.autoReview,
+        reviewPrompt: payload.reviewPrompt || prev.reviewPrompt,
       })
       return
     }
@@ -829,6 +905,8 @@ export class KanbanWebviewPanel {
       webhookPublicUrl: trimmedUrl,
       createIssuePrompt: payload.createIssuePrompt,
       implementPlanPrompt: payload.implementPlanPrompt,
+      autoReview: payload.autoReview,
+      reviewPrompt: payload.reviewPrompt,
     })
     await setToken(this.context, trimmedHost, trimmedToken)
     // Honor a port change without requiring a window reload. Restart the
@@ -879,6 +957,8 @@ export class KanbanWebviewPanel {
       webhookPublicUrl: s.webhookPublicUrl,
       createIssuePrompt: s.createIssuePrompt,
       implementPlanPrompt: s.implementPlanPrompt,
+      autoReview: s.autoReview,
+      reviewPrompt: s.reviewPrompt,
     })
   }
 

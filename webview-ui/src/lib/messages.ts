@@ -40,6 +40,8 @@ export type ExtensionToWebview =
     webhookPublicUrl: string
     createIssuePrompt: string
     implementPlanPrompt: string
+    autoReview: boolean
+    reviewPrompt: string
   }
   | {
     type: 'toast/show'
@@ -66,12 +68,15 @@ export type WebviewToExtension =
     webhookPublicUrl: string
     createIssuePrompt: string
     implementPlanPrompt: string
+    autoReview: boolean
+    reviewPrompt: string
   }
   | { type: 'settings/edit-request' }
   | { type: 'issue/create', userRequest: string, images?: Array<{ mediaType: string, base64: string }>, profilePath?: string }
   | { type: 'toast/open-url', url: string }
   | { type: 'session/resume', sessionId: string, profilePath?: string, cwd?: string, issueNumber?: number }
   | { type: 'session/focus', sessionId: string }
+  | { type: 'session/resume-review', sessionId: string, issueNumber: number }
   | { type: 'editor/open-file', path: string }
   | { type: 'session/load-files', sessionId: string, issueNumber: number }
   | { type: 'profiles/list' }

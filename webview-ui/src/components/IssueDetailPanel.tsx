@@ -9,6 +9,9 @@ interface IssueDetailPanelProps {
   issue: Issue | null
   onOpenInBrowser: (url: string) => void
   onResumeSession: (sessionId: string, profilePath?: string, cwd?: string, issueNumber?: number) => void
+  /** Open a new terminal that runs `codex resume <id>` for the auto-review
+   * conversation associated with this issue. */
+  onResumeReviewSession: (sessionId: string, issueNumber: number) => void
   /** Open a workspace-relative file in the editor. */
   onOpenFile: (path: string) => void
   /** Scan the Claude session transcript for `sessionId` and merge any
@@ -34,6 +37,7 @@ export function IssueDetailPanel({
   issue,
   onOpenInBrowser,
   onResumeSession,
+  onResumeReviewSession,
   onOpenFile,
   onLoadFiles,
   onImplement,
@@ -88,6 +92,17 @@ export function IssueDetailPanel({
             onAction: (v) => {
               if (typeof v === 'string' && v.length > 0)
                 onResumeSession(v, issue?.profilePath, issue?.worktreePath, issue?.number)
+            },
+          },
+          {
+            key: 'reviewSessionId',
+            label: '审查会话id',
+            type: 'action',
+            description: '点击在新终端运行 codex resume <id> 查看审查会话',
+            actionIcon: <Terminal className="size-3.5" />,
+            onAction: (v) => {
+              if (typeof v === 'string' && v.length > 0 && issue)
+                onResumeReviewSession(v, issue.number)
             },
           },
           {
@@ -177,7 +192,7 @@ export function IssueDetailPanel({
         ],
       },
     ],
-    [onResumeSession, onOpenFile, onLoadFiles, onImplement, onOpenPr, onOpenLogs, issue],
+    [onResumeSession, onResumeReviewSession, onOpenFile, onLoadFiles, onImplement, onOpenPr, onOpenLogs, issue],
   )
 
   if (!issue) {
@@ -192,6 +207,7 @@ export function IssueDetailPanel({
     column: issue.column,
     sessionId: issue.sessionId ?? null,
     implementSessionId: issue.implementSessionId ?? null,
+    reviewSessionId: issue.reviewSessionId ?? null,
     profilePath: issue.profilePath ?? null,
     specFile: issue.specFile ?? null,
     planFile: issue.planFile ?? null,

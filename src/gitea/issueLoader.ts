@@ -51,6 +51,7 @@ function parseColumnFromComments(comments: GiteaComment[]): {
   worktreePath?: string
   implementStatus?: 'running' | 'done' | 'failed'
   implementSessionId?: string
+  reviewSessionId?: string
 } {
   if (comments.length === 0)
     return { column: null }
@@ -72,6 +73,7 @@ function parseColumnFromComments(comments: GiteaComment[]): {
         worktreePath?: unknown
         implementStatus?: unknown
         implementSessionId?: unknown
+        reviewSessionId?: unknown
       }
       if (isIssueColumn(obj.column)) {
         const sessionId = typeof obj.sessionId === 'string' && obj.sessionId.length > 0
@@ -103,6 +105,9 @@ function parseColumnFromComments(comments: GiteaComment[]): {
         const implementSessionId = typeof obj.implementSessionId === 'string' && obj.implementSessionId.length > 0
           ? obj.implementSessionId
           : undefined
+        const reviewSessionId = typeof obj.reviewSessionId === 'string' && obj.reviewSessionId.length > 0
+          ? obj.reviewSessionId
+          : undefined
         return {
           column: obj.column,
           sessionId,
@@ -114,6 +119,7 @@ function parseColumnFromComments(comments: GiteaComment[]): {
           worktreePath,
           implementStatus,
           implementSessionId,
+          reviewSessionId,
         }
       }
     }
@@ -208,6 +214,7 @@ export async function loadIssues(opts: {
       worktreePath,
       implementStatus,
       implementSessionId,
+      reviewSessionId,
     } = parseColumnFromComments(bucket)
     let column: IssueColumn
     if (fromComment) {
@@ -247,6 +254,7 @@ export async function loadIssues(opts: {
       ...(worktreePath ? { worktreePath } : {}),
       ...(implementStatus ? { implementStatus } : {}),
       ...(implementSessionId ? { implementSessionId } : {}),
+      ...(reviewSessionId ? { reviewSessionId } : {}),
       htmlUrl: issue.html_url,
     })
   }

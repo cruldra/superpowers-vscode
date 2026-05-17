@@ -39,6 +39,10 @@ export interface Issue {
   /** Session id of the implementation conversation (separate from
    * discussion-session `sessionId`). */
   implementSessionId?: string
+  /** Backend-agnostic review session id (v1 stores a codex thread id). Set
+   * the first time auto-review runs; reused for subsequent `synchronize`
+   * webhook callbacks via `codex exec resume`. */
+  reviewSessionId?: string
   /** Browser URL to the Gitea issue page (escape hatch button in the UI). */
   htmlUrl: string
 }

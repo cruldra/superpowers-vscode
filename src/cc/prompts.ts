@@ -21,3 +21,8 @@ export function getImplementPlanPrompt(ctx: ExtensionContext, vars: { planFile: 
   const tpl = getSettings(ctx).implementPlanPrompt
   return tpl.split('{planFile}').join(vars.planFile)
 }
+
+export function getReviewPrompt(ctx: ExtensionContext, vars: { prNumber: string }): string {
+  const tpl = getSettings(ctx).reviewPrompt
+  return tpl.split('{prNumber}').join(vars.prNumber)
+}

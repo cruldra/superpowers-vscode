@@ -18,6 +18,11 @@ import { logger } from '../logging/logger'
 
 export interface WebhookEvent {
   issueNumber: number
+  /** The `action` field from the `pull_request` payload (e.g. `opened`,
+   * `reopened`, `synchronize`, `closed`, `edited`). The server fires this
+   * event on every `pull_request` action whose payload parses correctly;
+   * downstream code dispatches on `action` to decide what to do. */
+  action: string
   /** PR number as string. */
   pr: string
   /** Head branch ref. */
@@ -145,21 +150,21 @@ export class WebhookServer {
             return
           }
 
-          const action = extractAction(parsed)
           const event = parseEvent(issueNumber, parsed)
           if (event) {
             logger.add({
               level: 'info',
               source: 'webhook',
-              message: `匹配 PR #${event.pr} 分支 ${event.branch}`,
+              message: `匹配 action=${event.action} PR #${event.pr} 分支 ${event.branch}`,
             })
             this.emitter.fire(event)
           }
           else {
+            const action = extractAction(parsed)
             logger.add({
               level: 'info',
               source: 'webhook',
-              message: `忽略 action=${action ?? '<missing>'}`,
+              message: `payload 解析失败 action=${action ?? '<missing>'}`,
             })
           }
 
@@ -201,8 +206,6 @@ function parseEvent(issueNumber: number, raw: unknown): WebhookEvent | null {
   }
   if (typeof obj.action !== 'string')
     return null
-  if (obj.action !== 'opened' && obj.action !== 'reopened')
-    return null
 
   const pr = obj.pull_request
   if (!pr || typeof pr !== 'object')
@@ -224,6 +227,7 @@ function parseEvent(issueNumber: number, raw: unknown): WebhookEvent | null {
 
   return {
     issueNumber,
+    action: obj.action,
     pr: String(num),
     branch,
     htmlUrl,

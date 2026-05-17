@@ -30,6 +30,8 @@ export interface Issue {
   /** Session id of the implementation conversation (separate from
    * discussion-session `sessionId`). */
   implementSessionId?: string
+  /** Backend-agnostic review session id (v1 stores a codex thread id). */
+  reviewSessionId?: string
   htmlUrl: string
 }
 

@@ -20,6 +20,8 @@ interface SubmitValues {
   webhookPublicUrl: string
   createIssuePrompt: string
   implementPlanPrompt: string
+  autoReview: boolean
+  reviewPrompt: string
 }
 
 export interface SettingsModalProps {
@@ -31,6 +33,8 @@ export interface SettingsModalProps {
   initialWebhookPublicUrl: string
   initialCreateIssuePrompt: string
   initialImplementPlanPrompt: string
+  initialAutoReview: boolean
+  initialReviewPrompt: string
   onSubmit: (values: SubmitValues) => void
   onCancel?: () => void
 }
@@ -84,6 +88,8 @@ export function SettingsModal({
   initialWebhookPublicUrl,
   initialCreateIssuePrompt,
   initialImplementPlanPrompt,
+  initialAutoReview,
+  initialReviewPrompt,
   onSubmit,
   onCancel,
 }: SettingsModalProps): ReactElement | null {
@@ -94,6 +100,8 @@ export function SettingsModal({
   const [webhookPublicUrl, setWebhookPublicUrl] = useState(initialWebhookPublicUrl)
   const [createIssuePrompt, setCreateIssuePrompt] = useState(initialCreateIssuePrompt)
   const [implementPlanPrompt, setImplementPlanPrompt] = useState(initialImplementPlanPrompt)
+  const [autoReview, setAutoReview] = useState(initialAutoReview)
+  const [reviewPrompt, setReviewPrompt] = useState(initialReviewPrompt)
   const [errors, setErrors] = useState<Partial<Record<ErrorKey, string>>>({})
 
   // Reset local state whenever the modal opens with fresh server values.
@@ -109,6 +117,8 @@ export function SettingsModal({
     setWebhookPublicUrl(initialWebhookPublicUrl)
     setCreateIssuePrompt(initialCreateIssuePrompt)
     setImplementPlanPrompt(initialImplementPlanPrompt)
+    setAutoReview(initialAutoReview)
+    setReviewPrompt(initialReviewPrompt)
     setErrors({})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
@@ -168,6 +178,8 @@ export function SettingsModal({
       webhookPublicUrl: webhookPublicUrl.trim(),
       createIssuePrompt,
       implementPlanPrompt,
+      autoReview,
+      reviewPrompt,
     })
   }
 
@@ -302,6 +314,20 @@ export function SettingsModal({
                     className={inputClass}
                   />
                 </Field>
+
+                <Field
+                  label="开启自动审查"
+                  hint="PR 创建后自动用 codex exec review 跑审查并把结果灌到实施会话终端"
+                >
+                  <label className="inline-flex cursor-pointer items-center gap-2 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={autoReview}
+                      onChange={e => setAutoReview(e.target.checked)}
+                    />
+                    <span className="opacity-80">启用</span>
+                  </label>
+                </Field>
               </>
             )}
 
@@ -327,6 +353,18 @@ export function SettingsModal({
                     rows={8}
                     value={implementPlanPrompt}
                     onChange={e => setImplementPlanPrompt(e.target.value)}
+                    className={`${inputClass} resize-y font-mono`}
+                  />
+                </Field>
+
+                <Field
+                  label="审查提示词"
+                  hint={<>可用占位符：<code>{'{prNumber}'}</code></>}
+                >
+                  <textarea
+                    rows={4}
+                    value={reviewPrompt}
+                    onChange={e => setReviewPrompt(e.target.value)}
                     className={`${inputClass} resize-y font-mono`}
                   />
                 </Field>

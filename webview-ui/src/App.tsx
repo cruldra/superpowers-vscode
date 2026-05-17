@@ -26,6 +26,7 @@ export function App() {
     dismissToast,
     openUrl,
     resumeSession,
+    resumeReviewSession,
     focusSession,
     openFile,
     loadSessionFiles,
@@ -213,6 +214,7 @@ export function App() {
                 issue={selectedIssue}
                 onOpenInBrowser={openUrl}
                 onResumeSession={resumeSession}
+                onResumeReviewSession={resumeReviewSession}
                 onOpenFile={openFile}
                 onLoadFiles={loadSessionFiles}
                 onImplement={implement}
@@ -274,6 +276,8 @@ export function App() {
         initialWebhookPublicUrl={settings?.webhookPublicUrl ?? ''}
         initialCreateIssuePrompt={settings?.createIssuePrompt ?? ''}
         initialImplementPlanPrompt={settings?.implementPlanPrompt ?? ''}
+        initialAutoReview={settings?.autoReview ?? true}
+        initialReviewPrompt={settings?.reviewPrompt ?? ''}
         onSubmit={saveSettings}
         onCancel={settings?.canCancel ? dismissSettings : undefined}
       />

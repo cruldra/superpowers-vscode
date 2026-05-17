@@ -10,9 +10,11 @@
  */
 
 import type { ExtensionContext } from 'vscode'
-import { env, Uri, window } from 'vscode'
+import { env, Uri, window, workspace } from 'vscode'
 import { getToken } from '../auth/secrets'
-import { deleteWebhook } from '../gitea/api'
+import { getReviewPrompt } from '../cc/prompts'
+import { runReview } from '../cc/reviewFlow'
+import { deleteWebhook, listIssueComments } from '../gitea/api'
 import { mergeStateJsonComment } from '../gitea/stateJson'
 import { logger } from '../logging/logger'
 import { getSettings } from '../settings/store'
@@ -207,7 +209,7 @@ class WebhookCoordinator {
     logger.add({
       level: 'info',
       source: 'webhook',
-      message: `收到 webhook 事件 issue=#${event.issueNumber} pr=#${event.pr}`,
+      message: `收到 webhook 事件 action=${event.action} issue=#${event.issueNumber} pr=#${event.pr}`,
     })
     const pending = this.pendingHooks.get(event.issueNumber)
     if (!pending) {
@@ -215,7 +217,7 @@ class WebhookCoordinator {
         level: 'warn',
         source: 'webhook',
         message: '收到未跟踪的 issue 回调',
-        details: `issue=#${event.issueNumber} pr=#${event.pr}`,
+        details: `action=${event.action} issue=#${event.issueNumber} pr=#${event.pr}`,
       })
       return
     }
@@ -230,6 +232,40 @@ class WebhookCoordinator {
       return
     }
 
+    switch (event.action) {
+      case 'opened':
+      case 'reopened': {
+        await this.handlePrOpened(event, pending, token)
+        break
+      }
+      case 'synchronize': {
+        await this.handlePrSynchronize(event, pending, token)
+        break
+      }
+      case 'closed': {
+        await this.handlePrClosed(event, pending, token)
+        break
+      }
+      default: {
+        logger.add({
+          level: 'info',
+          source: 'webhook',
+          message: `未处理 action=${event.action}`,
+          details: `issue=#${event.issueNumber} pr=#${event.pr}`,
+        })
+        break
+      }
+    }
+  }
+
+  /**
+   * `opened` / `reopened`: persist `pr` + `implementStatus=done` into the
+   * state JSON, refresh the kanban, toast. The webhook is *not* deleted
+   * here — Phase A keeps it alive for `synchronize` / `closed`.
+   */
+  private async handlePrOpened(event: WebhookEvent, pending: PendingHook, token: string): Promise<void> {
+    if (!this.ctx)
+      return
     try {
       await mergeStateJsonComment({
         host: pending.host,
@@ -251,31 +287,8 @@ class WebhookCoordinator {
         message: '更新 state JSON 失败',
         details: message,
       })
-      // Continue: still try to clean up the gitea-side hook.
     }
 
-    try {
-      await deleteWebhook({
-        host: pending.host,
-        token,
-        owner: pending.owner,
-        repo: pending.repo,
-        hookId: pending.hookId,
-      })
-    }
-    catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      logger.add({
-        level: 'warn',
-        source: 'webhook',
-        message: '删除 gitea hook 失败',
-        details: message,
-      })
-    }
-
-    await this.removePending(event.issueNumber)
-
-    // Refresh the kanban if a panel is currently bound.
     if (this.activePanel) {
       try {
         await this.activePanel.loadAndPush()
@@ -309,6 +322,209 @@ class WebhookCoordinator {
         details: message,
       })
     }
+
+    if (getSettings(this.ctx).autoReview) {
+      // Fire-and-forget; the review can take minutes and we don't want to
+      // block the webhook response or the panel refresh.
+      void this.triggerReview(event.issueNumber, event.pr, undefined, pending, token)
+    }
+  }
+
+  /**
+   * `synchronize`: re-fetch the state JSON, look up `reviewSessionId`, and
+   * resume the codex thread with a follow-up prompt. Skip entirely when
+   * autoReview is off or no prior session exists.
+   */
+  private async handlePrSynchronize(event: WebhookEvent, pending: PendingHook, token: string): Promise<void> {
+    if (!this.ctx)
+      return
+    if (!getSettings(this.ctx).autoReview) {
+      logger.add({
+        level: 'info',
+        source: 'webhook',
+        message: `synchronize 忽略：autoReview 关闭 #${event.issueNumber}`,
+      })
+      return
+    }
+    let reviewSessionId: string | undefined
+    try {
+      const comments = await listIssueComments({
+        host: pending.host,
+        token,
+        owner: pending.owner,
+        repo: pending.repo,
+        index: event.issueNumber,
+      })
+      const last = comments[comments.length - 1]
+      const body = (last?.body ?? '').trim()
+      if (body) {
+        try {
+          const parsed = JSON.parse(body) as { reviewSessionId?: unknown }
+          if (typeof parsed?.reviewSessionId === 'string' && parsed.reviewSessionId.length > 0)
+            reviewSessionId = parsed.reviewSessionId
+        }
+        catch {
+          // last comment isn't JSON — fine, just no resume id.
+        }
+      }
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.add({
+        level: 'warn',
+        source: 'webhook',
+        message: '读取 state JSON 失败（synchronize）',
+        details: message,
+      })
+    }
+
+    if (!reviewSessionId) {
+      logger.add({
+        level: 'info',
+        source: 'webhook',
+        message: `synchronize 忽略：未找到 reviewSessionId #${event.issueNumber}`,
+      })
+      return
+    }
+    void this.triggerReview(event.issueNumber, event.pr, reviewSessionId, pending, token)
+  }
+
+  /**
+   * `closed`: delete the gitea webhook and forget the pending entry. We
+   * intentionally don't touch the issue's column — closing a PR doesn't
+   * automatically advance the kanban.
+   */
+  private async handlePrClosed(event: WebhookEvent, pending: PendingHook, token: string): Promise<void> {
+    logger.add({
+      level: 'info',
+      source: 'webhook',
+      message: `PR #${event.pr} closed → 删除 webhook`,
+      details: `issue=#${event.issueNumber} hookId=${pending.hookId}`,
+    })
+    try {
+      await deleteWebhook({
+        host: pending.host,
+        token,
+        owner: pending.owner,
+        repo: pending.repo,
+        hookId: pending.hookId,
+      })
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.add({
+        level: 'warn',
+        source: 'webhook',
+        message: '删除 gitea hook 失败',
+        details: message,
+      })
+    }
+    await this.removePending(event.issueNumber)
+  }
+
+  /**
+   * Run `codex exec review` (or resume) and inject the resulting text into
+   * the implementation cc terminal. Persists `reviewSessionId` the first
+   * time (when `resumeFrom` is undefined). Best-effort — any failure is
+   * logged + toasted but doesn't propagate.
+   */
+  private async triggerReview(
+    issueNumber: number,
+    prNumber: string,
+    resumeFrom: string | undefined,
+    pending: PendingHook,
+    token: string,
+  ): Promise<void> {
+    if (!this.ctx)
+      return
+    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    if (!workspaceRoot) {
+      logger.add({
+        level: 'error',
+        source: 'webhook',
+        message: `triggerReview 中止 #${issueNumber}：没有工作区`,
+      })
+      return
+    }
+
+    logger.add({
+      level: 'info',
+      source: 'webhook',
+      message: `开始审查 #${issueNumber} resume=${resumeFrom ? 'true' : 'false'}`,
+    })
+
+    const prompt = resumeFrom
+      ? 'PR 更新了，再次审查'
+      : getReviewPrompt(this.ctx, { prNumber })
+
+    let result: { sessionId: string | null, text: string }
+    try {
+      result = await runReview({
+        workspaceRoot,
+        prompt,
+        resumeFrom,
+      })
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.add({
+        level: 'error',
+        source: 'webhook',
+        message: `审查执行失败 #${issueNumber}`,
+        details: message,
+      })
+      void window.showErrorMessage(`审查执行失败 #${issueNumber}: ${message}`)
+      return
+    }
+
+    // First-time only: persist the captured codex thread id so synchronize
+    // can resume the same conversation.
+    if (!resumeFrom && result.sessionId) {
+      try {
+        await mergeStateJsonComment({
+          host: pending.host,
+          owner: pending.owner,
+          repo: pending.repo,
+          token,
+          issueNumber,
+          extra: { reviewSessionId: result.sessionId },
+        })
+        if (this.activePanel) {
+          try {
+            await this.activePanel.loadAndPush()
+          }
+          catch {
+            // Non-fatal; panel might just be closed.
+          }
+        }
+      }
+      catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        logger.add({
+          level: 'warn',
+          source: 'webhook',
+          message: `持久化 reviewSessionId 失败 #${issueNumber}`,
+          details: message,
+        })
+      }
+    }
+
+    const injected = this.activePanel
+      ? this.activePanel.injectIntoImplTerminal(issueNumber, result.text)
+      : false
+    if (!injected) {
+      logger.add({
+        level: 'warn',
+        source: 'webhook',
+        message: `未找到实施终端，审查未注入 #${issueNumber}`,
+      })
+    }
+
+    logger.add({
+      level: 'info',
+      source: 'webhook',
+      message: `审查完成 #${issueNumber} length=${result.text.length}`,
+    })
   }
 }
 

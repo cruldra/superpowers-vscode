@@ -29,6 +29,8 @@ export interface SettingsValues {
   webhookPublicUrl: string
   createIssuePrompt: string
   implementPlanPrompt: string
+  autoReview: boolean
+  reviewPrompt: string
 }
 
 export interface SettingsOverlayState {
@@ -39,6 +41,8 @@ export interface SettingsOverlayState {
   webhookPublicUrl: string
   createIssuePrompt: string
   implementPlanPrompt: string
+  autoReview: boolean
+  reviewPrompt: string
 }
 
 export type UseIssuesState =
@@ -66,6 +70,7 @@ export interface UseIssuesResult {
   dismissToast: (id: string) => void
   openUrl: (url: string) => void
   resumeSession: (sessionId: string, profilePath?: string, cwd?: string, issueNumber?: number) => void
+  resumeReviewSession: (sessionId: string, issueNumber: number) => void
   focusSession: (sessionId: string) => void
   openFile: (path: string) => void
   loadSessionFiles: (sessionId: string | undefined, issueNumber: number) => void
@@ -100,6 +105,8 @@ export function useIssues(): UseIssuesResult {
       webhookPublicUrl: values.webhookPublicUrl,
       createIssuePrompt: values.createIssuePrompt,
       implementPlanPrompt: values.implementPlanPrompt,
+      autoReview: values.autoReview,
+      reviewPrompt: values.reviewPrompt,
     })
   }, [])
 
@@ -138,6 +145,10 @@ export function useIssues(): UseIssuesResult {
 
   const focusSession = useCallback((sessionId: string): void => {
     postMessage({ type: 'session/focus', sessionId })
+  }, [])
+
+  const resumeReviewSession = useCallback((sessionId: string, issueNumber: number): void => {
+    postMessage({ type: 'session/resume-review', sessionId, issueNumber })
   }, [])
 
   const openFile = useCallback((path: string): void => {
@@ -203,6 +214,8 @@ export function useIssues(): UseIssuesResult {
             webhookPublicUrl: msg.webhookPublicUrl,
             createIssuePrompt: msg.createIssuePrompt,
             implementPlanPrompt: msg.implementPlanPrompt,
+            autoReview: msg.autoReview,
+            reviewPrompt: msg.reviewPrompt,
           })
           break
         case 'toast/show': {
@@ -248,5 +261,5 @@ export function useIssues(): UseIssuesResult {
     return cleanup
   }, [])
 
-  return { state, settings, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, focusSession, openFile, loadSessionFiles, implement, openPr, logs, fetchLogs, clearLogs }
+  return { state, settings, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, focusSession, openFile, loadSessionFiles, implement, openPr, logs, fetchLogs, clearLogs }
 }
