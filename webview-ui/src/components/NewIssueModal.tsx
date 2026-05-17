@@ -147,6 +147,53 @@ export function NewIssueModal({ open, onCancel, onSubmit, profiles, defaultProfi
     }
   }, [value])
 
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>): void {
+    if (e.key !== 'Backspace' && e.key !== 'Delete')
+      return
+    const ta = textareaRef.current
+    if (!ta)
+      return
+    // Only handle when there's no selection (caret-only)
+    if (ta.selectionStart !== ta.selectionEnd)
+      return
+
+    const pos = ta.selectionStart
+    const text = ta.value
+    const tokenRegex = /\[复制的 \d+ 行文本\]/g
+    let match: RegExpExecArray | null = null
+    // eslint-disable-next-line no-cond-assign
+    while ((match = tokenRegex.exec(text)) !== null) {
+      const tokenStart = match.index
+      const tokenEnd = tokenStart + match[0].length
+      // Backspace: caret right after ] OR caret inside token → delete whole
+      if (e.key === 'Backspace' && pos > tokenStart && pos <= tokenEnd) {
+        e.preventDefault()
+        const next = text.slice(0, tokenStart) + text.slice(tokenEnd)
+        setValue(next)
+        requestAnimationFrame(() => {
+          if (textareaRef.current) {
+            textareaRef.current.selectionStart = textareaRef.current.selectionEnd = tokenStart
+            textareaRef.current.focus()
+          }
+        })
+        return
+      }
+      // Delete (forward): caret right before [ OR caret inside token → delete whole
+      if (e.key === 'Delete' && pos >= tokenStart && pos < tokenEnd) {
+        e.preventDefault()
+        const next = text.slice(0, tokenStart) + text.slice(tokenEnd)
+        setValue(next)
+        requestAnimationFrame(() => {
+          if (textareaRef.current) {
+            textareaRef.current.selectionStart = textareaRef.current.selectionEnd = tokenStart
+            textareaRef.current.focus()
+          }
+        })
+        return
+      }
+    }
+  }
+
   function removeImage(id: string): void {
     setImages(prev => prev.filter(i => i.id !== id))
   }
@@ -193,6 +240,7 @@ export function NewIssueModal({ open, onCancel, onSubmit, profiles, defaultProfi
           value={value}
           onChange={e => setValue(e.target.value)}
           onPaste={handlePaste}
+          onKeyDown={handleKeyDown}
           placeholder="用 Markdown 描述你的需求…（可 Ctrl+V 粘贴截图）"
           className="mb-2 h-72 w-full resize-none rounded border border-[var(--vscode-input-border,transparent)] bg-[var(--vscode-input-background)] p-2 font-mono text-xs text-[var(--vscode-input-foreground)] outline-none focus:border-[var(--vscode-focusBorder)]"
         />
