@@ -109,7 +109,7 @@ export async function watchForNewSession(opts: {
 
 /** Convert an absolute path to claude's projects-dir encoding ('/' -> '-'). */
 export function encodeCwdForProjectsDir(absPath: string): string {
-  return absPath.replace(/\//g, '-')
+  return absPath.replace(/[/.]/g, '-')
 }
 
 /** Absolute path of the claude projects subdir for a given cwd. */
