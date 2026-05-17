@@ -57,7 +57,7 @@ export interface UseIssuesResult {
   createIssue: (userRequest: string, images?: Array<{ mediaType: string, base64: string }>, profilePath?: string) => void
   dismissToast: (id: string) => void
   openUrl: (url: string) => void
-  resumeSession: (sessionId: string, profilePath?: string, cwd?: string) => void
+  resumeSession: (sessionId: string, profilePath?: string, cwd?: string, issueNumber?: number) => void
   focusSession: (sessionId: string) => void
   openFile: (path: string) => void
   loadSessionFiles: (sessionId: string | undefined, issueNumber: number) => void
@@ -108,8 +108,13 @@ export function useIssues(): UseIssuesResult {
     postMessage({ type: 'toast/open-url', url })
   }, [])
 
-  const resumeSession = useCallback((sessionId: string, profilePath?: string, cwd?: string): void => {
-    postMessage({ type: 'session/resume', sessionId, profilePath, cwd })
+  const resumeSession = useCallback((
+    sessionId: string,
+    profilePath?: string,
+    cwd?: string,
+    issueNumber?: number,
+  ): void => {
+    postMessage({ type: 'session/resume', sessionId, profilePath, cwd, issueNumber })
   }, [])
 
   const focusSession = useCallback((sessionId: string): void => {

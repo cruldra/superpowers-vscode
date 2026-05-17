@@ -8,7 +8,7 @@ import { PropertyGrid } from './property-grid'
 interface IssueDetailPanelProps {
   issue: Issue | null
   onOpenInBrowser: (url: string) => void
-  onResumeSession: (sessionId: string, profilePath?: string, cwd?: string) => void
+  onResumeSession: (sessionId: string, profilePath?: string, cwd?: string, issueNumber?: number) => void
   /** Open a workspace-relative file in the editor. */
   onOpenFile: (path: string) => void
   /** Scan the Claude session transcript for `sessionId` and merge any
@@ -62,7 +62,7 @@ export function IssueDetailPanel({
             actionIcon: <Terminal className="size-3.5" />,
             onAction: (v) => {
               if (typeof v === 'string' && v.length > 0)
-                onResumeSession(v, issue?.profilePath)
+                onResumeSession(v, issue?.profilePath, undefined, issue?.number)
             },
           },
           {
@@ -73,7 +73,7 @@ export function IssueDetailPanel({
             actionIcon: <Terminal className="size-3.5" />,
             onAction: (v) => {
               if (typeof v === 'string' && v.length > 0)
-                onResumeSession(v, issue?.profilePath, issue?.worktreePath)
+                onResumeSession(v, issue?.profilePath, issue?.worktreePath, issue?.number)
             },
           },
           {

@@ -10,6 +10,7 @@ import { promises as fsp } from 'node:fs'
 import * as path from 'node:path'
 import { commands, env, Uri, ViewColumn, window, workspace } from 'vscode'
 import type { ExtensionToWebview, WebviewToExtension } from './messages'
+import { issueTerminalColor } from './issueColor'
 import { deleteToken, getToken, setToken } from '../auth/secrets'
 import { createIssueViaClaude } from '../cc/createIssueFlow'
 import { listClaudeProfiles } from '../cc/profiles'
@@ -156,7 +157,7 @@ export class KanbanWebviewPanel {
       return
     }
     if (msg.type === 'session/resume') {
-      this.handleResumeSession(msg.sessionId, msg.profilePath, msg.cwd)
+      this.handleResumeSession(msg.sessionId, msg.profilePath, msg.cwd, msg.issueNumber)
       return
     }
     if (msg.type === 'session/focus') {
@@ -181,7 +182,7 @@ export class KanbanWebviewPanel {
   }
 
 
-  private handleResumeSession(sessionId: string, profilePath?: string, relCwd?: string): void {
+  private handleResumeSession(sessionId: string, profilePath?: string, relCwd?: string, issueNumber?: number): void {
     const existing = this.terminals.get(sessionId)
     if (existing) {
       existing.show(false)
@@ -212,6 +213,7 @@ export class KanbanWebviewPanel {
       name: `Claude · ${sessionId.slice(0, 8)}`,
       cwd: effectiveCwd,
       location: { viewColumn: ViewColumn.Beside, preserveFocus: false },
+      ...(issueNumber !== undefined ? { color: issueTerminalColor(issueNumber) } : {}),
     })
     this.terminals.set(sessionId, terminal)
     terminal.show()
@@ -626,6 +628,7 @@ export class KanbanWebviewPanel {
       name: `Claude · 实施 #${issueNumber}`,
       cwd: worktreePath,
       location: { viewColumn: ViewColumn.Beside, preserveFocus: false },
+      color: issueTerminalColor(issueNumber),
     })
     terminal.show()
     const cmd = `claude --dangerously-skip-permissions --settings '${effectiveProfilePath}' '${prompt}'`

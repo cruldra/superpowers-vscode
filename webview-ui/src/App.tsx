@@ -98,7 +98,7 @@ export function App() {
           e.preventDefault()
           const isImpl = !!selectedIssue?.implementSessionId
           const cwd = isImpl ? selectedIssue?.worktreePath : undefined
-          resumeSession(sid, selectedIssue?.profilePath, cwd)
+          resumeSession(sid, selectedIssue?.profilePath, cwd, selectedIssue?.number)
         }
         return
       }
