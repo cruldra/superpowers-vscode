@@ -246,6 +246,10 @@ class WebhookCoordinator {
         await this.handlePrClosed(event, pending, token)
         break
       }
+      case 'deleted': {
+        await this.handlePrDeleted(event, pending, token)
+        break
+      }
       default: {
         logger.add({
           level: 'info',
@@ -266,6 +270,57 @@ class WebhookCoordinator {
   private async handlePrOpened(event: WebhookEvent, pending: PendingHook, token: string): Promise<void> {
     if (!this.ctx)
       return
+    // Detect PR replacement: if the issue's latest state JSON already has a
+    // non-empty `pr` that's different from this new event, the user has
+    // hard-deleted the old PR and re-pushed. Reset reviewSessionId so the
+    // next review starts a fresh codex thread.
+    let oldPr = ''
+    try {
+      const comments = await listIssueComments({
+        host: pending.host,
+        token,
+        owner: pending.owner,
+        repo: pending.repo,
+        index: event.issueNumber,
+      })
+      const last = comments[comments.length - 1]
+      const body = (last?.body ?? '').trim()
+      if (body) {
+        try {
+          const parsed = JSON.parse(body) as { pr?: unknown }
+          if (typeof parsed?.pr === 'string')
+            oldPr = parsed.pr
+        }
+        catch {
+          // last comment isn't JSON — treat as no prior pr.
+        }
+      }
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.add({
+        level: 'warn',
+        source: 'webhook',
+        message: '读取 state JSON 失败（opened）',
+        details: message,
+      })
+    }
+
+    const merge: Record<string, unknown> = {
+      pr: event.pr,
+      implementStatus: 'done',
+    }
+    const isReplacement = oldPr.length > 0 && oldPr !== event.pr
+    if (isReplacement) {
+      merge.reviewSessionId = ''
+      logger.add({
+        level: 'info',
+        source: 'webhook',
+        message: `PR 已被替换 #${oldPr} → #${event.pr}, 重置 reviewSessionId`,
+        details: `issue=#${event.issueNumber}`,
+      })
+    }
+
     try {
       await mergeStateJsonComment({
         host: pending.host,
@@ -273,10 +328,7 @@ class WebhookCoordinator {
         repo: pending.repo,
         token,
         issueNumber: event.issueNumber,
-        extra: {
-          pr: event.pr,
-          implementStatus: 'done',
-        },
+        extra: merge,
       })
     }
     catch (err) {
@@ -342,7 +394,8 @@ class WebhookCoordinator {
       logger.add({
         level: 'info',
         source: 'webhook',
-        message: `synchronize 忽略：autoReview 关闭 #${event.issueNumber}`,
+        message: `未启用审查或未审过 synchronize #${event.issueNumber}`,
+        details: 'autoReview=off',
       })
       return
     }
@@ -382,7 +435,8 @@ class WebhookCoordinator {
       logger.add({
         level: 'info',
         source: 'webhook',
-        message: `synchronize 忽略：未找到 reviewSessionId #${event.issueNumber}`,
+        message: `未启用审查或未审过 synchronize #${event.issueNumber}`,
+        details: '缺少 reviewSessionId',
       })
       return
     }
@@ -390,17 +444,76 @@ class WebhookCoordinator {
   }
 
   /**
-   * `closed`: delete the gitea webhook and forget the pending entry. We
-   * intentionally don't touch the issue's column — closing a PR doesn't
-   * automatically advance the kanban.
+   * `closed`: log only. The webhook stays alive on gitea so a later
+   * `reopened` or a "delete + re-push" cycle (which fires `deleted` followed
+   * by a fresh `opened`) keeps flowing through the same registration.
+   * Cleanup of the webhook is deferred to the future "完成" column trigger.
    */
-  private async handlePrClosed(event: WebhookEvent, pending: PendingHook, token: string): Promise<void> {
+  private async handlePrClosed(event: WebhookEvent, _pending: PendingHook, _token: string): Promise<void> {
     logger.add({
       level: 'info',
       source: 'webhook',
-      message: `PR #${event.pr} closed → 删除 webhook`,
-      details: `issue=#${event.issueNumber} hookId=${pending.hookId}`,
+      message: `PR #${event.pr} closed (保留 webhook 以备 reopen/重建)`,
+      details: `issue=#${event.issueNumber}`,
     })
+  }
+
+  /**
+   * `deleted`: the user hard-deleted the PR on gitea. Clear `pr` and
+   * `reviewSessionId` from the state JSON (using empty strings so the loader
+   * treats them as unset) and refresh the kanban. The webhook stays alive
+   * for the next push.
+   */
+  private async handlePrDeleted(event: WebhookEvent, pending: PendingHook, token: string): Promise<void> {
+    logger.add({
+      level: 'info',
+      source: 'webhook',
+      message: `PR #${event.pr} deleted, 清空 state JSON 中的 pr / reviewSessionId`,
+      details: `issue=#${event.issueNumber}`,
+    })
+    try {
+      await mergeStateJsonComment({
+        host: pending.host,
+        owner: pending.owner,
+        repo: pending.repo,
+        token,
+        issueNumber: event.issueNumber,
+        extra: { pr: '', reviewSessionId: '' },
+      })
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.add({
+        level: 'warn',
+        source: 'webhook',
+        message: '清空 state JSON 失败（deleted）',
+        details: message,
+      })
+    }
+    if (this.activePanel) {
+      try {
+        await this.activePanel.loadAndPush()
+      }
+      catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        logger.add({
+          level: 'warn',
+          source: 'webhook',
+          message: 'panel.loadAndPush 失败（deleted）',
+          details: message,
+        })
+      }
+    }
+  }
+
+  /**
+   * Kept for future "完成" column trigger: deletes the gitea webhook and
+   * removes the pending entry. Currently unused — closed PRs no longer
+   * trigger cleanup; the user clears them manually via gitea or via a future
+   * column transition.
+   */
+  // kept for future "完成" column trigger
+  private async deleteWebhookAndForget(issueNumber: number, pending: PendingHook, token: string): Promise<void> {
     try {
       await deleteWebhook({
         host: pending.host,
@@ -419,7 +532,7 @@ class WebhookCoordinator {
         details: message,
       })
     }
-    await this.removePending(event.issueNumber)
+    await this.removePending(issueNumber)
   }
 
   /**
