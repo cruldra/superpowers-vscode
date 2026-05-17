@@ -1,6 +1,7 @@
 import type {
   ExtensionContext,
   Terminal,
+  TerminalEditorLocationOptions,
   WebviewPanel,
 } from 'vscode'
 import { createHash, randomBytes } from 'node:crypto'
@@ -64,6 +65,15 @@ export class KanbanWebviewPanel {
    */
   private readonly terminals = new Map<string, Terminal>()
 
+  /**
+   * ViewColumn of the editor group where we placed our first terminal. Set
+   * after the first `createTerminal` + `terminal.show()`. Reused for every
+   * subsequent terminal so they stack as tabs in the same group instead of
+   * splitting the editor area into ever-more columns. Cleared when no
+   * terminals remain.
+   */
+  private terminalGroupColumn?: ViewColumn
+
   /** Lazy-spawned HTTP server that receives gitea pull_request webhooks. */
   private webhookServer?: WebhookServer
   /** issueNumber → bookkeeping for in-flight webhook registrations. Mirrored
@@ -106,6 +116,8 @@ export class KanbanWebviewPanel {
             break
           }
         }
+        if (this.terminals.size === 0)
+          this.terminalGroupColumn = undefined
       }),
     )
   }
@@ -195,6 +207,21 @@ export class KanbanWebviewPanel {
   }
 
 
+  private resolveTerminalLocation(preserveFocus: boolean): TerminalEditorLocationOptions {
+    return {
+      viewColumn: this.terminalGroupColumn ?? ViewColumn.Beside,
+      preserveFocus,
+    }
+  }
+
+  private captureTerminalGroupColumn(): void {
+    if (this.terminalGroupColumn !== undefined)
+      return
+    const col = window.tabGroups.activeTabGroup?.viewColumn
+    if (col !== undefined)
+      this.terminalGroupColumn = col
+  }
+
   private handleResumeSession(sessionId: string, profilePath?: string, relCwd?: string, issueNumber?: number): void {
     const existing = this.terminals.get(sessionId)
     if (existing) {
@@ -225,11 +252,12 @@ export class KanbanWebviewPanel {
     const terminal = window.createTerminal({
       name: `Claude · ${sessionId.slice(0, 8)}`,
       cwd: effectiveCwd,
-      location: { viewColumn: ViewColumn.Beside, preserveFocus: false },
+      location: this.resolveTerminalLocation(false),
       ...(issueNumber !== undefined ? { color: issueTerminalColor(issueNumber) } : {}),
     })
     this.terminals.set(sessionId, terminal)
-    terminal.show()
+    terminal.show(false)
+    this.captureTerminalGroupColumn()
     const cmd = `claude --dangerously-skip-permissions --settings '${effectiveProfilePath}' --resume ${sessionId}`
     terminal.sendText(cmd)
   }
@@ -658,10 +686,11 @@ export class KanbanWebviewPanel {
     const terminal = window.createTerminal({
       name: `Claude · 实施 #${issueNumber}`,
       cwd: worktreePath,
-      location: { viewColumn: ViewColumn.Beside, preserveFocus: false },
+      location: this.resolveTerminalLocation(false),
       color: issueTerminalColor(issueNumber),
     })
-    terminal.show()
+    terminal.show(false)
+    this.captureTerminalGroupColumn()
     const cmd = `claude --dangerously-skip-permissions --settings '${effectiveProfilePath}' '${prompt}'`
     terminal.sendText(cmd)
     logger.add({
