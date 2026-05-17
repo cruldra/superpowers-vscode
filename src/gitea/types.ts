@@ -34,6 +34,8 @@ export interface Issue {
   branch?: string
   /** Workspace-relative path to the implementation worktree. */
   worktreePath?: string
+  /** Whether the worktree path still exists on disk; computed by the loader. */
+  worktreeExists?: boolean
   /** Lifecycle of the implementation flow. */
   implementStatus?: 'running' | 'done' | 'failed'
   /** Session id of the implementation conversation (separate from

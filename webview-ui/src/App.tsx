@@ -32,6 +32,8 @@ export function App() {
     loadSessionFiles,
     implement,
     openPr,
+    openWorktree,
+    deleteWorktree,
     logs,
     clearLogs,
   } = useIssues()
@@ -219,6 +221,8 @@ export function App() {
                 onLoadFiles={loadSessionFiles}
                 onImplement={implement}
                 onOpenPr={openPr}
+                onOpenWorktree={openWorktree}
+                onDeleteWorktree={deleteWorktree}
                 onOpenLogs={() => setShowLogs(true)}
               />
             </div>

@@ -81,5 +81,7 @@ export type WebviewToExtension =
   | { type: 'profiles/list' }
   | { type: 'issue/implement', issueNumber: number, planFile: string, profilePath?: string, sessionId?: string }
   | { type: 'pr/open', pr: string }
+  | { type: 'worktree/open', path: string }
+  | { type: 'worktree/delete', issueNumber: number, path: string }
   | { type: 'logs/fetch' }
   | { type: 'logs/clear' }

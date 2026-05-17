@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { ExternalLink, Play, Terminal } from 'lucide-react'
+import { ExternalLink, Play, Terminal, Trash2 } from 'lucide-react'
 import type { Issue, IssueColumn } from '../types'
 import { COLUMN_LABELS, COLUMN_ORDER } from '../types'
 import type { PropertyGroup } from './property-grid'
@@ -21,6 +21,10 @@ interface IssueDetailPanelProps {
   onImplement: (issueNumber: number, planFile: string, profilePath?: string, sessionId?: string) => void
   /** Open the gitea PR page in the browser. */
   onOpenPr: (pr: string) => void
+  /** Open the workspace-relative worktree path in a new VS Code window. */
+  onOpenWorktree: (path: string) => void
+  /** Delete the worktree (`git worktree remove`) and clear it from state. */
+  onDeleteWorktree: (issueNumber: number, path: string) => void
   /** Open the in-webview log modal. */
   onOpenLogs: () => void
 }
@@ -42,6 +46,8 @@ export function IssueDetailPanel({
   onLoadFiles,
   onImplement,
   onOpenPr,
+  onOpenWorktree,
+  onDeleteWorktree,
   onOpenLogs,
 }: IssueDetailPanelProps) {
   const schema = useMemo<PropertyGroup[]>(
@@ -182,17 +188,28 @@ export function IssueDetailPanel({
             readOnly: true,
             description: '实施流程创建的分支名',
           },
-          {
-            key: 'worktreePath',
-            label: '工作树',
-            type: 'string',
-            readOnly: true,
-            description: '实施流程创建的 git worktree 路径（workspace 相对）',
-          },
+          issue?.worktreeExists
+            ? {
+                key: 'worktreePath',
+                label: '工作树',
+                type: 'file-link',
+                description: '点击文件名在新 VS Code 窗口打开；点击垃圾桶删除 worktree',
+                onOpen: (p: string) => onOpenWorktree(p),
+                onSecondaryAction: () => issue && onDeleteWorktree(issue.number, issue.worktreePath ?? ''),
+                secondaryActionIcon: <Trash2 className="size-3.5" />,
+                secondaryActionTitle: '删除 worktree',
+              }
+            : {
+                key: 'worktreePath',
+                label: '工作树',
+                type: 'string',
+                readOnly: true,
+                description: '实施流程创建的 git worktree 路径（workspace 相对）',
+              },
         ],
       },
     ],
-    [onResumeSession, onResumeReviewSession, onOpenFile, onLoadFiles, onImplement, onOpenPr, onOpenLogs, issue],
+    [onResumeSession, onResumeReviewSession, onOpenFile, onLoadFiles, onImplement, onOpenPr, onOpenWorktree, onDeleteWorktree, onOpenLogs, issue],
   )
 
   if (!issue) {

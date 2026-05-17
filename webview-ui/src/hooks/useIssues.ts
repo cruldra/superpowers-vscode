@@ -75,6 +75,8 @@ export interface UseIssuesResult {
   loadSessionFiles: (sessionId: string | undefined, issueNumber: number) => void
   implement: (issueNumber: number, planFile: string, profilePath?: string, sessionId?: string) => void
   openPr: (pr: string) => void
+  openWorktree: (path: string) => void
+  deleteWorktree: (issueNumber: number, path: string) => void
   logs: LogEntry[]
   fetchLogs: () => void
   clearLogs: () => void
@@ -175,6 +177,14 @@ export function useIssues(): UseIssuesResult {
     postMessage({ type: 'pr/open', pr })
   }, [])
 
+  const openWorktree = useCallback((path: string): void => {
+    postMessage({ type: 'worktree/open', path })
+  }, [])
+
+  const deleteWorktree = useCallback((issueNumber: number, path: string): void => {
+    postMessage({ type: 'worktree/delete', issueNumber, path })
+  }, [])
+
   const fetchLogs = useCallback((): void => {
     postMessage({ type: 'logs/fetch' })
   }, [])
@@ -259,5 +269,5 @@ export function useIssues(): UseIssuesResult {
     return cleanup
   }, [])
 
-  return { state, settings, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, focusSession, openFile, loadSessionFiles, implement, openPr, logs, fetchLogs, clearLogs }
+  return { state, settings, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, focusSession, openFile, loadSessionFiles, implement, openPr, openWorktree, deleteWorktree, logs, fetchLogs, clearLogs }
 }

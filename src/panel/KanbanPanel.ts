@@ -190,6 +190,14 @@ export class KanbanWebviewPanel {
       void this.handleOpenPr(msg.pr)
       return
     }
+    if (msg.type === 'worktree/open') {
+      void this.handleOpenWorktree(msg.path)
+      return
+    }
+    if (msg.type === 'worktree/delete') {
+      void this.handleDeleteWorktree(msg.issueNumber, msg.path)
+      return
+    }
     if (msg.type === 'logs/fetch') {
       this.postMessage({ type: 'logs/snapshot', entries: logger.snapshot() })
       return
@@ -806,6 +814,100 @@ export class KanbanWebviewPanel {
     void env.openExternal(Uri.parse(url))
   }
 
+
+  /**
+   * Open the worktree directory in a **new** VS Code window. The Boolean
+   * third arg to `vscode.openFolder` is "forceNewWindow"; we always force
+   * a new window so the user keeps the kanban window open in parallel.
+   */
+  private async handleOpenWorktree(relPath: string): Promise<void> {
+    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    if (!workspaceRoot) {
+      void window.showErrorMessage('请先打开一个工作区文件夹')
+      return
+    }
+    const abs = path.isAbsolute(relPath) ? relPath : path.join(workspaceRoot, relPath)
+    try {
+      await commands.executeCommand('vscode.openFolder', Uri.file(abs), true)
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      void window.showErrorMessage(`打开 worktree 失败: ${message}`)
+    }
+  }
+
+  /**
+   * Confirm + run `git worktree remove <abs>` (no --force), then clear
+   * `worktreePath`/`branch` from the issue's state JSON and refresh the
+   * board. If `git` rejects due to uncommitted changes we surface stderr
+   * verbatim — the user can resolve manually and re-try.
+   */
+  private async handleDeleteWorktree(issueNumber: number, relPath: string): Promise<void> {
+    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    if (!workspaceRoot) {
+      void window.showErrorMessage('请先打开一个工作区文件夹')
+      return
+    }
+    const choice = await window.showWarningMessage(
+      `确认删除 worktree ${relPath}?`,
+      { modal: true },
+      '删除',
+    )
+    if (choice !== '删除')
+      return
+
+    const abs = path.isAbsolute(relPath) ? relPath : path.join(workspaceRoot, relPath)
+    try {
+      await new Promise<void>((resolve, reject) => {
+        execFile(
+          'git',
+          ['-C', workspaceRoot, 'worktree', 'remove', abs],
+          { timeout: 30_000 },
+          (err, _stdout, stderr) => {
+            if (err) {
+              const detail = (stderr ?? '').trim() || err.message
+              reject(new Error(detail))
+              return
+            }
+            resolve()
+          },
+        )
+      })
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      void window.showErrorMessage(`git worktree remove 失败: ${message}`)
+      return
+    }
+
+    // Best-effort: clear worktreePath + branch from the state JSON so the
+    // detail panel reflects reality on the next refresh. Failures here are
+    // non-fatal (worktree is already gone on disk).
+    try {
+      const remote = await detectRepo(workspaceRoot)
+      if (remote) {
+        const token = await getToken(this.context, remote.host)
+        if (token) {
+          await mergeStateJsonComment({
+            host: remote.host,
+            owner: remote.owner,
+            repo: remote.repo,
+            token,
+            issueNumber,
+            extra: { worktreePath: '', branch: '' },
+          })
+        }
+      }
+    }
+    catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('[superpowers] failed to clear worktree state JSON:', err)
+    }
+
+    void this.loadAndPush()
+    void window.showInformationMessage(`已删除 worktree #${issueNumber}`)
+  }
+
   /** Reloads issues from gitea and pushes to the webview. Public so the
    * always-on webhook coordinator can refresh us when a PR event arrives. */
   async loadAndPush(): Promise<void> {
@@ -849,7 +951,7 @@ export class KanbanWebviewPanel {
     }
 
     try {
-      const issues = await loadIssues({ host, token, owner, repo })
+      const issues = await loadIssues({ host, token, owner, repo, workspaceRoot })
       this.postMessage({ type: 'issues/update', issues })
     }
     catch (err) {

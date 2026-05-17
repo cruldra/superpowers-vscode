@@ -17,6 +17,8 @@
  *      still display the issue in the computed column.
  */
 
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 import type { GiteaComment, GiteaIssue } from './api'
 import type { Issue, IssueColumn } from './types'
 import {
@@ -179,8 +181,10 @@ export async function loadIssues(opts: {
   token: string
   owner: string
   repo: string
+  /** Absolute workspace root used to resolve `worktreeExists` against disk. */
+  workspaceRoot?: string
 }): Promise<Issue[]> {
-  const { host, token, owner, repo } = opts
+  const { host, token, owner, repo, workspaceRoot } = opts
 
   // `/user` validates the token and gives us the login. The repo-wide
   // comments firehose doesn't need the login, so we kick it off in parallel.
@@ -240,6 +244,19 @@ export async function loadIssues(opts: {
       }
     }
 
+    // Synchronously stat the worktree path so the UI can render it as a
+    // live link vs. plain text. A single existsSync per issue is cheap and
+    // avoids racing with the rest of the async pipeline.
+    let worktreeExists: boolean | undefined
+    if (worktreePath && workspaceRoot) {
+      try {
+        worktreeExists = fs.existsSync(path.join(workspaceRoot, worktreePath))
+      }
+      catch {
+        worktreeExists = false
+      }
+    }
+
     resolved.push({
       id,
       number: issue.number,
@@ -252,6 +269,7 @@ export async function loadIssues(opts: {
       ...(pr ? { pr } : {}),
       ...(branch ? { branch } : {}),
       ...(worktreePath ? { worktreePath } : {}),
+      ...(worktreeExists !== undefined ? { worktreeExists } : {}),
       ...(implementStatus ? { implementStatus } : {}),
       ...(implementSessionId ? { implementSessionId } : {}),
       ...(reviewSessionId ? { reviewSessionId } : {}),
