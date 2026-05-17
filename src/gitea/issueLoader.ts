@@ -23,6 +23,7 @@ import type { GiteaComment, GiteaIssue } from './api'
 import type { Issue, IssueColumn } from './types'
 import {
   getCurrentUser,
+  getDependencies,
   listAllRepoComments,
   listIssuesByFilter,
   postIssueComment,
@@ -203,8 +204,26 @@ export async function loadIssues(opts: {
   const merged = mergeIssues(assigned, created)
   const buckets = groupCommentsByIssue(allComments)
 
+  // Concurrently fetch each issue's dependencies. Per product rule we keep
+  // at most one prerequisite — the first entry in the array (Gitea orders by
+  // creation time). Failures (412 dependencies disabled, network, etc.) are
+  // silently swallowed so one bad issue can't take down the whole loader.
+  const prerequisites = await Promise.all(
+    merged.map(async (issue) => {
+      try {
+        const deps = await getDependencies({ host, token, owner, repo, index: issue.number })
+        return deps.length > 0 ? deps[0].number : undefined
+      }
+      catch {
+        return undefined
+      }
+    }),
+  )
+
   const resolved: Issue[] = []
-  for (const issue of merged) {
+  for (let i = 0; i < merged.length; i++) {
+    const issue = merged[i]
+    const prerequisite = prerequisites[i]
     const id = `${owner}/${repo}#${issue.number}`
     const bucket = buckets.get(issue.number) ?? []
     const {
@@ -273,6 +292,7 @@ export async function loadIssues(opts: {
       ...(implementStatus ? { implementStatus } : {}),
       ...(implementSessionId ? { implementSessionId } : {}),
       ...(reviewSessionId ? { reviewSessionId } : {}),
+      ...(prerequisite !== undefined ? { prerequisite } : {}),
       htmlUrl: issue.html_url,
     })
   }

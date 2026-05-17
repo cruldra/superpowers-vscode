@@ -246,6 +246,73 @@ export async function getPullRequest(opts: {
   }
 }
 
+export async function getDependencies(opts: {
+  host: string
+  token: string
+  owner: string
+  repo: string
+  index: number
+}): Promise<Array<{ number: number }>> {
+  const res = await fetch(
+    `${baseUrl(opts.host)}/repos/${opts.owner}/${opts.repo}/issues/${opts.index}/dependencies`,
+    { headers: authHeaders(opts.token) },
+  )
+  await ensureOk(res)
+  const data = await res.json() as Array<{ number?: unknown }>
+  if (!Array.isArray(data))
+    return []
+  return data
+    .map((it) => {
+      const n = typeof it?.number === 'number' ? it.number : Number(it?.number)
+      return Number.isFinite(n) ? { number: n } : null
+    })
+    .filter((it): it is { number: number } => it !== null)
+}
+
+export async function addDependency(opts: {
+  host: string
+  token: string
+  owner: string
+  repo: string
+  index: number
+  dependencyIndex: number
+}): Promise<void> {
+  const res = await fetch(
+    `${baseUrl(opts.host)}/repos/${opts.owner}/${opts.repo}/issues/${opts.index}/dependencies`,
+    {
+      method: 'POST',
+      headers: {
+        ...authHeaders(opts.token),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ index: opts.dependencyIndex }),
+    },
+  )
+  await ensureOk(res)
+}
+
+export async function removeDependency(opts: {
+  host: string
+  token: string
+  owner: string
+  repo: string
+  index: number
+  dependencyIndex: number
+}): Promise<void> {
+  const res = await fetch(
+    `${baseUrl(opts.host)}/repos/${opts.owner}/${opts.repo}/issues/${opts.index}/dependencies`,
+    {
+      method: 'DELETE',
+      headers: {
+        ...authHeaders(opts.token),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ index: opts.dependencyIndex }),
+    },
+  )
+  await ensureOk(res)
+}
+
 
 // no longer auto-invoked by the implement flow; kept for future manual ops
 export async function createWebhook(opts: {

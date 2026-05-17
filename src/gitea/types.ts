@@ -47,4 +47,6 @@ export interface Issue {
   reviewSessionId?: string
   /** Browser URL to the Gitea issue page (escape hatch button in the UI). */
   htmlUrl: string
+  /** 前置任务 issue number (Gitea dependencies 取第一个) */
+  prerequisite?: number
 }

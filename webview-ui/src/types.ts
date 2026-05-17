@@ -35,6 +35,8 @@ export interface Issue {
   /** Backend-agnostic review session id (v1 stores a codex thread id). */
   reviewSessionId?: string
   htmlUrl: string
+  /** 前置任务 issue number (Gitea dependencies 取第一个) */
+  prerequisite?: number
 }
 
 export const COLUMN_ORDER: IssueColumn[] = ['todo', 'in-progress', 'review', 'done']
