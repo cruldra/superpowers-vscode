@@ -38,6 +38,57 @@ function isColumnId(id: string): id is IssueColumn {
   return (COLUMN_ORDER as string[]).includes(id)
 }
 
+/**
+ * Organize todo-column issues into a forest ordered by prerequisite chains.
+ *
+ * Roots are issues whose `prerequisite` is empty or points outside the todo
+ * column (cross-column pointers don't form parent/child here — they only
+ * matter for locking in a later step). Children are issues whose
+ * `prerequisite` points to another issue in the same todo column.
+ *
+ * Order: pre-order DFS. Root relative order follows the input array;
+ * sibling order under each parent also follows input order. A visited Set
+ * guards against pathological cycles (one issue can only have one parent,
+ * so this is a forest in normal cases).
+ */
+function buildTodoTree(todoIssues: Issue[]): Array<{ issue: Issue, depth: number }> {
+  const byNumber = new Map<number, Issue>()
+  for (const issue of todoIssues)
+    byNumber.set(issue.number, issue)
+
+  // Group children by parent number, preserving input order.
+  const childrenOf = new Map<number, Issue[]>()
+  const roots: Issue[] = []
+  for (const issue of todoIssues) {
+    const parentNum = issue.prerequisite
+    if (parentNum != null && byNumber.has(parentNum)) {
+      const arr = childrenOf.get(parentNum) ?? []
+      arr.push(issue)
+      childrenOf.set(parentNum, arr)
+    }
+    else {
+      roots.push(issue)
+    }
+  }
+
+  const out: Array<{ issue: Issue, depth: number }> = []
+  const visited = new Set<string>()
+  function visit(issue: Issue, depth: number): void {
+    if (visited.has(issue.id))
+      return
+    visited.add(issue.id)
+    out.push({ issue, depth })
+    const kids = childrenOf.get(issue.number)
+    if (!kids)
+      return
+    for (const child of kids)
+      visit(child, depth + 1)
+  }
+  for (const root of roots)
+    visit(root, 0)
+  return out
+}
+
 export function KanbanBoard({
   issues,
   onIssuesChange,
@@ -142,7 +193,14 @@ export function KanbanBoard({
       <div className="grid h-full grid-cols-4 gap-3 p-3">
         {COLUMN_ORDER.map((column) => {
           const columnIssues = issuesByColumn[column]
-          const ids = columnIssues.map(i => i.id)
+          // Todo column renders as a tree (prerequisite chains -> indented
+          // children). Other columns stay flat. Keep `ids` aligned with the
+          // visual order so dnd-kit keyboard nav / sortable indices match.
+          const ordered: Array<{ issue: Issue, depth: number }>
+            = column === 'todo'
+              ? buildTodoTree(columnIssues)
+              : columnIssues.map(issue => ({ issue, depth: 0 }))
+          const ids = ordered.map(o => o.issue.id)
           return (
             <KanbanColumn
               key={column}
@@ -151,7 +209,7 @@ export function KanbanBoard({
               onCreate={column === 'todo' ? onCreateIssue : undefined}
             >
               <SortableContext items={ids} strategy={verticalListSortingStrategy}>
-                {columnIssues.map(issue => (
+                {ordered.map(({ issue, depth }) => (
                   <IssueCard
                     key={issue.id}
                     ref={(node) => {
@@ -161,6 +219,7 @@ export function KanbanBoard({
                         cardRefs.current.delete(issue.id)
                     }}
                     issue={issue}
+                    depth={depth}
                     selected={issue.id === selectedId}
                     onSelect={onSelectIssue}
                   />

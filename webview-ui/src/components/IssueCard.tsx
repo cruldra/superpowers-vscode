@@ -10,10 +10,13 @@ interface IssueCardProps {
   issue: Issue
   selected?: boolean
   onSelect?: (id: string) => void
+  /** Visual nesting level for prerequisite-chain rendering in the todo column.
+   * Each level adds 16px of left margin. Defaults to 0 (flat). */
+  depth?: number
 }
 
 export const IssueCard = forwardRef<HTMLDivElement, IssueCardProps>(
-  ({ issue, selected, onSelect }, ref) => {
+  ({ issue, selected, onSelect, depth = 0 }, ref) => {
     const { attributes, listeners, setNodeRef, transform, transition, isDragging }
       = useSortable({ id: issue.id, data: { column: issue.column } })
 
@@ -21,6 +24,7 @@ export const IssueCard = forwardRef<HTMLDivElement, IssueCardProps>(
       transform: CSS.Transform.toString(transform),
       transition,
       opacity: isDragging ? 0.4 : 1,
+      marginLeft: depth * 16,
     }
 
     // Merge dnd-kit's ref with the forwarded ref so the parent can scrollIntoView.
