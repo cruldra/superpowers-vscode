@@ -764,7 +764,7 @@ class WebhookCoordinator {
     }
 
     const injected = this.activePanel
-      ? this.activePanel.injectIntoImplTerminal(issueNumber, result.text)
+      ? this.activePanel.injectIntoImplTerminal(issueNumber, result.text, !resumeFrom)
       : false
     if (!injected) {
       logger.add({

@@ -304,7 +304,7 @@ export class KanbanWebviewPanel {
    * happens — e.g. after a window reload, the impl terminal might still be
    * present in `window.terminals` but absent from `this.implTerminals`.
    */
-  injectIntoImplTerminal(issueNumber: number, text: string): boolean {
+  injectIntoImplTerminal(issueNumber: number, text: string, isFirstReview: boolean): boolean {
     let terminal = this.implTerminals.get(issueNumber)
     if (!terminal) {
       // Match by prefix — shell OSC title escapes can append a git branch
@@ -324,7 +324,11 @@ export class KanbanWebviewPanel {
     // 才会被识别为 Enter（提交消息）。VS Code 的 sendText(..., true)
     // 在 Linux 上追加的是 LF，所以这里手动末尾接一个 \r、addNewLine
     // 设 false。
-    const payload = `\n[审查反馈]\n${text}\n如果确认没问题就合并到main分支但暂时不要清理工作区\r`
+    //
+    // 「合并到 main」这句仅首次审查带——synchronize 触发的复审表示 cc
+    // 已经在迭代了，重复发会让它把未完工的改动合进 main。
+    const suffix = isFirstReview ? '\n如果确认没问题就合并到main分支但暂时不要清理工作区' : ''
+    const payload = `\n[审查反馈]\n${text}${suffix}\r`
     terminal.sendText(payload, false)
     return true
   }
