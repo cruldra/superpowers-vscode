@@ -255,8 +255,16 @@ export class KanbanWebviewPanel {
     // Open the terminal as an editor tab beside the kanban (not in the
     // bottom panel), so the user can see both side-by-side. `Beside` opens
     // in a new editor group when needed.
+    // Name reflects which of the three session roles this is:
+    //   relCwd present  → 实施 session (resumed inside the worktree)
+    //   relCwd absent   → 规划 / discussion session (workspace root)
+    // Fall back to the legacy id-suffixed name if we somehow lack issueNumber.
+    const sessionRole = relCwd ? '实施' : '规划'
+    const terminalName = issueNumber !== undefined
+      ? `issue-${issueNumber}-${sessionRole}`
+      : `Claude · ${sessionId.slice(0, 8)}`
     const terminal = window.createTerminal({
-      name: `Claude · ${sessionId.slice(0, 8)}`,
+      name: terminalName,
       cwd: effectiveCwd,
       location: this.resolveTerminalLocation(false),
       ...(issueNumber !== undefined ? { color: issueTerminalColor(issueNumber) } : {}),
@@ -286,8 +294,8 @@ export class KanbanWebviewPanel {
     let terminal = this.implTerminals.get(issueNumber)
     if (!terminal) {
       // Match by prefix — shell OSC title escapes can append a git branch
-      // suffix to terminal.name (e.g. "Claude · 实施 #48 5f56026c").
-      const wantedPrefix = `Claude · 实施 #${issueNumber}`
+      // suffix to terminal.name (e.g. "issue-48-实施 5f56026c").
+      const wantedPrefix = `issue-${issueNumber}-实施`
       for (const t of window.terminals) {
         if (t.name.startsWith(wantedPrefix)) {
           terminal = t
@@ -305,7 +313,7 @@ export class KanbanWebviewPanel {
   private handleResumeReviewSession(sessionId: string, issueNumber: number): void {
     const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
     const terminal = window.createTerminal({
-      name: `Codex · 审查 #${issueNumber}`,
+      name: `issue-${issueNumber}-审查`,
       cwd: workspaceRoot,
       location: this.resolveTerminalLocation(false),
       color: issueTerminalColor(issueNumber),
@@ -686,7 +694,7 @@ export class KanbanWebviewPanel {
     }
 
     const terminal = window.createTerminal({
-      name: `Claude · 实施 #${issueNumber}`,
+      name: `issue-${issueNumber}-实施`,
       cwd: worktreePath,
       location: this.resolveTerminalLocation(false),
       color: issueTerminalColor(issueNumber),
