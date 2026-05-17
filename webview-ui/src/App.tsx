@@ -220,6 +220,7 @@ export function App() {
             <div className="h-[40vh] shrink-0">
               <IssueDetailPanel
                 issue={selectedIssue}
+                allIssues={state.issues}
                 onOpenInBrowser={openUrl}
                 onResumeSession={resumeSession}
                 onResumeReviewSession={resumeReviewSession}

@@ -2,11 +2,14 @@ import { useMemo } from 'react'
 import { ExternalLink, Play, Terminal, Trash2 } from 'lucide-react'
 import type { Issue, IssueColumn } from '../types'
 import { COLUMN_LABELS, COLUMN_ORDER } from '../types'
+import { isIssueLocked } from '../lib/dependencies'
 import type { PropertyGroup } from './property-grid'
 import { PropertyGrid } from './property-grid'
 
 interface IssueDetailPanelProps {
   issue: Issue | null
+  /** 当前所有 issues，用于解析前置依赖锁定态。 */
+  allIssues: Issue[]
   onOpenInBrowser: (url: string) => void
   onResumeSession: (sessionId: string, profilePath?: string, cwd?: string, issueNumber?: number) => void
   /** Open a new terminal that runs `codex resume <id>` for the auto-review
@@ -39,6 +42,7 @@ interface IssueDetailPanelProps {
  */
 export function IssueDetailPanel({
   issue,
+  allIssues,
   onOpenInBrowser,
   onResumeSession,
   onResumeReviewSession,
@@ -50,6 +54,15 @@ export function IssueDetailPanel({
   onDeleteWorktree,
   onOpenLogs,
 }: IssueDetailPanelProps) {
+  // 前置工单未完成 → 锁定。锁定时禁用"实施"等启动新工作的动作按钮，
+  // 但已存在的会话恢复链接保持可用（属于用户已操作过的入口）。
+  const { locked, prerequisiteNumber } = issue
+    ? isIssueLocked(issue, allIssues)
+    : { locked: false, prerequisiteNumber: undefined as number | undefined }
+  const lockTitle = locked && prerequisiteNumber != null
+    ? `等待 #${prerequisiteNumber} 完成`
+    : undefined
+
   const schema = useMemo<PropertyGroup[]>(
     () => [
       {
@@ -174,16 +187,18 @@ export function IssueDetailPanel({
             secondaryActionIcon: issue?.planFile
               ? <Play className="size-3.5" />
               : undefined,
-            secondaryActionTitle: '实施此计划',
+            secondaryActionTitle: locked ? lockTitle : '实施此计划',
             // Disable while running or already done. The user can still click
             // when status === 'failed' or never been run. Re-clicking while
             // 'running' is blocked at the UI to avoid registering duplicate
             // webhooks. To retry after a perceived failure with status still
             // 'running', edit the state-JSON comment manually for now.
+            // 锁定态（前置工单未完成）同样禁止启动实施。
             secondaryDisabled:
               !issue?.planFile
               || issue?.implementStatus === 'running'
-              || issue?.implementStatus === 'done',
+              || issue?.implementStatus === 'done'
+              || locked,
             onSecondaryAction: () => {
               if (!issue?.planFile)
                 return
@@ -228,7 +243,7 @@ export function IssueDetailPanel({
         ],
       },
     ],
-    [onResumeSession, onResumeReviewSession, onOpenFile, onLoadFiles, onImplement, onOpenPr, onOpenWorktree, onDeleteWorktree, onOpenLogs, issue],
+    [onResumeSession, onResumeReviewSession, onOpenFile, onLoadFiles, onImplement, onOpenPr, onOpenWorktree, onDeleteWorktree, onOpenLogs, issue, locked, lockTitle],
   )
 
   if (!issue) {
@@ -262,6 +277,19 @@ export function IssueDetailPanel({
           </span>
           {' '}
           {issue.title}
+          {locked && prerequisiteNumber != null
+            ? (
+                <span
+                  className="ml-2 inline-flex items-center gap-1 rounded border border-[var(--vscode-panel-border)] px-1.5 py-0.5 align-middle text-[10px] font-normal text-[var(--vscode-disabledForeground)]"
+                  title={lockTitle}
+                >
+                  等待 #
+                  {prerequisiteNumber}
+                  {' '}
+                  完成
+                </span>
+              )
+            : null}
         </h3>
         <button
           type="button"

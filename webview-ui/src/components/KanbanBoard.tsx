@@ -16,6 +16,7 @@ import {
 } from '@dnd-kit/sortable'
 import { IssueCard } from './IssueCard'
 import { KanbanColumn } from './KanbanColumn'
+import { isIssueLocked } from '../lib/dependencies'
 import type { Issue, IssueColumn } from '../types'
 import { COLUMN_ORDER } from '../types'
 
@@ -335,21 +336,26 @@ export function KanbanBoard({
               onCreate={column === 'todo' ? onCreateIssue : undefined}
             >
               <SortableContext items={ids} strategy={verticalListSortingStrategy}>
-                {ordered.map(({ issue, depth }) => (
-                  <IssueCard
-                    key={issue.id}
-                    ref={(node) => {
-                      if (node)
-                        cardRefs.current.set(issue.id, node)
-                      else
-                        cardRefs.current.delete(issue.id)
-                    }}
-                    issue={issue}
-                    depth={depth}
-                    selected={issue.id === selectedId}
-                    onSelect={onSelectIssue}
-                  />
-                ))}
+                {ordered.map(({ issue, depth }) => {
+                  const { locked, prerequisiteNumber } = isIssueLocked(issue, issues)
+                  return (
+                    <IssueCard
+                      key={issue.id}
+                      ref={(node) => {
+                        if (node)
+                          cardRefs.current.set(issue.id, node)
+                        else
+                          cardRefs.current.delete(issue.id)
+                      }}
+                      issue={issue}
+                      depth={depth}
+                      selected={issue.id === selectedId}
+                      onSelect={onSelectIssue}
+                      locked={locked}
+                      lockedPrerequisite={prerequisiteNumber}
+                    />
+                  )
+                })}
               </SortableContext>
             </KanbanColumn>
           )
