@@ -13,6 +13,14 @@ interface PastedImageWithId extends PastedImage {
   id: string
 }
 
+interface PastedText {
+  id: string
+  text: string
+  lines: number
+}
+
+const PASTE_LINE_THRESHOLD = 5
+
 /** Mirror of the extension-side ClaudeProfile in src/cc/profiles.ts. */
 export interface ClaudeProfile {
   name: string
@@ -52,6 +60,7 @@ function readClipboardImage(file: File): Promise<PastedImage | null> {
 export function NewIssueModal({ open, onCancel, onSubmit, profiles, defaultProfileName }: Props) {
   const [value, setValue] = useState('')
   const [images, setImages] = useState<PastedImageWithId[]>([])
+  const [pastedTexts, setPastedTexts] = useState<PastedText[]>([])
   const [selectedProfile, setSelectedProfile] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -59,6 +68,7 @@ export function NewIssueModal({ open, onCancel, onSubmit, profiles, defaultProfi
     if (!open) {
       setValue('')
       setImages([])
+      setPastedTexts([])
       setSelectedProfile(null)
       return
     }
@@ -97,19 +107,37 @@ export function NewIssueModal({ open, onCancel, onSubmit, profiles, defaultProfi
           files.push(f)
       }
     }
-    if (files.length === 0)
+    if (files.length > 0) {
+      // Intercept so the file binary doesn't end up pasted as garbled text.
+      e.preventDefault()
+      const parsed = await Promise.all(files.map(readClipboardImage))
+      const ok = parsed.filter((p): p is PastedImage => p !== null)
+      if (ok.length === 0)
+        return
+      setImages(prev => [
+        ...prev,
+        ...ok.map(img => ({ ...img, id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}` })),
+      ])
       return
-    // Intercept so the file binary doesn't end up pasted as garbled text.
-    e.preventDefault()
-    const parsed = await Promise.all(files.map(readClipboardImage))
-    const ok = parsed.filter((p): p is PastedImage => p !== null)
-    if (ok.length === 0)
+    }
+    // No images — check for large text paste.
+    const text = e.clipboardData?.getData('text') ?? ''
+    if (!text)
       return
-    setImages(prev => [
-      ...prev,
-      ...ok.map(img => ({ ...img, id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}` })),
-    ])
+    const lines = text.split('\n').length
+    if (lines > PASTE_LINE_THRESHOLD) {
+      e.preventDefault()
+      setPastedTexts(prev => [...prev, {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        text,
+        lines,
+      }])
+    }
   }, [])
+
+  function removePastedText(id: string): void {
+    setPastedTexts(prev => prev.filter(p => p.id !== id))
+  }
 
   function removeImage(id: string): void {
     setImages(prev => prev.filter(i => i.id !== id))
@@ -119,7 +147,7 @@ export function NewIssueModal({ open, onCancel, onSubmit, profiles, defaultProfi
     return null
 
   const trimmed = value.trim()
-  const canSubmit = trimmed.length > 0 || images.length > 0
+  const canSubmit = trimmed.length > 0 || images.length > 0 || pastedTexts.length > 0
 
   function handleSubmit(): void {
     if (!canSubmit)
@@ -127,8 +155,11 @@ export function NewIssueModal({ open, onCancel, onSubmit, profiles, defaultProfi
     const profilePath = selectedProfile
       ? profiles.find(p => p.name === selectedProfile)?.path
       : undefined
+    let finalRequest = trimmed
+    for (const pt of pastedTexts)
+      finalRequest += `\n\n[粘贴片段，${pt.lines} 行]\n${pt.text}`
     onSubmit(
-      trimmed,
+      finalRequest,
       images.map(({ mediaType, base64, previewDataUrl }) => ({ mediaType, base64, previewDataUrl })),
       profilePath,
     )
@@ -170,6 +201,34 @@ export function NewIssueModal({ open, onCancel, onSubmit, profiles, defaultProfi
               ))}
             </div>
           </fieldset>
+        )}
+
+        {pastedTexts.length > 0 && (
+          <div className="mb-3 flex flex-wrap gap-2">
+            {pastedTexts.map(pt => (
+              <div
+                key={pt.id}
+                className="group relative inline-flex items-center gap-1 rounded border border-[var(--vscode-panel-border)] px-2 py-1 text-xs"
+                title={pt.text.slice(0, 200) + (pt.text.length > 200 ? '...' : '')}
+              >
+                <span className="opacity-70">
+                  [复制的
+                  {' '}
+                  {pt.lines}
+                  {' '}
+                  行文本]
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removePastedText(pt.id)}
+                  className="opacity-60 hover:opacity-100"
+                  aria-label="移除"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
         )}
 
         {images.length > 0 && (
