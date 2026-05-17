@@ -15,7 +15,7 @@ import type { ExtensionContext } from 'vscode'
 export const DEFAULT_CREATE_ISSUE_PROMPT = '/goal 我现在有这样一个需求 {userRequest}, 你用tea命令先帮我建好gitea工单, 具体细节等下再讨论, 以 <gitea_issue_no>编号</gitea_issue_no> 形式输出创建好的工单编号'
 
 export const DEFAULT_IMPLEMENT_PLAN_PROMPT
-  = '/goal 使用子代理全程绿灯实施 @{planFile}，发起 PR 时务必在 PR body 中包含 "Closes #{issueNumber}" 以便插件关联工单，完成后输出 <request_review>$pr_no</request_review>'
+  = '/goal 使用子代理全程绿灯实施 @{planFile}，发起 PR 时务必在 PR body 中包含 "Closes #{issueNumber}" 以便插件关联工单'
 
 export const DEFAULT_REVIEW_PROMPT = '先切换到当前目录，然后用 tea 拿到这个仓库的 #{prNumber} PR，再对其进行审查'
 
