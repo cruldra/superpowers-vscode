@@ -9,7 +9,7 @@ import { execFile } from 'node:child_process'
 import * as fs from 'node:fs'
 import { promises as fsp } from 'node:fs'
 import * as path from 'node:path'
-import { commands, env, TabInputTerminal, ThemeColor, Uri, ViewColumn, window, workspace } from 'vscode'
+import { commands, env, TabInputTerminal, ThemeColor, ThemeIcon, Uri, ViewColumn, window, workspace } from 'vscode'
 import type { ExtensionToWebview, WebviewToExtension } from './messages'
 import { issueTerminalColor, resolveIssueColor } from './issueColor'
 import { deleteToken, getToken, setToken } from '../auth/secrets'
@@ -389,6 +389,11 @@ export class KanbanWebviewPanel {
     const terminalName = issueNumber !== undefined
       ? `issue-${issueNumber}-${sessionRole}`
       : `Claude · ${sessionId.slice(0, 8)}`
+    // VS Code's default editor-tab icon (`>` arrow) does NOT honor the
+    // `color` option — only the panel-view icon does. Force a `circle-filled`
+    // codicon so the tab actually shows the issue color. Keep `color` too:
+    // harmless in the editor tab, still useful if the same terminal ever
+    // gets rendered in panel-view mode.
     const themeColor = issueNumber !== undefined
       ? await this.resolveIssueThemeColor(issueNumber)
       : undefined
@@ -396,7 +401,7 @@ export class KanbanWebviewPanel {
       name: terminalName,
       cwd: effectiveCwd,
       location: this.resolveTerminalLocation(false),
-      ...(themeColor ? { color: themeColor } : {}),
+      ...(themeColor ? { iconPath: new ThemeIcon('circle-filled', themeColor), color: themeColor } : {}),
     })
     this.terminals.set(sessionId, terminal)
     terminal.show(false)
@@ -479,11 +484,16 @@ export class KanbanWebviewPanel {
       void window.showErrorMessage(`审查会话无法恢复 #${issueNumber}：worktree 不存在 ${worktreeAbs}`)
       return
     }
+    // VS Code's default editor-tab icon (`>` arrow) does NOT honor the
+    // `color` option. Force a `circle-filled` codicon so the tab actually
+    // shows the issue color; keep `color` too for panel-view fallback.
+    const themeColor = await this.resolveIssueThemeColor(issueNumber)
     const terminal = window.createTerminal({
       name: `issue-${issueNumber}-审查`,
       cwd: worktreeAbs,
       location: this.resolveTerminalLocation(false),
-      color: await this.resolveIssueThemeColor(issueNumber),
+      iconPath: new ThemeIcon('circle-filled', themeColor),
+      color: themeColor,
     })
     this.reviewTerminals.set(sessionId, terminal)
     terminal.show(false)
@@ -875,11 +885,16 @@ export class KanbanWebviewPanel {
       return
     }
 
+    // VS Code's default editor-tab icon (`>` arrow) does NOT honor the
+    // `color` option. Force a `circle-filled` codicon so the tab actually
+    // shows the issue color; keep `color` too for panel-view fallback.
+    const themeColor = await this.resolveIssueThemeColor(issueNumber)
     const terminal = window.createTerminal({
       name: `issue-${issueNumber}-实施`,
       cwd: worktreePath,
       location: this.resolveTerminalLocation(false),
-      color: await this.resolveIssueThemeColor(issueNumber),
+      iconPath: new ThemeIcon('circle-filled', themeColor),
+      color: themeColor,
     })
     terminal.show(false)
     // Track for the auto-review flow: synchronize callbacks call
