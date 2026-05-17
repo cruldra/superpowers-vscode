@@ -345,7 +345,11 @@ class WebhookCoordinator {
         await this.handlePrOpened(resolved)
         break
       }
-      case 'synchronize': {
+      case 'synchronize':
+      case 'synchronized': {
+        // Gitea uses 'synchronized' (with d) per source; some examples
+        // floating around use 'synchronize' without the d. Accept both
+        // defensively.
         await this.handlePrSynchronize(resolved)
         break
       }
