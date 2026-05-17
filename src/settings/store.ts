@@ -16,7 +16,7 @@ export const DEFAULT_CREATE_ISSUE_PROMPT = '/goal 我现在有这样一个需求
 
 export const DEFAULT_IMPLEMENT_PLAN_PROMPT = '/goal 使用子代理全程绿灯实施 @{planFile}，完成后输出 <request_review>$pr_no</request_review>'
 
-export const DEFAULT_REVIEW_PROMPT = '用 tea 拿到这个仓库的 #{prNumber} PR，然后对其进行审查'
+export const DEFAULT_REVIEW_PROMPT = '先切换到当前目录，然后用 tea 拿到这个仓库的 #{prNumber} PR，再对其进行审查'
 
 export const DEFAULT_WEBHOOK_PORT = 17421
 
