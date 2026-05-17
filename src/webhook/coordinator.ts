@@ -15,6 +15,7 @@ import { getToken } from '../auth/secrets'
 import { getReviewPrompt } from '../cc/prompts'
 import { runReview } from '../cc/reviewFlow'
 import { deleteWebhook, listIssueComments } from '../gitea/api'
+import { detectRepo } from '../git/remote'
 import { mergeStateJsonComment } from '../gitea/stateJson'
 import { logger } from '../logging/logger'
 import { getSettings } from '../settings/store'
@@ -191,6 +192,46 @@ class WebhookCoordinator {
   }
 
   /**
+   * Resolve the repo context for an incoming webhook event. The pendingHooks
+   * map is only a convenience cache — the webhook URL path itself proves the
+   * issue belongs to us, so a cache miss is recoverable via detectRepo. Returns
+   * null only when there's no workspace, no origin remote, or no saved token.
+   */
+  private async resolveRepoContext(issueNumber: number): Promise<{
+    hookId: number | undefined
+    host: string
+    owner: string
+    repo: string
+    token: string
+  } | null> {
+    if (!this.ctx)
+      return null
+    const pending = this.pendingHooks.get(issueNumber)
+    if (pending) {
+      const tok = await getToken(this.ctx, pending.host)
+      if (!tok)
+        return null
+      return { hookId: pending.hookId, host: pending.host, owner: pending.owner, repo: pending.repo, token: tok }
+    }
+    // Recover via detectRepo + getToken when the in-memory map is empty.
+    const ws = workspace.workspaceFolders?.[0]?.uri.fsPath
+    if (!ws)
+      return null
+    const remote = await detectRepo(ws)
+    if (!remote)
+      return null
+    const tok = await getToken(this.ctx, remote.host)
+    if (!tok)
+      return null
+    logger.add({
+      level: 'info',
+      source: 'webhook',
+      message: `未在 pendingHooks 中找到 #${issueNumber}，已通过 detectRepo 恢复仓库上下文`,
+    })
+    return { hookId: undefined, host: remote.host, owner: remote.owner, repo: remote.repo, token: tok }
+  }
+
+  /**
    * Process a single `pull_request` webhook delivery: merge the PR number
    * into the issue's state-JSON comment, delete the gitea webhook, and (if
    * a panel is open) refresh the kanban so the new fields surface
@@ -211,43 +252,23 @@ class WebhookCoordinator {
       source: 'webhook',
       message: `收到 webhook 事件 action=${event.action} issue=#${event.issueNumber} pr=#${event.pr}`,
     })
-    const pending = this.pendingHooks.get(event.issueNumber)
-    if (!pending) {
-      logger.add({
-        level: 'warn',
-        source: 'webhook',
-        message: '收到未跟踪的 issue 回调',
-        details: `action=${event.action} issue=#${event.issueNumber} pr=#${event.pr}`,
-      })
-      return
-    }
-    const token = await getToken(this.ctx, pending.host)
-    if (!token) {
-      logger.add({
-        level: 'error',
-        source: 'webhook',
-        message: `缺少 token，无法处理 #${event.issueNumber}`,
-        details: `host=${pending.host}`,
-      })
-      return
-    }
 
     switch (event.action) {
       case 'opened':
       case 'reopened': {
-        await this.handlePrOpened(event, pending, token)
+        await this.handlePrOpened(event)
         break
       }
       case 'synchronize': {
-        await this.handlePrSynchronize(event, pending, token)
+        await this.handlePrSynchronize(event)
         break
       }
       case 'closed': {
-        await this.handlePrClosed(event, pending, token)
+        await this.handlePrClosed(event)
         break
       }
       case 'deleted': {
-        await this.handlePrDeleted(event, pending, token)
+        await this.handlePrDeleted(event)
         break
       }
       default: {
@@ -267,9 +288,19 @@ class WebhookCoordinator {
    * state JSON, refresh the kanban, toast. The webhook is *not* deleted
    * here — Phase A keeps it alive for `synchronize` / `closed`.
    */
-  private async handlePrOpened(event: WebhookEvent, pending: PendingHook, token: string): Promise<void> {
+  private async handlePrOpened(event: WebhookEvent): Promise<void> {
     if (!this.ctx)
       return
+    const ctx = await this.resolveRepoContext(event.issueNumber)
+    if (!ctx) {
+      logger.add({
+        level: 'error',
+        source: 'webhook',
+        message: `无法解析 #${event.issueNumber} 的仓库上下文，跳过`,
+        details: `action=${event.action} pr=#${event.pr}`,
+      })
+      return
+    }
     // Detect PR replacement: if the issue's latest state JSON already has a
     // non-empty `pr` that's different from this new event, the user has
     // hard-deleted the old PR and re-pushed. Reset reviewSessionId so the
@@ -277,10 +308,10 @@ class WebhookCoordinator {
     let oldPr = ''
     try {
       const comments = await listIssueComments({
-        host: pending.host,
-        token,
-        owner: pending.owner,
-        repo: pending.repo,
+        host: ctx.host,
+        token: ctx.token,
+        owner: ctx.owner,
+        repo: ctx.repo,
         index: event.issueNumber,
       })
       const last = comments[comments.length - 1]
@@ -323,10 +354,10 @@ class WebhookCoordinator {
 
     try {
       await mergeStateJsonComment({
-        host: pending.host,
-        owner: pending.owner,
-        repo: pending.repo,
-        token,
+        host: ctx.host,
+        owner: ctx.owner,
+        repo: ctx.repo,
+        token: ctx.token,
         issueNumber: event.issueNumber,
         extra: merge,
       })
@@ -378,7 +409,7 @@ class WebhookCoordinator {
     if (getSettings(this.ctx).autoReview) {
       // Fire-and-forget; the review can take minutes and we don't want to
       // block the webhook response or the panel refresh.
-      void this.triggerReview(event.issueNumber, event.pr, undefined, pending, token)
+      void this.triggerReview(event.issueNumber, event.pr, undefined, ctx)
     }
   }
 
@@ -387,7 +418,7 @@ class WebhookCoordinator {
    * resume the codex thread with a follow-up prompt. Skip entirely when
    * autoReview is off or no prior session exists.
    */
-  private async handlePrSynchronize(event: WebhookEvent, pending: PendingHook, token: string): Promise<void> {
+  private async handlePrSynchronize(event: WebhookEvent): Promise<void> {
     if (!this.ctx)
       return
     if (!getSettings(this.ctx).autoReview) {
@@ -399,13 +430,23 @@ class WebhookCoordinator {
       })
       return
     }
+    const ctx = await this.resolveRepoContext(event.issueNumber)
+    if (!ctx) {
+      logger.add({
+        level: 'error',
+        source: 'webhook',
+        message: `无法解析 #${event.issueNumber} 的仓库上下文，跳过`,
+        details: `action=${event.action} pr=#${event.pr}`,
+      })
+      return
+    }
     let reviewSessionId: string | undefined
     try {
       const comments = await listIssueComments({
-        host: pending.host,
-        token,
-        owner: pending.owner,
-        repo: pending.repo,
+        host: ctx.host,
+        token: ctx.token,
+        owner: ctx.owner,
+        repo: ctx.repo,
         index: event.issueNumber,
       })
       const last = comments[comments.length - 1]
@@ -440,7 +481,7 @@ class WebhookCoordinator {
       })
       return
     }
-    void this.triggerReview(event.issueNumber, event.pr, reviewSessionId, pending, token)
+    void this.triggerReview(event.issueNumber, event.pr, reviewSessionId, ctx)
   }
 
   /**
@@ -449,7 +490,7 @@ class WebhookCoordinator {
    * by a fresh `opened`) keeps flowing through the same registration.
    * Cleanup of the webhook is deferred to the future "完成" column trigger.
    */
-  private async handlePrClosed(event: WebhookEvent, _pending: PendingHook, _token: string): Promise<void> {
+  private async handlePrClosed(event: WebhookEvent): Promise<void> {
     logger.add({
       level: 'info',
       source: 'webhook',
@@ -464,19 +505,29 @@ class WebhookCoordinator {
    * treats them as unset) and refresh the kanban. The webhook stays alive
    * for the next push.
    */
-  private async handlePrDeleted(event: WebhookEvent, pending: PendingHook, token: string): Promise<void> {
+  private async handlePrDeleted(event: WebhookEvent): Promise<void> {
     logger.add({
       level: 'info',
       source: 'webhook',
       message: `PR #${event.pr} deleted, 清空 state JSON 中的 pr / reviewSessionId`,
       details: `issue=#${event.issueNumber}`,
     })
+    const ctx = await this.resolveRepoContext(event.issueNumber)
+    if (!ctx) {
+      logger.add({
+        level: 'error',
+        source: 'webhook',
+        message: `无法解析 #${event.issueNumber} 的仓库上下文，跳过`,
+        details: `action=${event.action} pr=#${event.pr}`,
+      })
+      return
+    }
     try {
       await mergeStateJsonComment({
-        host: pending.host,
-        owner: pending.owner,
-        repo: pending.repo,
-        token,
+        host: ctx.host,
+        owner: ctx.owner,
+        repo: ctx.repo,
+        token: ctx.token,
         issueNumber: event.issueNumber,
         extra: { pr: '', reviewSessionId: '' },
       })
@@ -545,8 +596,7 @@ class WebhookCoordinator {
     issueNumber: number,
     prNumber: string,
     resumeFrom: string | undefined,
-    pending: PendingHook,
-    token: string,
+    ctx: { host: string, owner: string, repo: string, token: string },
   ): Promise<void> {
     if (!this.ctx)
       return
@@ -595,10 +645,10 @@ class WebhookCoordinator {
     if (!resumeFrom && result.sessionId) {
       try {
         await mergeStateJsonComment({
-          host: pending.host,
-          owner: pending.owner,
-          repo: pending.repo,
-          token,
+          host: ctx.host,
+          owner: ctx.owner,
+          repo: ctx.repo,
+          token: ctx.token,
           issueNumber,
           extra: { reviewSessionId: result.sessionId },
         })
