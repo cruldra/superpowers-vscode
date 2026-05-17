@@ -181,6 +181,7 @@ export function App() {
           canCancel={state.canCancel}
           initialWebhookPort={state.webhookPort}
           initialWebhookHost={state.webhookHost}
+          initialWebhookPublicUrl={state.webhookPublicUrl}
           initialCreateIssuePrompt={state.createIssuePrompt}
           initialImplementPlanPrompt={state.implementPlanPrompt}
           onSubmit={saveSettings}

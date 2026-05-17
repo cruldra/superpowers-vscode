@@ -550,6 +550,7 @@ export class KanbanWebviewPanel {
     const port = settings.webhookPort
     const hostOverride = settings.webhookHost
     const host = detectLocalHost(hostOverride)
+    const publicUrl = settings.webhookPublicUrl.trim()
 
     try {
       await this.ensureWebhookServer(port)
@@ -560,7 +561,15 @@ export class KanbanWebviewPanel {
       return
     }
 
-    const webhookUrl = `http://${host}:${port}/webhook/${issueNumber}`
+    let webhookUrl: string
+    if (publicUrl) {
+      const base = publicUrl.replace(/\/+$/, '')
+      webhookUrl = `${base}/webhook/${issueNumber}`
+      logger.add({ level: 'info', source: 'gitea', message: '使用公网 webhook URL', details: publicUrl })
+    }
+    else {
+      webhookUrl = `http://${host}:${port}/webhook/${issueNumber}`
+    }
 
     // Create the worktree before the webhook, so a worktree-add failure
     // doesn't leave a dangling hook on gitea.
@@ -941,6 +950,7 @@ export class KanbanWebviewPanel {
         host,
         webhookPort: s.webhookPort,
         webhookHost: s.webhookHost,
+        webhookPublicUrl: s.webhookPublicUrl,
         createIssuePrompt: s.createIssuePrompt,
         implementPlanPrompt: s.implementPlanPrompt,
       })
@@ -961,6 +971,7 @@ export class KanbanWebviewPanel {
           errorMessage: 'Token 无效或已过期，请重新填写',
           webhookPort: s.webhookPort,
           webhookHost: s.webhookHost,
+          webhookPublicUrl: s.webhookPublicUrl,
           createIssuePrompt: s.createIssuePrompt,
           implementPlanPrompt: s.implementPlanPrompt,
         })
@@ -977,6 +988,7 @@ export class KanbanWebviewPanel {
     token: string
     webhookPort: number
     webhookHost: string
+    webhookPublicUrl: string
     createIssuePrompt: string
     implementPlanPrompt: string
   }): Promise<void> {
@@ -990,6 +1002,7 @@ export class KanbanWebviewPanel {
         errorMessage: 'Host 和 Token 都不能为空',
         webhookPort: payload.webhookPort,
         webhookHost: payload.webhookHost,
+        webhookPublicUrl: payload.webhookPublicUrl,
         createIssuePrompt: payload.createIssuePrompt || s.createIssuePrompt,
         implementPlanPrompt: payload.implementPlanPrompt || s.implementPlanPrompt,
       })
@@ -998,6 +1011,7 @@ export class KanbanWebviewPanel {
     await saveSettings(this.context, {
       webhookPort: payload.webhookPort,
       webhookHost: payload.webhookHost,
+      webhookPublicUrl: payload.webhookPublicUrl,
       createIssuePrompt: payload.createIssuePrompt,
       implementPlanPrompt: payload.implementPlanPrompt,
     })
@@ -1021,6 +1035,7 @@ export class KanbanWebviewPanel {
       canCancel: true,
       webhookPort: s.webhookPort,
       webhookHost: s.webhookHost,
+      webhookPublicUrl: s.webhookPublicUrl,
       createIssuePrompt: s.createIssuePrompt,
       implementPlanPrompt: s.implementPlanPrompt,
     })

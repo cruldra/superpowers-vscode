@@ -23,6 +23,10 @@ export interface Settings {
   webhookPort: number
   /** IP override for the local webhook host; empty means auto-detect. */
   webhookHost: string
+  /** Public URL override registered with gitea (e.g. via frp/Caddy). Empty
+   * means "build from host+port"; the local server still listens on
+   * `webhookPort` regardless. */
+  webhookPublicUrl: string
   /** Prompt template for the create-issue flow. `{userRequest}` placeholder. */
   createIssuePrompt: string
   /** Prompt template for the implement-plan flow. `{planFile}` placeholder. */
@@ -35,6 +39,7 @@ function defaults(): Settings {
   return {
     webhookPort: DEFAULT_WEBHOOK_PORT,
     webhookHost: '',
+    webhookPublicUrl: '',
     createIssuePrompt: DEFAULT_CREATE_ISSUE_PROMPT,
     implementPlanPrompt: DEFAULT_IMPLEMENT_PLAN_PROMPT,
   }
@@ -52,6 +57,7 @@ export function getSettings(ctx: ExtensionContext): Settings {
   // Empty-string sentinel means "use default" so the form can save a blank
   // value verbatim and still fall back here.
   const webhookHost = typeof stored.webhookHost === 'string' ? stored.webhookHost : base.webhookHost
+  const webhookPublicUrl = typeof stored.webhookPublicUrl === 'string' ? stored.webhookPublicUrl : base.webhookPublicUrl
   const createIssuePrompt = typeof stored.createIssuePrompt === 'string' && stored.createIssuePrompt.length > 0
     ? stored.createIssuePrompt
     : base.createIssuePrompt
@@ -62,6 +68,7 @@ export function getSettings(ctx: ExtensionContext): Settings {
   return {
     webhookPort,
     webhookHost,
+    webhookPublicUrl,
     createIssuePrompt,
     implementPlanPrompt,
   }

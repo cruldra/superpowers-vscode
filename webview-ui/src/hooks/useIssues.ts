@@ -22,6 +22,7 @@ export interface SettingsValues {
   token: string
   webhookPort: number
   webhookHost: string
+  webhookPublicUrl: string
   createIssuePrompt: string
   implementPlanPrompt: string
 }
@@ -34,6 +35,7 @@ export type UseIssuesState =
     canCancel?: boolean
     webhookPort: number
     webhookHost: string
+    webhookPublicUrl: string
     createIssuePrompt: string
     implementPlanPrompt: string
   }
@@ -88,6 +90,7 @@ export function useIssues(): UseIssuesResult {
       token: values.token,
       webhookPort: values.webhookPort,
       webhookHost: values.webhookHost,
+      webhookPublicUrl: values.webhookPublicUrl,
       createIssuePrompt: values.createIssuePrompt,
       implementPlanPrompt: values.implementPlanPrompt,
     })
@@ -184,6 +187,7 @@ export function useIssues(): UseIssuesResult {
             canCancel: msg.canCancel,
             webhookPort: msg.webhookPort,
             webhookHost: msg.webhookHost,
+            webhookPublicUrl: msg.webhookPublicUrl,
             createIssuePrompt: msg.createIssuePrompt,
             implementPlanPrompt: msg.implementPlanPrompt,
           })

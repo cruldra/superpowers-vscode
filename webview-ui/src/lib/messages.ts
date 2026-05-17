@@ -38,6 +38,7 @@ export type ExtensionToWebview =
     canCancel?: boolean
     webhookPort: number
     webhookHost: string
+    webhookPublicUrl: string
     createIssuePrompt: string
     implementPlanPrompt: string
   }
@@ -64,6 +65,7 @@ export type WebviewToExtension =
     token: string
     webhookPort: number
     webhookHost: string
+    webhookPublicUrl: string
     createIssuePrompt: string
     implementPlanPrompt: string
   }

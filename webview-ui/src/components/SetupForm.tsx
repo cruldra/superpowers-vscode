@@ -5,6 +5,7 @@ interface SubmitValues {
   token: string
   webhookPort: number
   webhookHost: string
+  webhookPublicUrl: string
   createIssuePrompt: string
   implementPlanPrompt: string
 }
@@ -15,6 +16,7 @@ interface SetupFormProps {
   canCancel?: boolean
   initialWebhookPort: number
   initialWebhookHost: string
+  initialWebhookPublicUrl: string
   initialCreateIssuePrompt: string
   initialImplementPlanPrompt: string
   onSubmit: (values: SubmitValues) => void
@@ -62,6 +64,7 @@ export function SetupForm({
   canCancel,
   initialWebhookPort,
   initialWebhookHost,
+  initialWebhookPublicUrl,
   initialCreateIssuePrompt,
   initialImplementPlanPrompt,
   onSubmit,
@@ -71,9 +74,10 @@ export function SetupForm({
   const [token, setToken] = useState('')
   const [webhookPort, setWebhookPort] = useState<string>(String(initialWebhookPort))
   const [webhookHost, setWebhookHost] = useState(initialWebhookHost)
+  const [webhookPublicUrl, setWebhookPublicUrl] = useState(initialWebhookPublicUrl)
   const [createIssuePrompt, setCreateIssuePrompt] = useState(initialCreateIssuePrompt)
   const [implementPlanPrompt, setImplementPlanPrompt] = useState(initialImplementPlanPrompt)
-  const [errors, setErrors] = useState<Partial<Record<'host' | 'token' | 'webhookPort', string>>>({})
+  const [errors, setErrors] = useState<Partial<Record<'host' | 'token' | 'webhookPort' | 'webhookPublicUrl', string>>>({})
 
   const trimmedHost = host.trim()
   const tokenPageUrl = trimmedHost
@@ -82,7 +86,7 @@ export function SetupForm({
 
   function handleSubmit(event: React.FormEvent): void {
     event.preventDefault()
-    const nextErrors: Partial<Record<'host' | 'token' | 'webhookPort', string>> = {}
+    const nextErrors: Partial<Record<'host' | 'token' | 'webhookPort' | 'webhookPublicUrl', string>> = {}
     const trimmedToken = token.trim()
     if (!trimmedHost)
       nextErrors.host = 'Host 不能为空'
@@ -91,6 +95,9 @@ export function SetupForm({
     const portNum = Number.parseInt(webhookPort, 10)
     if (!Number.isInteger(portNum) || portNum < 1 || portNum > 65535)
       nextErrors.webhookPort = '端口必须是 1–65535 的整数'
+    const trimmedPublicUrl = webhookPublicUrl.trim().replace(/\/+$/, '')
+    if (trimmedPublicUrl && !/^https?:\/\//.test(trimmedPublicUrl))
+      nextErrors.webhookPublicUrl = '必须以 http:// 或 https:// 开头'
 
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors)
@@ -102,6 +109,7 @@ export function SetupForm({
       token: trimmedToken,
       webhookPort: portNum,
       webhookHost: webhookHost.trim(),
+      webhookPublicUrl: trimmedPublicUrl,
       createIssuePrompt,
       implementPlanPrompt,
     })
@@ -185,6 +193,20 @@ export function SetupForm({
             value={webhookHost}
             onChange={e => setWebhookHost(e.target.value)}
             placeholder="留空自动检测"
+            className={inputClass}
+          />
+        </Field>
+
+        <Field
+          label="Webhook 公网 URL"
+          error={errors.webhookPublicUrl}
+          hint="若 gitea 走公网反代，填如 https://devwebhook.ailoveworld.cn，扩展将注册这个 URL 给 gitea（扩展仍监听上面的本地端口）。"
+        >
+          <input
+            type="text"
+            value={webhookPublicUrl}
+            onChange={e => setWebhookPublicUrl(e.target.value)}
+            placeholder="留空则用 http://<host>:<port>"
             className={inputClass}
           />
         </Field>
