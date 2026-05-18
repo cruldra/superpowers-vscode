@@ -410,7 +410,11 @@ export class KanbanWebviewPanel {
         extra: { color: id },
       })
         .then(() => {
-          void this.loadAndPush()
+          this.postMessage({
+            type: 'issue/patch',
+            issueNumber,
+            patch: { color: id },
+          })
         })
         .catch((err) => {
           console.warn('[superpowers] failed to persist issue color:', err)
@@ -972,7 +976,17 @@ export class KanbanWebviewPanel {
           implementStatus: 'running',
         },
       })
-      void this.loadAndPush()
+      this.postMessage({
+        type: 'issue/patch',
+        issueNumber,
+        patch: {
+          column: 'in-progress',
+          branch,
+          worktreePath: relativeWorktreePath,
+          implementStatus: 'running',
+          worktreeExists: true,
+        },
+      })
     }
     catch (err) {
       // Non-fatal: terminal still spawns. Surface so the user knows the
@@ -1169,7 +1183,15 @@ export class KanbanWebviewPanel {
       console.warn('[superpowers] failed to clear worktree state JSON:', err)
     }
 
-    void this.loadAndPush()
+    this.postMessage({
+      type: 'issue/patch',
+      issueNumber,
+      patch: {
+        worktreePath: undefined,
+        branch: undefined,
+        worktreeExists: false,
+      },
+    })
     void window.showInformationMessage(`已删除 worktree #${issueNumber}`)
   }
 
