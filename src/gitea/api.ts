@@ -308,6 +308,35 @@ export async function addDependency(opts: {
   await ensureOk(res)
 }
 
+/**
+ * Merge a pull request via gitea's `POST /repos/{owner}/{repo}/pulls/{index}/merge`.
+ * Defaults to the plain "merge" strategy. Throws GiteaApiError on non-2xx.
+ */
+export async function mergePullRequest(opts: {
+  host: string
+  token: string
+  owner: string
+  repo: string
+  index: number
+  strategy?: 'merge' | 'rebase' | 'rebase-merge' | 'squash'
+}): Promise<void> {
+  const url = `${baseUrl(opts.host)}/repos/${opts.owner}/${opts.repo}/pulls/${opts.index}/merge`
+  const body = {
+    Do: opts.strategy ?? 'merge',
+    delete_branch_after_merge: false,
+    force_merge: false,
+  }
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      ...authHeaders(opts.token),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  })
+  await ensureOk(res)
+}
+
 export async function removeDependency(opts: {
   host: string
   token: string

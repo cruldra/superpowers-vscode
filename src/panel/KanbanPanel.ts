@@ -26,6 +26,7 @@ import {
   getPullRequest,
   GiteaApiError,
   listIssueComments,
+  mergePullRequest,
   postIssueComment,
   removeDependency,
 } from '../gitea/api'
@@ -495,6 +496,10 @@ export class KanbanWebviewPanel {
    * present in `window.terminals` but absent from `this.implTerminals`.
    */
   injectIntoImplTerminal(issueNumber: number, text: string, isFirstReview: boolean): boolean {
+    // `isFirstReview` 参数保留只为兼容签名（调用方仍按 first/再审 区分），
+    // 方法体本身不再消费它——合并改由用户拖工单到"完成"列时插件 API 触发，
+    // cc 不允许自行合并。
+    void isFirstReview
     let terminal = this.implTerminals.get(issueNumber)
     if (!terminal) {
       // Match by prefix — shell OSC title escapes can append a git branch
@@ -514,11 +519,7 @@ export class KanbanWebviewPanel {
     // 才会被识别为 Enter（提交消息）。VS Code 的 sendText(..., true)
     // 在 Linux 上追加的是 LF，所以这里手动末尾接一个 \r、addNewLine
     // 设 false。
-    //
-    // 「合并到 main」这句仅首次审查带——synchronize 触发的复审表示 cc
-    // 已经在迭代了，重复发会让它把未完工的改动合进 main。
-    const suffix = isFirstReview ? '\n如果确认没问题就合并到main分支但暂时不要清理工作区' : ''
-    const payload = `\n[审查反馈]\n${text}${suffix}\r`
+    const payload = `\n[审查反馈]\n${text}\r`
     terminal.sendText(payload, false)
     return true
   }
@@ -1271,20 +1272,48 @@ export class KanbanWebviewPanel {
     }
 
     if (!pullRequest.merged) {
-      logger.add({
-        level: 'warn',
-        source: 'panel',
-        message: `PR #${prIndex} 尚未合并，工单 #${issueNumber} 不能完成`,
-      })
-      this.postMessage({
-        type: 'toast/show',
-        id: makeNonce(),
-        level: 'error',
-        message: `PR #${prIndex} 尚未合并，工单 #${issueNumber} 不能完成`,
-        dismissOnTimer: 6000,
-      })
-      void this.loadAndPush()
-      return
+      // PR 还没合并 → 由插件代为合并（用户拖到"完成"列即表示放行）。
+      // 合并失败（冲突 / 已关闭 / 权限）回滚拖动：loadAndPush 让 webview
+      // 重新拉一遍，工单留在原列。
+      try {
+        await mergePullRequest({
+          host: remote.host,
+          token,
+          owner: remote.owner,
+          repo: remote.repo,
+          index: prIndex,
+        })
+        logger.add({
+          level: 'info',
+          source: 'panel',
+          message: `已合并 PR #${prIndex} (issue #${issueNumber})`,
+        })
+        this.postMessage({
+          type: 'toast/show',
+          id: makeNonce(),
+          level: 'info',
+          message: `已合并 PR #${prIndex}`,
+          dismissOnTimer: 4000,
+        })
+      }
+      catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        logger.add({
+          level: 'error',
+          source: 'panel',
+          message: `合并 PR #${prIndex} 失败 (issue #${issueNumber})`,
+          details: message,
+        })
+        this.postMessage({
+          type: 'toast/show',
+          id: makeNonce(),
+          level: 'error',
+          message: `合并 PR #${prIndex} 失败: ${message}`,
+          dismissOnTimer: 6000,
+        })
+        void this.loadAndPush()
+        return
+      }
     }
 
     // 4. PR is merged — persist column='done' to state JSON.

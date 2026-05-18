@@ -22,7 +22,9 @@ export const DEFAULT_BRAINSTORM_PROMPT = `/goal 我现在有这样一个需求 {
 修改 body 时必须保留所有 <!-- spx:* --> 注释（包括 nonce）；只增加或替换自己负责的那一行。`
 
 export const DEFAULT_IMPLEMENT_PLAN_PROMPT
-  = '/goal 使用子代理全程绿灯实施 @{planFile}，发起 PR 时务必在 PR body 中包含 "Closes #{issueNumber}"'
+  = `/goal 使用子代理全程绿灯实施 @{planFile}，发起 PR 时务必在 PR body 中包含 "Closes #{issueNumber}"。
+
+**严禁合并 PR**：你的职责只到发起 PR 为止，后续审查反馈到了请继续修复并 push，永远不要执行 \`tea pulls merge\` 或任何合并操作。合并由用户在看板上拖工单到"完成"列时由插件代为执行。`
 
 export const DEFAULT_REVIEW_PROMPT = `先切换到当前目录，然后用 tea 拿到这个仓库的 #{prNumber} PR，再对其进行审查
 
@@ -31,7 +33,9 @@ export const DEFAULT_REVIEW_PROMPT = `先切换到当前目录，然后用 tea �
 <!-- spx:review=1 -->
 <审查意见正文，markdown 格式>
 
-第一行的 \`<!-- spx:review=1 -->\` 标识不能省略也不能改，否则后续流程识别不到这条评论。`
+第一行的 \`<!-- spx:review=1 -->\` 标识不能省略也不能改，否则后续流程识别不到这条评论。
+
+**注意**：审查意见里不要建议"合并 PR"或"merge"，也不要执行 \`tea pulls merge\`。合并的决定权完全在用户手上（用户会拖工单到"完成"列触发合并），你只需指出问题或确认通过即可。`
 
 export const DEFAULT_WEBHOOK_PORT = 17421
 
