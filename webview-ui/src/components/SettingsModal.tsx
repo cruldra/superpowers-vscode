@@ -302,7 +302,7 @@ export function SettingsModal({
                       扩展 HTTP server 绑定的端口。在 gitea 仓库 Webhooks 配置里把目标 URL 指向
                       {' '}
                       <code>{'http://<你的本机/公网域名>:<此端口>/webhook'}</code>
-                      ，事件选 合并请求 + 合并请求已同步。
+                      ，事件需勾选：<b>工单</b>（issue opened/edited）、<b>合并请求</b>（PR opened/synchronize/closed）、<b>工单评论</b>（codex 审查回流）。
                     </>
                   )}
                 >
