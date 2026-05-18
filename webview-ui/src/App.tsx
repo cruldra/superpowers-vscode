@@ -41,6 +41,8 @@ export function App() {
     updateIssueAutoReview,
     logs,
     clearLogs,
+    pendingSelectId,
+    clearPendingSelect,
   } = useIssues()
   const [showNewIssueModal, setShowNewIssueModal] = useState(false)
   const [showLogs, setShowLogs] = useState(false)
@@ -61,11 +63,28 @@ export function App() {
       setSelectedId(null)
   }, [readyIssues, selectedId])
 
+  // Auto-select issues that arrive via webhook in response to user-initiated
+  // creation (issue/append with select: true). User-initiated, so we
+  // intentionally override any current arrow-key selection.
+  useEffect(() => {
+    if (!pendingSelectId)
+      return
+    if (!readyIssues)
+      return
+    if (!readyIssues.some(i => i.id === pendingSelectId))
+      return
+    setSelectedId(pendingSelectId)
+    clearPendingSelect()
+  }, [pendingSelectId, readyIssues, clearPendingSelect])
+
   // Issues partitioned by column, in COLUMN_ORDER. Used for arrow navigation.
+  // Each column is sorted by issue number descending so newer issues appear on top.
   const ordered = useMemo<Issue[][]>(() => {
     if (!readyIssues)
       return []
-    return COLUMN_ORDER.map(col => readyIssues.filter(i => i.column === col))
+    return COLUMN_ORDER.map(col =>
+      readyIssues.filter(i => i.column === col).sort((a, b) => b.number - a.number),
+    )
   }, [readyIssues])
 
   // Resolved selected issue (or null) for the detail panel.

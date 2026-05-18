@@ -523,7 +523,7 @@ class WebhookCoordinator {
           issueNumber: event.issueNumber,
         })
         if (issue) {
-          this.activePanel.postMessage({ type: 'issue/append', issue })
+          this.activePanel.postMessage({ type: 'issue/append', issue, select: pending ? true : undefined })
           if (pending) {
             this.activePanel.postMessage({
               type: 'toast/show',

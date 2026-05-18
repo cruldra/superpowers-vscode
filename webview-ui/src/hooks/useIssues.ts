@@ -88,6 +88,12 @@ export interface UseIssuesResult {
   logs: LogEntry[]
   fetchLogs: () => void
   clearLogs: () => void
+  /** ID of an issue that should be auto-selected after an `issue/append`
+   * with `select: true` (i.e. user-initiated webhook creation). Consumers
+   * read this in a `useEffect`, apply the selection, then call
+   * `clearPendingSelect()` to reset. */
+  pendingSelectId: string | null
+  clearPendingSelect: () => void
 }
 
 export function useIssues(): UseIssuesResult {
@@ -97,6 +103,11 @@ export function useIssues(): UseIssuesResult {
   const [toasts, setToasts] = useState<ToastItem[]>([])
   const [profiles, setProfiles] = useState<ClaudeProfile[]>([])
   const [logs, setLogs] = useState<LogEntry[]>([])
+  const [pendingSelectId, setPendingSelectId] = useState<string | null>(null)
+
+  const clearPendingSelect = useCallback((): void => {
+    setPendingSelectId(null)
+  }, [])
 
   const refresh = useCallback((): void => {
     setState({ status: 'loading' })
@@ -272,6 +283,8 @@ export function useIssues(): UseIssuesResult {
                 : [...prev.issues, msg.issue],
             }
           })
+          if (msg.select)
+            setPendingSelectId(msg.issue.id)
           break
         case 'settings/show':
           // Open (or re-open) the overlay. Kanban state is preserved
@@ -333,5 +346,5 @@ export function useIssues(): UseIssuesResult {
     return cleanup
   }, [])
 
-  return { state, settings, globalAutoReview, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, focusSession, openFile, loadSessionFiles, implement, openPr, openWorktree, deleteWorktree, changeColumn, setDependency, clearDependency, updateIssueAutoReview, logs, fetchLogs, clearLogs }
+  return { state, settings, globalAutoReview, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, focusSession, openFile, loadSessionFiles, implement, openPr, openWorktree, deleteWorktree, changeColumn, setDependency, clearDependency, updateIssueAutoReview, logs, fetchLogs, clearLogs, pendingSelectId, clearPendingSelect }
 }
