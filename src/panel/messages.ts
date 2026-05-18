@@ -14,7 +14,7 @@ export type ExtensionToWebview =
   | { type: 'issues/loading' }
   | { type: 'issues/update', issues: Issue[], globalAutoReview: boolean }
   | { type: 'issues/error', message: string }
-  | { type: 'issue/patch', issueNumber: number, patch: { autoReview?: boolean, specFile?: string, planFile?: string, implementSessionId?: string, pr?: string, implementStatus?: 'running' | 'done' | 'failed', column?: IssueColumn, worktreePath?: string, prMerged?: boolean, branch?: string, color?: string, worktreeExists?: boolean } }
+  | { type: 'issue/patch', issueNumber: number, patch: { autoReview?: boolean, specFile?: string, planFile?: string, implementSessionId?: string, reviewSessionId?: string, pr?: string, implementStatus?: 'running' | 'done' | 'failed', column?: IssueColumn, worktreePath?: string, prMerged?: boolean, branch?: string, color?: string, worktreeExists?: boolean } }
   | { type: 'issue/append', issue: Issue, select?: boolean }
   | { type: 'issue/select-by-number', issueNumber: number }
   | {

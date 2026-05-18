@@ -1,13 +1,15 @@
 /**
- * Spawns `codex exec review` headlessly and waits for it to finish.
+ * Spawns `codex exec review --json` headlessly and waits for it to finish.
  *
  * Output handling: codex itself is responsible for posting the review back
- * as a PR comment (instructed via the review prompt). This wrapper neither
- * captures stdout nor reads any temp file; failures are logged but never
+ * as a PR comment (instructed via the review prompt). This wrapper only
+ * scans codex's NDJSON stdout for the very first `thread.started` event so
+ * the caller can persist the `thread_id` (review session id) for manual
+ * resume; everything after that is ignored. Failures are logged but never
  * thrown — the webhook coordinator treats review runs as fire-and-forget.
  */
 
-import { execFile } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { logger } from '../logging/logger'
 
 export interface RunReviewOpts {
@@ -16,51 +18,165 @@ export interface RunReviewOpts {
   prompt: string
   /** Spawn timeout in milliseconds. Defaults to 5 minutes. */
   timeoutMs?: number
+  /**
+   * Called once with the codex `thread_id` parsed from the first
+   * `thread.started` NDJSON event. Errors thrown inside this callback are
+   * caught and logged — they never propagate out of `runReview`.
+   */
+  onThreadId?: (id: string) => void | Promise<void>
 }
 
 const DEFAULT_TIMEOUT_MS = 300_000
-const MAX_STDOUT_BYTES = 10 * 1024 * 1024
 
 /**
- * Run `codex exec review` and wait for it to exit. Errors are logged as
- * warnings; this function never throws.
+ * Run `codex exec review --json` and wait for it to exit. Errors are
+ * logged as warnings; this function never throws.
  */
 export async function runReview(opts: RunReviewOpts): Promise<void> {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
-  const args: string[] = ['exec', 'review', '--dangerously-bypass-approvals-and-sandbox', opts.prompt]
+  const args: string[] = [
+    'exec',
+    'review',
+    '--dangerously-bypass-approvals-and-sandbox',
+    '--json',
+    opts.prompt,
+  ]
 
   await new Promise<void>((resolve) => {
-    execFile(
-      'codex',
-      args,
-      {
+    let child: ReturnType<typeof spawn>
+    try {
+      child = spawn('codex', args, {
         cwd: opts.workspaceRoot,
-        timeout: timeoutMs,
-        maxBuffer: MAX_STDOUT_BYTES,
-        encoding: 'utf-8',
-      },
-      (err, stdoutBuf, stderrBuf) => {
-        if (err) {
-          const stderrStr = stderrBuf ?? ''
-          const stdoutStr = stdoutBuf ?? ''
-          const excerpt = (stderrStr || stdoutStr).slice(0, 500)
-          const errAny = err as NodeJS.ErrnoException & { killed?: boolean, signal?: string }
-          let message: string
-          if (errAny.code === 'ENOENT')
-            message = `codex 未安装或不在 PATH 中 (ENOENT): ${err.message}`
-          else if (errAny.killed && errAny.signal === 'SIGTERM')
-            message = `codex 超时 (${timeoutMs}ms) — stderr: ${excerpt}`
-          else
-            message = `codex exit 非 0: ${err.message} — stderr: ${excerpt}`
-          logger.add({
-            level: 'warn',
-            source: 'webhook',
-            message: 'codex exec review 失败',
-            details: message,
-          })
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+    }
+    catch (err) {
+      logger.add({
+        level: 'warn',
+        source: 'webhook',
+        message: 'codex exec review 启动失败',
+        details: err instanceof Error ? err.message : String(err),
+      })
+      resolve()
+      return
+    }
+
+    let timedOut = false
+    const timer = setTimeout(() => {
+      timedOut = true
+      try {
+        child.kill('SIGTERM')
+      }
+      catch {
+        // ignore
+      }
+    }, timeoutMs)
+
+    // NDJSON parsing: accumulate stdout, split on newline, parse each line.
+    // Stop parsing after the first `thread.started` event — let the rest
+    // of stdout drain to /dev/null so codex can keep running.
+    let buf = ''
+    let threadIdHandled = false
+    let stderrTail = ''
+
+    const handleLine = (line: string): void => {
+      if (threadIdHandled || !line.trim())
+        return
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(line)
+      }
+      catch {
+        return
+      }
+      if (!parsed || typeof parsed !== 'object')
+        return
+      const obj = parsed as { type?: unknown, thread_id?: unknown }
+      if (obj.type === 'thread.started'
+        && typeof obj.thread_id === 'string'
+        && obj.thread_id.length > 0) {
+        threadIdHandled = true
+        const id = obj.thread_id
+        if (opts.onThreadId) {
+          try {
+            const ret = opts.onThreadId(id)
+            if (ret && typeof (ret as Promise<unknown>).then === 'function') {
+              ;(ret as Promise<unknown>).catch((err) => {
+                logger.add({
+                  level: 'warn',
+                  source: 'webhook',
+                  message: 'onThreadId 回调异常',
+                  details: err instanceof Error ? err.message : String(err),
+                })
+              })
+            }
+          }
+          catch (err) {
+            logger.add({
+              level: 'warn',
+              source: 'webhook',
+              message: 'onThreadId 回调抛错',
+              details: err instanceof Error ? err.message : String(err),
+            })
+          }
         }
-        resolve()
-      },
-    )
+      }
+    }
+
+    child.stdout?.setEncoding('utf-8')
+    child.stdout?.on('data', (chunk: string) => {
+      if (threadIdHandled)
+        return
+      buf += chunk
+      let idx = buf.indexOf('\n')
+      while (idx >= 0) {
+        const line = buf.slice(0, idx)
+        buf = buf.slice(idx + 1)
+        handleLine(line)
+        if (threadIdHandled) {
+          buf = ''
+          break
+        }
+        idx = buf.indexOf('\n')
+      }
+    })
+
+    child.stderr?.setEncoding('utf-8')
+    child.stderr?.on('data', (chunk: string) => {
+      // Keep only the tail so we can include it in the failure message.
+      stderrTail = (stderrTail + chunk).slice(-2000)
+    })
+
+    child.on('error', (err) => {
+      clearTimeout(timer)
+      logger.add({
+        level: 'warn',
+        source: 'webhook',
+        message: 'codex exec review 进程错误',
+        details: err instanceof Error ? err.message : String(err),
+      })
+      resolve()
+    })
+
+    child.on('close', (code, signal) => {
+      clearTimeout(timer)
+      if (timedOut) {
+        logger.add({
+          level: 'warn',
+          source: 'webhook',
+          message: `codex exec review 超时 (${timeoutMs}ms)`,
+          details: stderrTail.slice(-500),
+        })
+      }
+      else if ((code !== null && code !== 0) || (signal && !timedOut)) {
+        logger.add({
+          level: 'warn',
+          source: 'webhook',
+          message: `codex exec review 退出码异常 code=${code} signal=${signal ?? '<none>'}`,
+          details: stderrTail.slice(-500),
+        })
+      }
+      resolve()
+    })
   })
 }

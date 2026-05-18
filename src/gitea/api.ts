@@ -211,6 +211,11 @@ export interface GiteaPullRequest {
   state: string
   merged_at?: string | null
   html_url: string
+  /**
+   * PR description / body. Used by the webhook coordinator to reverse-lookup
+   * the underlying issue number (`Closes #N`) when a comment fires on a PR.
+   */
+  body: string
 }
 
 /**
@@ -236,6 +241,7 @@ export async function getPullRequest(opts: {
     state?: unknown
     merged_at?: unknown
     html_url?: unknown
+    body?: unknown
   }
   return {
     number: typeof data.number === 'number' ? data.number : Number(data.number),
@@ -243,6 +249,7 @@ export async function getPullRequest(opts: {
     state: typeof data.state === 'string' ? data.state : '',
     merged_at: typeof data.merged_at === 'string' ? data.merged_at : null,
     html_url: typeof data.html_url === 'string' ? data.html_url : '',
+    body: typeof data.body === 'string' ? data.body : '',
   }
 }
 

@@ -1108,6 +1108,10 @@ class WebhookCoordinator {
       return
     }
 
+    // resolveRepoContext is keyed by pendingHooks/workspace, not by issue
+    // number — it just needs *some* number to log against. We pass the
+    // gitea-reported number here (which is the PR number when this comment
+    // is on a PR) and reverse-resolve to the real issue number below.
     const ctx = await this.resolveRepoContext(event.issueNumber)
     if (!ctx) {
       logger.add({
@@ -1116,6 +1120,46 @@ class WebhookCoordinator {
         message: `无法解析 #${event.issueNumber} 的仓库上下文（issue_comment），跳过`,
       })
       return
+    }
+
+    // gitea 的 issue_comment payload 里，PR 上的评论同样以 issue.number 形式
+    // 携带 PR 编号。这里如果 prNumber 已置位，就拉 PR body 反查 `Closes #N`
+    // 找到真正的工单编号；找不到则保持原 event.issueNumber 兜底。
+    let realIssueNumber = event.issueNumber
+    if (event.prNumber !== undefined) {
+      try {
+        const pr = await getPullRequest({
+          host: ctx.host,
+          token: ctx.token,
+          owner: ctx.owner,
+          repo: ctx.repo,
+          index: event.prNumber,
+        })
+        const m = (pr.body ?? '').match(/\b(?:closes|fixes|resolves|close|fix|resolve)\s+#(\d+)/i)
+        if (m) {
+          realIssueNumber = Number.parseInt(m[1], 10)
+          logger.add({
+            level: 'info',
+            source: 'webhook',
+            message: `issue_comment 评论在 PR #${event.prNumber}，反查到工单 #${realIssueNumber}`,
+          })
+        }
+        else {
+          logger.add({
+            level: 'warn',
+            source: 'webhook',
+            message: `PR #${event.prNumber} body 未找到 Closes #N，按原 issueNumber=${event.issueNumber} 处理`,
+          })
+        }
+      }
+      catch (err) {
+        logger.add({
+          level: 'warn',
+          source: 'webhook',
+          message: `反查 PR #${event.prNumber} 失败`,
+          details: err instanceof Error ? err.message : String(err),
+        })
+      }
     }
 
     // Count marker comments to determine isFirstReview. This call also
@@ -1127,7 +1171,7 @@ class WebhookCoordinator {
         token: ctx.token,
         owner: ctx.owner,
         repo: ctx.repo,
-        index: event.issueNumber,
+        index: realIssueNumber,
       })
       reviewCount = comments.filter(c => /<!--\s*spx:review=1\s*-->/i.test(c.body ?? '')).length
     }
@@ -1136,20 +1180,20 @@ class WebhookCoordinator {
       logger.add({
         level: 'warn',
         source: 'webhook',
-        message: `统计审查评论数失败 #${event.issueNumber}（按首次处理）`,
+        message: `统计审查评论数失败 #${realIssueNumber}（按首次处理）`,
         details: message,
       })
     }
     const isFirstReview = reviewCount <= 1
 
     const injected = this.activePanel
-      ? this.activePanel.injectIntoImplTerminal(event.issueNumber, text, isFirstReview)
+      ? this.activePanel.injectIntoImplTerminal(realIssueNumber, text, isFirstReview)
       : false
     if (!injected) {
       logger.add({
         level: 'warn',
         source: 'webhook',
-        message: `审查注入失败（实施 tab 未找到）#${event.issueNumber}`,
+        message: `审查注入失败（实施 tab 未找到）#${realIssueNumber}`,
       })
       return
     }
@@ -1157,7 +1201,7 @@ class WebhookCoordinator {
     logger.add({
       level: 'info',
       source: 'webhook',
-      message: `审查反馈已注入实施终端 #${event.issueNumber} isFirstReview=${isFirstReview} length=${text.length}`,
+      message: `审查反馈已注入实施终端 #${realIssueNumber} isFirstReview=${isFirstReview} length=${text.length}`,
     })
   }
 
@@ -1291,7 +1335,40 @@ class WebhookCoordinator {
     const prompt = getReviewPrompt(this.ctx, { prNumber })
 
     try {
-      await runReview({ workspaceRoot: cwd, prompt })
+      await runReview({
+        workspaceRoot: cwd,
+        prompt,
+        onThreadId: async (id) => {
+          try {
+            await mergeStateJsonComment({
+              host: ctx.host,
+              token: ctx.token,
+              owner: ctx.owner,
+              repo: ctx.repo,
+              issueNumber,
+              extra: { reviewSessionId: id },
+            })
+            this.activePanel?.postMessage({
+              type: 'issue/patch',
+              issueNumber,
+              patch: { reviewSessionId: id },
+            })
+            logger.add({
+              level: 'info',
+              source: 'webhook',
+              message: `已捕获审查会话 ${id} (issue #${issueNumber})`,
+            })
+          }
+          catch (err) {
+            logger.add({
+              level: 'warn',
+              source: 'webhook',
+              message: `持久化 reviewSessionId 失败 (issue #${issueNumber})`,
+              details: err instanceof Error ? err.message : String(err),
+            })
+          }
+        },
+      })
     }
     catch (err) {
       // runReview never throws now (it logs internally) but defensively
