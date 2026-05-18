@@ -79,9 +79,21 @@ export async function runReview(opts: RunReviewOpts): Promise<void> {
     let threadIdHandled = false
     let stderrTail = ''
 
+    let diagLogged = 0
     const handleLine = (line: string): void => {
       if (threadIdHandled || !line.trim())
         return
+      // Diagnostic: log the first 3 lines so we can inspect codex's actual
+      // event shape if thread id detection misses.
+      if (diagLogged < 3) {
+        logger.add({
+          level: 'info',
+          source: 'webhook',
+          message: `codex stdout[${diagLogged}]`,
+          details: line.slice(0, 500),
+        })
+        diagLogged += 1
+      }
       let parsed: unknown
       try {
         parsed = JSON.parse(line)
@@ -91,12 +103,18 @@ export async function runReview(opts: RunReviewOpts): Promise<void> {
       }
       if (!parsed || typeof parsed !== 'object')
         return
-      const obj = parsed as { type?: unknown, thread_id?: unknown }
-      if (obj.type === 'thread.started'
-        && typeof obj.thread_id === 'string'
-        && obj.thread_id.length > 0) {
+      const obj = parsed as { type?: unknown, thread_id?: unknown, session_id?: unknown, id?: unknown }
+      // Try multiple field names: thread_id (current), session_id (older
+      // codex), id (fallback when the event is a "session created" shape).
+      // Accept any event so long as it carries one of these as a string.
+      const candidate
+        = (typeof obj.thread_id === 'string' && obj.thread_id.length > 0 && obj.thread_id)
+        || (typeof obj.session_id === 'string' && obj.session_id.length > 0 && obj.session_id)
+        || (typeof obj.id === 'string' && obj.id.length > 0 && /^[0-9a-f-]{16,}$/i.test(obj.id) && obj.id)
+        || ''
+      if (candidate) {
         threadIdHandled = true
-        const id = obj.thread_id
+        const id = candidate
         if (opts.onThreadId) {
           try {
             const ret = opts.onThreadId(id)
