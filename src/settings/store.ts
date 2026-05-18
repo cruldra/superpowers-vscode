@@ -12,7 +12,11 @@
 
 import type { ExtensionContext } from 'vscode'
 
-export const DEFAULT_BRAINSTORM_PROMPT = `/goal 我现在有这样一个需求 {userRequest}，你用 tea 命令创建 gitea 工单，工单 body 末尾必须严格包含这一行：<!-- spx:nonce={nonce} -->
+export const DEFAULT_BRAINSTORM_PROMPT = `/goal 我现在有这样一个需求 {userRequest}，你用 tea 命令创建 gitea 工单。
+
+**工单格式**：先检查当前仓库 \`.gitea/ISSUE_TEMPLATE/\` 目录是否有模板文件（\`.md\` 或 \`.yaml\`）；有就**严格遵循模板的结构**（标题前缀、章节标题、必填字段）来填写 body，模板里要求填的部分都填上、不要留空；没有模板就用普通 markdown 自由写。
+
+工单 body 末尾必须严格包含这一行：<!-- spx:nonce={nonce} -->
 具体需求细节稍后再讨论。
 
 **重要持续约定（本会话有效）**：今后每当你创建或修改：
