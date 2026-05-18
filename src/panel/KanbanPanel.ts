@@ -30,7 +30,7 @@ import {
 } from '../gitea/api'
 import type { IssueColumn } from '../gitea/types'
 import { mergeStateJsonComment, readStateJsonComment } from '../gitea/stateJson'
-import { loadIssues } from '../gitea/issueLoader'
+import { loadIssues, loadSingleIssue } from '../gitea/issueLoader'
 import { logger } from '../logging/logger'
 import { getSettings, saveSettings } from '../settings/store'
 import { webhookCoordinator } from '../webhook/coordinator'
@@ -1947,7 +1947,7 @@ export class KanbanWebviewPanel {
       userRequest: trimmed,
       images,
       profilePath,
-      onProgress: (event) => {
+      onProgress: async (event) => {
         if (event.kind === 'started') {
           this.postMessage({
             type: 'toast/show',
@@ -1967,8 +1967,35 @@ export class KanbanWebviewPanel {
             link: { label: '查看', url: event.issueUrl },
             dismissOnTimer: 8000,
           })
-          // Refresh kanban so the new card shows up in 待办.
-          void this.loadAndPush()
+          // Incrementally fetch just the new issue and push to webview, so the
+          // existing kanban state (selection, scroll, other cards) is preserved.
+          // Falls back to a full reload only if the single-issue fetch fails.
+          try {
+            const issue = await loadSingleIssue({
+              host: remote.host,
+              owner: remote.owner,
+              repo: remote.repo,
+              token,
+              workspaceRoot,
+              issueNumber: event.issueNumber,
+            })
+            if (issue) {
+              this.postMessage({ type: 'issue/append', issue })
+            }
+            else {
+              // Issue not found — fall back to full reload as a safety net.
+              void this.loadAndPush()
+            }
+          }
+          catch (err) {
+            const message = err instanceof Error ? err.message : String(err)
+            logger.add({
+              level: 'warn',
+              source: 'panel',
+              message: `增量拉新工单失败，回退全量: ${message}`,
+            })
+            void this.loadAndPush()
+          }
           return
         }
         // failed

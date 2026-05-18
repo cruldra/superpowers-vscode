@@ -260,6 +260,19 @@ export function useIssues(): UseIssuesResult {
             }
           })
           break
+        case 'issue/append':
+          setState((prev) => {
+            if (prev.status !== 'ready')
+              return prev
+            const exists = prev.issues.some(i => i.number === msg.issue.number)
+            return {
+              status: 'ready',
+              issues: exists
+                ? prev.issues.map(i => i.number === msg.issue.number ? msg.issue : i)
+                : [...prev.issues, msg.issue],
+            }
+          })
+          break
         case 'settings/show':
           // Open (or re-open) the overlay. Kanban state is preserved
           // underneath — when `canCancel === false` and we're still loading,

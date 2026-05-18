@@ -24,7 +24,9 @@ import type { Issue, IssueColumn } from './types'
 import {
   getCurrentUser,
   getDependencies,
+  getIssue,
   listAllRepoComments,
+  listIssueComments,
   listIssuesByFilter,
   postIssueComment,
 } from './api'
@@ -187,6 +189,100 @@ function groupCommentsByIssue(comments: GiteaComment[]): Map<number, GiteaCommen
   return buckets
 }
 
+/**
+ * Builds an `Issue` from a Gitea issue plus its comment bucket.
+ *
+ * Encapsulates the per-issue parsing and side-effects (seeding a default
+ * state comment when none exists, statting the worktree path) so it can be
+ * reused by both the full loader and `loadSingleIssue`.
+ */
+async function buildIssue(opts: {
+  host: string
+  token: string
+  owner: string
+  repo: string
+  workspaceRoot?: string
+  issue: GiteaIssue
+  comments: GiteaComment[]
+  prerequisite: number | undefined
+}): Promise<Issue> {
+  const { host, token, owner, repo, workspaceRoot, issue, comments, prerequisite } = opts
+  const id = `${owner}/${repo}#${issue.number}`
+  const {
+    column: fromComment,
+    sessionId,
+    profilePath,
+    specFile,
+    planFile,
+    pr,
+    branch,
+    worktreePath,
+    implementStatus,
+    implementSessionId,
+    reviewSessionId,
+    color,
+    autoReview,
+  } = parseColumnFromComments(comments)
+  let column: IssueColumn
+  if (fromComment) {
+    column = fromComment
+  }
+  else {
+    column = defaultColumnForState(issue.state)
+    // Persist the default so future pulls are cheap; failures are
+    // non-fatal — we still display the issue in the computed column.
+    try {
+      await postIssueComment({
+        host,
+        token,
+        owner,
+        repo,
+        index: issue.number,
+        body: JSON.stringify({ column }),
+      })
+    }
+    catch (postErr) {
+      // eslint-disable-next-line no-console
+      console.warn(`[superpowers] failed to seed state comment on ${id}:`, postErr)
+    }
+  }
+
+  // Synchronously stat the worktree path so the UI can render it as a
+  // live link vs. plain text. A single existsSync per issue is cheap and
+  // avoids racing with the rest of the async pipeline.
+  let worktreeExists: boolean | undefined
+  if (worktreePath && workspaceRoot) {
+    try {
+      worktreeExists = fs.existsSync(path.join(workspaceRoot, worktreePath))
+    }
+    catch {
+      worktreeExists = false
+    }
+  }
+
+  return {
+    id,
+    number: issue.number,
+    title: issue.title,
+    column,
+    ...(sessionId ? { sessionId } : {}),
+    ...(profilePath ? { profilePath } : {}),
+    ...(specFile ? { specFile } : {}),
+    ...(planFile ? { planFile } : {}),
+    ...(pr ? { pr } : {}),
+    ...(branch ? { branch } : {}),
+    ...(worktreePath ? { worktreePath } : {}),
+    ...(worktreeExists !== undefined ? { worktreeExists } : {}),
+    ...(implementStatus ? { implementStatus } : {}),
+    ...(implementSessionId ? { implementSessionId } : {}),
+    ...(reviewSessionId ? { reviewSessionId } : {}),
+    ...(prerequisite !== undefined ? { prerequisite } : {}),
+    ...(color ? { color } : {}),
+    ...(autoReview !== undefined ? { autoReview } : {}),
+    htmlUrl: issue.html_url,
+  }
+}
+
 export async function loadIssues(opts: {
   host: string
   token: string
@@ -234,82 +330,63 @@ export async function loadIssues(opts: {
   for (let i = 0; i < merged.length; i++) {
     const issue = merged[i]
     const prerequisite = prerequisites[i]
-    const id = `${owner}/${repo}#${issue.number}`
     const bucket = buckets.get(issue.number) ?? []
-    const {
-      column: fromComment,
-      sessionId,
-      profilePath,
-      specFile,
-      planFile,
-      pr,
-      branch,
-      worktreePath,
-      implementStatus,
-      implementSessionId,
-      reviewSessionId,
-      color,
-      autoReview,
-    } = parseColumnFromComments(bucket)
-    let column: IssueColumn
-    if (fromComment) {
-      column = fromComment
-    }
-    else {
-      column = defaultColumnForState(issue.state)
-      // Persist the default so future pulls are cheap; failures are
-      // non-fatal — we still display the issue in the computed column.
-      try {
-        await postIssueComment({
-          host,
-          token,
-          owner,
-          repo,
-          index: issue.number,
-          body: JSON.stringify({ column }),
-        })
-      }
-      catch (postErr) {
-        // eslint-disable-next-line no-console
-        console.warn(`[superpowers] failed to seed state comment on ${id}:`, postErr)
-      }
-    }
-
-    // Synchronously stat the worktree path so the UI can render it as a
-    // live link vs. plain text. A single existsSync per issue is cheap and
-    // avoids racing with the rest of the async pipeline.
-    let worktreeExists: boolean | undefined
-    if (worktreePath && workspaceRoot) {
-      try {
-        worktreeExists = fs.existsSync(path.join(workspaceRoot, worktreePath))
-      }
-      catch {
-        worktreeExists = false
-      }
-    }
-
-    resolved.push({
-      id,
-      number: issue.number,
-      title: issue.title,
-      column,
-      ...(sessionId ? { sessionId } : {}),
-      ...(profilePath ? { profilePath } : {}),
-      ...(specFile ? { specFile } : {}),
-      ...(planFile ? { planFile } : {}),
-      ...(pr ? { pr } : {}),
-      ...(branch ? { branch } : {}),
-      ...(worktreePath ? { worktreePath } : {}),
-      ...(worktreeExists !== undefined ? { worktreeExists } : {}),
-      ...(implementStatus ? { implementStatus } : {}),
-      ...(implementSessionId ? { implementSessionId } : {}),
-      ...(reviewSessionId ? { reviewSessionId } : {}),
-      ...(prerequisite !== undefined ? { prerequisite } : {}),
-      ...(color ? { color } : {}),
-      ...(autoReview !== undefined ? { autoReview } : {}),
-      htmlUrl: issue.html_url,
-    })
+    resolved.push(await buildIssue({
+      host,
+      token,
+      owner,
+      repo,
+      workspaceRoot,
+      issue,
+      comments: bucket,
+      prerequisite,
+    }))
   }
 
   return resolved
+}
+
+/**
+ * Loads a single issue by number, resolving its column / state metadata the
+ * same way `loadIssues` does. Returns `null` if Gitea reports the issue
+ * does not exist (404). Used by the incremental "issue created" path so the
+ * webview can append one card without rerendering the whole board.
+ */
+export async function loadSingleIssue(opts: {
+  host: string
+  token: string
+  owner: string
+  repo: string
+  workspaceRoot?: string
+  issueNumber: number
+}): Promise<Issue | null> {
+  const { host, token, owner, repo, workspaceRoot, issueNumber } = opts
+
+  const issue = await getIssue({ host, token, owner, repo, index: issueNumber })
+  if (!issue)
+    return null
+
+  const [comments, prerequisite] = await Promise.all([
+    listIssueComments({ host, token, owner, repo, index: issueNumber }),
+    (async () => {
+      try {
+        const deps = await getDependencies({ host, token, owner, repo, index: issueNumber })
+        return deps.length > 0 ? deps[0].number : undefined
+      }
+      catch {
+        return undefined
+      }
+    })(),
+  ])
+
+  return buildIssue({
+    host,
+    token,
+    owner,
+    repo,
+    workspaceRoot,
+    issue,
+    comments,
+    prerequisite,
+  })
 }

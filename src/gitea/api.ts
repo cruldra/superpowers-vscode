@@ -246,6 +246,23 @@ export async function getPullRequest(opts: {
   }
 }
 
+export async function getIssue(opts: {
+  host: string
+  token: string
+  owner: string
+  repo: string
+  index: number
+}): Promise<GiteaIssue | null> {
+  const res = await fetch(
+    `${baseUrl(opts.host)}/repos/${opts.owner}/${opts.repo}/issues/${opts.index}`,
+    { headers: authHeaders(opts.token) },
+  )
+  if (res.status === 404)
+    return null
+  await ensureOk(res)
+  return await res.json() as GiteaIssue
+}
+
 export async function getDependencies(opts: {
   host: string
   token: string
