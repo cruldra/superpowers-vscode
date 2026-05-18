@@ -1174,12 +1174,15 @@ class WebhookCoordinator {
     // includes the just-posted comment, so a first review yields count=1.
     let reviewCount = 1
     try {
+      // 审查评论 post 在 PR 上，不是工单 issue 上。如果当前 comment 来自 PR
+      // (event.prNumber !== undefined)，就去 PR 评论流数；否则才走工单号。
+      const commentsIndex = event.prNumber ?? realIssueNumber
       const comments = await listIssueComments({
         host: ctx.host,
         token: ctx.token,
         owner: ctx.owner,
         repo: ctx.repo,
-        index: realIssueNumber,
+        index: commentsIndex,
       })
       reviewCount = comments.filter(c => /<!--\s*spx:review=1\s*-->/i.test(c.body ?? '')).length
     }
