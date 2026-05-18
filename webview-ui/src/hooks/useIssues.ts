@@ -26,7 +26,7 @@ export interface SettingsValues {
   host: string
   token: string
   webhookPort: number
-  createIssuePrompt: string
+  brainstormPrompt: string
   implementPlanPrompt: string
   autoReview: boolean
   reviewPrompt: string
@@ -38,7 +38,7 @@ export interface SettingsOverlayState {
   canCancel: boolean
   tokenSaved: boolean
   webhookPort: number
-  createIssuePrompt: string
+  brainstormPrompt: string
   implementPlanPrompt: string
   autoReview: boolean
   reviewPrompt: string
@@ -76,7 +76,6 @@ export interface UseIssuesResult {
   resumeReviewSession: (sessionId: string, issueNumber: number, cwd?: string) => void
   focusSession: (sessionId: string) => void
   openFile: (path: string) => void
-  loadSessionFiles: (sessionId: string | undefined, issueNumber: number) => void
   implement: (issueNumber: number, planFile: string, profilePath?: string, sessionId?: string) => void
   openPr: (pr: string) => void
   openWorktree: (path: string) => void
@@ -123,7 +122,7 @@ export function useIssues(): UseIssuesResult {
       host: values.host,
       token: values.token,
       webhookPort: values.webhookPort,
-      createIssuePrompt: values.createIssuePrompt,
+      brainstormPrompt: values.brainstormPrompt,
       implementPlanPrompt: values.implementPlanPrompt,
       autoReview: values.autoReview,
       reviewPrompt: values.reviewPrompt,
@@ -173,15 +172,6 @@ export function useIssues(): UseIssuesResult {
 
   const openFile = useCallback((path: string): void => {
     postMessage({ type: 'editor/open-file', path })
-  }, [])
-
-  const loadSessionFiles = useCallback((sessionId: string | undefined, issueNumber: number): void => {
-    if (!sessionId) {
-      // eslint-disable-next-line no-console
-      console.warn('[superpowers] loadSessionFiles called without sessionId')
-      return
-    }
-    postMessage({ type: 'session/load-files', sessionId, issueNumber })
   }, [])
 
   const implement = useCallback((
@@ -297,7 +287,7 @@ export function useIssues(): UseIssuesResult {
             canCancel: msg.canCancel === true,
             tokenSaved: msg.tokenSaved,
             webhookPort: msg.webhookPort,
-            createIssuePrompt: msg.createIssuePrompt,
+            brainstormPrompt: msg.brainstormPrompt,
             implementPlanPrompt: msg.implementPlanPrompt,
             autoReview: msg.autoReview,
             reviewPrompt: msg.reviewPrompt,
@@ -346,5 +336,5 @@ export function useIssues(): UseIssuesResult {
     return cleanup
   }, [])
 
-  return { state, settings, globalAutoReview, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, focusSession, openFile, loadSessionFiles, implement, openPr, openWorktree, deleteWorktree, changeColumn, setDependency, clearDependency, updateIssueAutoReview, logs, fetchLogs, clearLogs, pendingSelectId, clearPendingSelect }
+  return { state, settings, globalAutoReview, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, focusSession, openFile, implement, openPr, openWorktree, deleteWorktree, changeColumn, setDependency, clearDependency, updateIssueAutoReview, logs, fetchLogs, clearLogs, pendingSelectId, clearPendingSelect }
 }

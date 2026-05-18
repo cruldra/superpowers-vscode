@@ -17,7 +17,7 @@ interface SubmitValues {
   host: string
   token: string
   webhookPort: number
-  createIssuePrompt: string
+  brainstormPrompt: string
   implementPlanPrompt: string
   autoReview: boolean
   reviewPrompt: string
@@ -30,7 +30,7 @@ export interface SettingsModalProps {
   canCancel?: boolean
   initialTokenSaved: boolean
   initialWebhookPort: number
-  initialCreateIssuePrompt: string
+  initialBrainstormPrompt: string
   initialImplementPlanPrompt: string
   initialAutoReview: boolean
   initialReviewPrompt: string
@@ -85,7 +85,7 @@ export function SettingsModal({
   canCancel,
   initialTokenSaved,
   initialWebhookPort,
-  initialCreateIssuePrompt,
+  initialBrainstormPrompt,
   initialImplementPlanPrompt,
   initialAutoReview,
   initialReviewPrompt,
@@ -96,14 +96,14 @@ export function SettingsModal({
   const [host, setHost] = useState(initialHost)
   const [token, setToken] = useState('')
   const [webhookPort, setWebhookPort] = useState<string>(String(initialWebhookPort))
-  const [createIssuePrompt, setCreateIssuePrompt] = useState(initialCreateIssuePrompt)
+  const [brainstormPrompt, setBrainstormPrompt] = useState(initialBrainstormPrompt)
   const [implementPlanPrompt, setImplementPlanPrompt] = useState(initialImplementPlanPrompt)
   const [autoReview, setAutoReview] = useState(initialAutoReview)
   const [reviewPrompt, setReviewPrompt] = useState(initialReviewPrompt)
   const [errors, setErrors] = useState<Partial<Record<ErrorKey, string>>>({})
 
   // Reset local state whenever the modal opens with fresh server values.
-  // We intentionally don't depend on initialCreateIssuePrompt/initialImplementPlanPrompt
+  // We intentionally don't depend on initialBrainstormPrompt/initialImplementPlanPrompt
   // to mid-edit; this effect just primes form state on each (re)open.
   useEffect(() => {
     if (!open)
@@ -112,7 +112,7 @@ export function SettingsModal({
     setHost(initialHost)
     setToken('')
     setWebhookPort(String(initialWebhookPort))
-    setCreateIssuePrompt(initialCreateIssuePrompt)
+    setBrainstormPrompt(initialBrainstormPrompt)
     setImplementPlanPrompt(initialImplementPlanPrompt)
     setAutoReview(initialAutoReview)
     setReviewPrompt(initialReviewPrompt)
@@ -177,7 +177,7 @@ export function SettingsModal({
       // extension side detects empty + existing-saved as "preserve".
       token: trimmedToken,
       webhookPort: portNum,
-      createIssuePrompt,
+      brainstormPrompt,
       implementPlanPrompt,
       autoReview,
       reviewPrompt,
@@ -335,14 +335,23 @@ export function SettingsModal({
             {activeGroup === 'prompts' && (
               <>
                 <Field
-                  label="建工单提示词"
-                  hint={<>可用占位符：<code>{'{userRequest}'}</code></>}
+                  label="头脑风暴提示词"
+                  hint={(
+                    <>
+                      可用占位符：
+                      <code>{'{userRequest}'}</code>
+                      、
+                      <code>{'{nonce}'}</code>
+                      。同时承担：建工单初始指令 + 会话内 spec/plan 路径写回 issue body 的持续约定。
+                    </>
+                  )}
                 >
                   <textarea
-                    rows={8}
-                    value={createIssuePrompt}
-                    onChange={e => setCreateIssuePrompt(e.target.value)}
+                    rows={12}
+                    value={brainstormPrompt}
+                    onChange={e => setBrainstormPrompt(e.target.value)}
                     className={`${inputClass} resize-y font-mono`}
+                    placeholder="头脑风暴 + 建工单 + 持续约定提示词"
                   />
                 </Field>
 

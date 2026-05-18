@@ -16,8 +16,7 @@ import * as path from 'node:path'
 import { commands, env, TabInputTerminal, ThemeColor, Uri, ViewColumn, window, workspace } from 'vscode'
 import { deleteToken, getToken, setToken } from '../auth/secrets'
 import { listClaudeProfiles } from '../cc/profiles'
-import { getCreateIssuePrompt, getImplementPlanPrompt } from '../cc/prompts'
-import { scanSessionFiles } from '../cc/sessionTranscript'
+import { getBrainstormPrompt, getImplementPlanPrompt } from '../cc/prompts'
 import { projectsDirFor, watchForNewSession } from '../cc/sessionWatcher'
 import { detectRepo } from '../git/remote'
 import { createWorktree } from '../git/worktree'
@@ -201,10 +200,6 @@ export class KanbanWebviewPanel {
     }
     if (msg.type === 'editor/open-file') {
       void this.handleOpenFile(msg.path)
-      return
-    }
-    if (msg.type === 'session/load-files') {
-      void this.handleLoadFiles(msg.sessionId, msg.issueNumber)
       return
     }
     if (msg.type === 'issue/implement') {
@@ -632,126 +627,7 @@ export class KanbanWebviewPanel {
    * webview state, since the webview's copy is loaded once per refresh and
    * may be stale.
    */
-  private async handleLoadFiles(sessionId: string, issueNumber: number): Promise<void> {
-    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
-    if (!workspaceRoot) {
-      this.postMessage({
-        type: 'toast/show',
-        id: makeNonce(),
-        level: 'error',
-        message: '请先打开一个工作区文件夹',
-        dismissOnTimer: 5000,
-      })
-      return
-    }
-
-    const remote = await detectRepo(workspaceRoot)
-    if (!remote) {
-      this.postMessage({
-        type: 'toast/show',
-        id: makeNonce(),
-        level: 'error',
-        message: '当前工作区没有 Gitea 远程仓库',
-        dismissOnTimer: 5000,
-      })
-      return
-    }
-
-    const token = await getToken(this.context, remote.host)
-    if (!token) {
-      this.postMessage({
-        type: 'toast/show',
-        id: makeNonce(),
-        level: 'error',
-        message: '请先完成 Gitea 配置',
-        dismissOnTimer: 5000,
-      })
-      return
-    }
-
-    const toastId = makeNonce()
-    this.postMessage({
-      type: 'toast/show',
-      id: toastId,
-      level: 'info',
-      message: '正在扫描 spec/plan…',
-      spinner: true,
-    })
-
-    try {
-      const scan = await scanSessionFiles({ workspaceRoot, sessionId })
-
-      if (!scan.specFile && !scan.planFile) {
-        this.postMessage({
-          type: 'toast/show',
-          id: toastId,
-          level: 'error',
-          message: '未在会话中找到 docs/superpowers 文件',
-          dismissOnTimer: 6000,
-        })
-        return
-      }
-
-      // Re-fetch this issue's comments so we mutate the freshest state JSON.
-      const comments = await listIssueComments({
-        host: remote.host,
-        token,
-        owner: remote.owner,
-        repo: remote.repo,
-        index: issueNumber,
-      })
-
-      let currentState: Record<string, unknown> = {}
-      if (comments.length > 0) {
-        const lastBody = (comments[comments.length - 1].body ?? '').trim()
-        if (lastBody) {
-          try {
-            const parsed = JSON.parse(lastBody) as unknown
-            if (parsed && typeof parsed === 'object')
-              currentState = parsed as Record<string, unknown>
-          }
-          catch {
-            // Last comment wasn't JSON; start fresh.
-          }
-        }
-      }
-
-      const merged: Record<string, unknown> = { ...currentState }
-      if (scan.specFile)
-        merged.specFile = scan.specFile
-      if (scan.planFile)
-        merged.planFile = scan.planFile
-
-      await postIssueComment({
-        host: remote.host,
-        token,
-        owner: remote.owner,
-        repo: remote.repo,
-        index: issueNumber,
-        body: JSON.stringify(merged),
-      })
-
-      this.postMessage({
-        type: 'toast/show',
-        id: toastId,
-        level: 'success',
-        message: '已写入 spec/plan 引用',
-        dismissOnTimer: 5000,
-      })
-
-      void this.loadAndPush()
-    }
-    catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      this.postMessage({
-        type: 'toast/show',
-        id: toastId,
-        level: 'error',
-        message: `扫描失败: ${message}`,
-        dismissOnTimer: 8000,
-      })
-    }
-  }
+  
 
   /**
    * Kick off the end-to-end "implement this plan" flow:
@@ -1763,7 +1639,7 @@ export class KanbanWebviewPanel {
         host,
         tokenSaved: false,
         webhookPort: s.webhookPort,
-        createIssuePrompt: s.createIssuePrompt,
+        brainstormPrompt: s.brainstormPrompt,
         implementPlanPrompt: s.implementPlanPrompt,
         autoReview: s.autoReview,
         reviewPrompt: s.reviewPrompt,
@@ -1789,7 +1665,7 @@ export class KanbanWebviewPanel {
           errorMessage: 'Token 无效或已过期，请重新填写',
           tokenSaved: false,
           webhookPort: s.webhookPort,
-          createIssuePrompt: s.createIssuePrompt,
+          brainstormPrompt: s.brainstormPrompt,
           implementPlanPrompt: s.implementPlanPrompt,
           autoReview: s.autoReview,
           reviewPrompt: s.reviewPrompt,
@@ -1806,7 +1682,7 @@ export class KanbanWebviewPanel {
     host: string
     token: string
     webhookPort: number
-    createIssuePrompt: string
+    brainstormPrompt: string
     implementPlanPrompt: string
     autoReview: boolean
     reviewPrompt: string
@@ -1829,7 +1705,7 @@ export class KanbanWebviewPanel {
         errorMessage: 'Host 和 Token 都不能为空',
         tokenSaved: !!oldToken,
         webhookPort: payload.webhookPort,
-        createIssuePrompt: payload.createIssuePrompt || prev.createIssuePrompt,
+        brainstormPrompt: payload.brainstormPrompt || prev.brainstormPrompt,
         implementPlanPrompt: payload.implementPlanPrompt || prev.implementPlanPrompt,
         autoReview: payload.autoReview,
         reviewPrompt: payload.reviewPrompt || prev.reviewPrompt,
@@ -1838,7 +1714,7 @@ export class KanbanWebviewPanel {
     }
     await saveSettings(this.context, {
       webhookPort: payload.webhookPort,
-      createIssuePrompt: payload.createIssuePrompt,
+      brainstormPrompt: payload.brainstormPrompt,
       implementPlanPrompt: payload.implementPlanPrompt,
       autoReview: payload.autoReview,
       reviewPrompt: payload.reviewPrompt,
@@ -1894,7 +1770,7 @@ export class KanbanWebviewPanel {
       canCancel: true,
       tokenSaved,
       webhookPort: s.webhookPort,
-      createIssuePrompt: s.createIssuePrompt,
+      brainstormPrompt: s.brainstormPrompt,
       implementPlanPrompt: s.implementPlanPrompt,
       autoReview: s.autoReview,
       reviewPrompt: s.reviewPrompt,
@@ -2017,7 +1893,7 @@ export class KanbanWebviewPanel {
     }
 
     const color = pickRandomIssueColor()
-    const prompt = getCreateIssuePrompt(this.context, {
+    const prompt = getBrainstormPrompt(this.context, {
       userRequest: trimmed,
       nonce,
       imagePaths: imagePaths.length > 0 ? imagePaths : undefined,

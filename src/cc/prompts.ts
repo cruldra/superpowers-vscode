@@ -1,5 +1,5 @@
 /**
- * Prompt templates for the two claude entry points (create-issue and
+ * Prompt templates for the two claude entry points (brainstorm and
  * implement-plan). Defaults live in `src/settings/store.ts` (alongside the
  * other tunables); these helpers just read the persisted setting and run
  * placeholder substitution.
@@ -12,11 +12,11 @@
 import type { ExtensionContext } from 'vscode'
 import { getSettings } from '../settings/store'
 
-export function getCreateIssuePrompt(
+export function getBrainstormPrompt(
   ctx: ExtensionContext,
   vars: { userRequest: string, nonce: string, imagePaths?: string[] },
 ): string {
-  const tpl = getSettings(ctx).createIssuePrompt
+  const tpl = getSettings(ctx).brainstormPrompt
   let out = tpl
     .split('{userRequest}')
     .join(vars.userRequest)

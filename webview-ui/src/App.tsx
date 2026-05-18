@@ -30,7 +30,6 @@ export function App() {
     resumeReviewSession,
     focusSession,
     openFile,
-    loadSessionFiles,
     implement,
     openPr,
     openWorktree,
@@ -247,7 +246,6 @@ export function App() {
                 onResumeSession={resumeSession}
                 onResumeReviewSession={resumeReviewSession}
                 onOpenFile={openFile}
-                onLoadFiles={loadSessionFiles}
                 onImplement={implement}
                 onOpenPr={openPr}
                 onOpenWorktree={openWorktree}
@@ -308,7 +306,7 @@ export function App() {
         canCancel={settings?.canCancel}
         initialTokenSaved={settings?.tokenSaved ?? false}
         initialWebhookPort={settings?.webhookPort ?? 17421}
-        initialCreateIssuePrompt={settings?.createIssuePrompt ?? ''}
+        initialBrainstormPrompt={settings?.brainstormPrompt ?? ''}
         initialImplementPlanPrompt={settings?.implementPlanPrompt ?? ''}
         initialAutoReview={settings?.autoReview ?? true}
         initialReviewPrompt={settings?.reviewPrompt ?? ''}

@@ -340,6 +340,9 @@ class WebhookCoordinator {
       if (event.action === 'opened' || event.action === 'reopened') {
         await this.handleIssueOpened(event)
       }
+      else if (event.action === 'edited') {
+        await this.handleIssueEdited(event)
+      }
       else {
         logger.add({
           level: 'info',
@@ -545,6 +548,144 @@ class WebhookCoordinator {
           details: msg,
         })
       }
+    }
+  }
+
+  /**
+   * Issue `edited` payload: cc updates the issue body with `<!-- spx:spec=... -->`
+   * / `<!-- spx:plan=... -->` annotation lines as it discovers spec/plan files.
+   * We scan the body for those markers, diff against the state-JSON comment,
+   * and (if anything changed) merge the new paths in + patch the open panel
+   * so the detail view refreshes without a full kanban reload.
+   */
+  private async handleIssueEdited(event: IssueWebhookEvent): Promise<void> {
+    if (!this.ctx)
+      return
+
+    const ws = workspace.workspaceFolders?.[0]?.uri.fsPath
+    if (!ws) {
+      logger.add({
+        level: 'warn',
+        source: 'webhook',
+        message: 'issue edited 事件忽略：未打开工作区',
+      })
+      return
+    }
+    const remote = await detectRepo(ws)
+    if (!remote) {
+      logger.add({
+        level: 'warn',
+        source: 'webhook',
+        message: 'issue edited 事件忽略：工作区未关联 gitea',
+      })
+      return
+    }
+    const token = await getToken(this.ctx, remote.host)
+    if (!token) {
+      logger.add({
+        level: 'warn',
+        source: 'webhook',
+        message: 'issue edited 事件忽略：未配置 token',
+      })
+      return
+    }
+
+    const specMatch = event.body.match(/<!--\s*spx:spec=([^\s>]+)\s*-->/)
+    const planMatch = event.body.match(/<!--\s*spx:plan=([^\s>]+)\s*-->/)
+    const specFile = specMatch ? specMatch[1] : undefined
+    const planFile = planMatch ? planMatch[1] : undefined
+
+    if (!specFile && !planFile) {
+      logger.add({
+        level: 'info',
+        source: 'webhook',
+        message: `issue=#${event.issueNumber} edited body 无 spx:spec/spx:plan 注释，跳过`,
+      })
+      return
+    }
+
+    let currentState: Record<string, unknown> = {}
+    try {
+      currentState = await readStateJsonComment({
+        host: remote.host,
+        token,
+        owner: remote.owner,
+        repo: remote.repo,
+        issueNumber: event.issueNumber,
+      })
+    }
+    catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      logger.add({
+        level: 'warn',
+        source: 'webhook',
+        message: 'readStateJsonComment 失败（继续尝试合并）',
+        details: msg,
+      })
+    }
+
+    const currentSpec = typeof currentState.specFile === 'string' ? currentState.specFile : undefined
+    const currentPlan = typeof currentState.planFile === 'string' ? currentState.planFile : undefined
+
+    // cc only adds or updates; it never deletes. Treat an absent marker
+    // (undefined) as "no signal", not "clear" — that way deleting a spec
+    // line by mistake won't lose the existing pointer.
+    const nextSpec = specFile ?? currentSpec
+    const nextPlan = planFile ?? currentPlan
+    if (currentSpec === nextSpec && currentPlan === nextPlan) {
+      logger.add({
+        level: 'info',
+        source: 'webhook',
+        message: `issue=#${event.issueNumber} edited spec/plan 无变化，跳过 (spec=${nextSpec ?? '<空>'} plan=${nextPlan ?? '<空>'})`,
+      })
+      return
+    }
+
+    const extra: Record<string, unknown> = {}
+    if (specFile)
+      extra.specFile = specFile
+    if (planFile)
+      extra.planFile = planFile
+
+    try {
+      await mergeStateJsonComment({
+        host: remote.host,
+        owner: remote.owner,
+        repo: remote.repo,
+        token,
+        issueNumber: event.issueNumber,
+        extra,
+      })
+    }
+    catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      logger.add({
+        level: 'warn',
+        source: 'webhook',
+        message: 'mergeStateJsonComment 失败（issue edited）',
+        details: msg,
+      })
+      return
+    }
+
+    logger.add({
+      level: 'info',
+      source: 'webhook',
+      message: `issue=#${event.issueNumber} edited spec/plan 已同步`,
+      details: `spec=${specFile ?? '<未变>'} plan=${planFile ?? '<未变>'}`,
+    })
+
+    if (this.activePanel) {
+      const patch: { specFile?: string, planFile?: string } = {}
+      if (specFile)
+        patch.specFile = specFile
+      if (planFile)
+        patch.planFile = planFile
+      this.activePanel.postMessage({
+        type: 'issue/patch',
+        issueNumber: event.issueNumber,
+        patch,
+      })
     }
   }
 

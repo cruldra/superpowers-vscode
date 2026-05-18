@@ -19,9 +19,6 @@ interface IssueDetailPanelProps {
   onResumeReviewSession: (sessionId: string, issueNumber: number, cwd?: string) => void
   /** Open a workspace-relative file in the editor. */
   onOpenFile: (path: string) => void
-  /** Scan the Claude session transcript for `sessionId` and merge any
-   * discovered spec/plan paths into the issue's state-JSON comment. */
-  onLoadFiles: (sessionId: string | undefined, issueNumber: number) => void
   /** Kick off the end-to-end implementation flow for the given plan file. */
   onImplement: (issueNumber: number, planFile: string, profilePath?: string, sessionId?: string) => void
   /** Open the gitea PR page in the browser. */
@@ -52,7 +49,6 @@ export function IssueDetailPanel({
   onResumeSession,
   onResumeReviewSession,
   onOpenFile,
-  onLoadFiles,
   onImplement,
   onOpenPr,
   onOpenWorktree,
@@ -173,35 +169,15 @@ export function IssueDetailPanel({
             key: 'specFile',
             label: '规格文件',
             type: 'file-link',
-            description: '点击文件名在编辑器打开；点击右侧按钮重新扫描会话',
+            description: '点击文件名在编辑器打开；cc 通过 issue body 的 <!-- spx:spec=路径 --> 注释实时同步',
             onOpen: (p: string) => onOpenFile(p),
-            onReload: () => {
-              if (!issue)
-                return
-              if (!issue.sessionId) {
-                // eslint-disable-next-line no-console
-                console.warn('[superpowers] cannot load spec/plan: issue has no sessionId')
-                return
-              }
-              onLoadFiles(issue.sessionId, issue.number)
-            },
           },
           {
             key: 'planFile',
             label: '计划文件',
             type: 'file-link',
-            description: '点击文件名在编辑器打开；点击重载按钮重新扫描会话；点击实施按钮启动实施流程',
+            description: '点击文件名在编辑器打开；点击实施按钮启动实施流程；cc 通过 issue body 的 <!-- spx:plan=路径 --> 注释实时同步',
             onOpen: (p: string) => onOpenFile(p),
-            onReload: () => {
-              if (!issue)
-                return
-              if (!issue.sessionId) {
-                // eslint-disable-next-line no-console
-                console.warn('[superpowers] cannot load spec/plan: issue has no sessionId')
-                return
-              }
-              onLoadFiles(issue.sessionId, issue.number)
-            },
             // Hide the "实施" button entirely when there's no plan file.
             secondaryActionIcon: issue?.planFile
               ? <Play className="size-3.5" />
@@ -262,7 +238,7 @@ export function IssueDetailPanel({
         ],
       },
     ],
-    [onResumeSession, onResumeReviewSession, onOpenFile, onLoadFiles, onImplement, onOpenPr, onOpenWorktree, onDeleteWorktree, onOpenLogs, issue, locked, lockTitle],
+    [onResumeSession, onResumeReviewSession, onOpenFile, onImplement, onOpenPr, onOpenWorktree, onDeleteWorktree, onOpenLogs, issue, locked, lockTitle],
   )
 
   if (!issue) {

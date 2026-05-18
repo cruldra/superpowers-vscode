@@ -314,7 +314,7 @@ function PropertyRow({
               : (
                   <span className="min-w-0 flex-1 truncate text-xs opacity-50">未加载</span>
                 )}
-            {!hasValue && (
+            {!hasValue && propDef.onReload && (
               <button
                 type="button"
                 onClick={() => propDef.onReload?.()}
