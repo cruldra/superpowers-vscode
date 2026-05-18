@@ -204,18 +204,15 @@ export function IssueDetailPanel({
             key: 'pr',
             label: '合并请求',
             type: 'pr-link',
-            description: '点击在浏览器打开关联的 PR',
+            description: '点击在浏览器打开关联的 PR；已合并时编号后追加 "(已合并)" 标识',
             onAction: (v) => {
-              if (typeof v === 'string' && v.length > 0)
-                onOpenPr(v)
+              if (typeof v !== 'string' || v.length === 0)
+                return
+              // value 形如 "65" 或 "65(已合并)"；剥掉合并后缀只把纯编号传出去。
+              const pr = v.replace(/\(已合并\)\s*$/, '')
+              if (pr.length > 0)
+                onOpenPr(pr)
             },
-          },
-          {
-            key: 'prMerged',
-            label: 'PR 状态',
-            type: 'string',
-            readOnly: true,
-            description: 'PR 是否已合并；拖到 完成 列或在 gitea 手动合并后置为"已合并"',
           },
           {
             key: 'branch',
@@ -266,8 +263,9 @@ export function IssueDetailPanel({
     profilePath: issue.profilePath ?? null,
     specFile: issue.specFile ?? null,
     planFile: issue.planFile ?? null,
-    pr: issue.pr ?? null,
-    prMerged: issue.pr ? (issue.prMerged ? '已合并' : '未合并') : null,
+    pr: issue.pr
+      ? `${issue.pr}${issue.prMerged ? '(已合并)' : ''}`
+      : null,
     branch: issue.branch ?? null,
     worktreePath: issue.worktreePath ?? null,
   }

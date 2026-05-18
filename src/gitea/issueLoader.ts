@@ -25,6 +25,7 @@ import {
   getCurrentUser,
   getDependencies,
   getIssue,
+  getPullRequest,
   listAllRepoComments,
   listIssueComments,
   listIssuesByFilter,
@@ -200,6 +201,33 @@ function groupCommentsByIssue(comments: GiteaComment[]): Map<number, GiteaCommen
  * state comment when none exists, statting the worktree path) so it can be
  * reused by both the full loader and `loadSingleIssue`.
  */
+/**
+ * Resolves the live merged state for a PR by querying gitea. Returns the
+ * boolean on success and `undefined` on any failure (network, 404, non-numeric
+ * index, etc.) so callers can fall back to whatever they had cached.
+ */
+async function fetchPrMerged(opts: {
+  host: string
+  token: string
+  owner: string
+  repo: string
+  pr: string | undefined
+}): Promise<boolean | undefined> {
+  const { host, token, owner, repo, pr } = opts
+  if (!pr)
+    return undefined
+  const index = Number.parseInt(pr, 10)
+  if (!Number.isFinite(index) || index <= 0)
+    return undefined
+  try {
+    const data = await getPullRequest({ host, token, owner, repo, index })
+    return data.merged === true
+  }
+  catch {
+    return undefined
+  }
+}
+
 async function buildIssue(opts: {
   host: string
   token: string
@@ -209,8 +237,10 @@ async function buildIssue(opts: {
   issue: GiteaIssue
   comments: GiteaComment[]
   prerequisite: number | undefined
+  /** 实时 PR merged 状态（由 loader 并发查询后传入）；undefined 表示查询失败或无 PR，回退 state JSON。 */
+  liveMerged?: boolean
 }): Promise<Issue> {
-  const { host, token, owner, repo, workspaceRoot, issue, comments, prerequisite } = opts
+  const { host, token, owner, repo, workspaceRoot, issue, comments, prerequisite, liveMerged } = opts
   const id = `${owner}/${repo}#${issue.number}`
   const {
     column: fromComment,
@@ -219,7 +249,7 @@ async function buildIssue(opts: {
     specFile,
     planFile,
     pr,
-    prMerged,
+    prMerged: persistedMerged,
     branch,
     worktreePath,
     implementStatus,
@@ -228,6 +258,8 @@ async function buildIssue(opts: {
     color,
     autoReview,
   } = parseColumnFromComments(comments)
+  // 优先用 PR API 实时结果；失败时退回 state JSON 持久化值。
+  const prMerged = liveMerged !== undefined ? liveMerged : persistedMerged
   let column: IssueColumn
   if (fromComment) {
     column = fromComment
@@ -316,12 +348,13 @@ export async function loadIssues(opts: {
   const merged = mergeIssues(assigned, created)
   const buckets = groupCommentsByIssue(allComments)
 
-  // Concurrently fetch each issue's dependencies. Per product rule we keep
-  // at most one prerequisite — the first entry in the array (Gitea orders by
-  // creation time). Failures (412 dependencies disabled, network, etc.) are
-  // silently swallowed so one bad issue can't take down the whole loader.
-  const prerequisites = await Promise.all(
-    merged.map(async (issue) => {
+  // Concurrently fetch each issue's dependencies + live PR merged state.
+  // Per product rule we keep at most one prerequisite — the first entry in
+  // the array (Gitea orders by creation time). Failures (412 dependencies
+  // disabled, network, etc.) are silently swallowed so one bad issue can't
+  // take down the whole loader. PR merged 查询同样以失败兜底 undefined。
+  const [prerequisites, liveMergedList] = await Promise.all([
+    Promise.all(merged.map(async (issue) => {
       try {
         const deps = await getDependencies({ host, token, owner, repo, index: issue.number })
         return deps.length > 0 ? deps[0].number : undefined
@@ -329,13 +362,19 @@ export async function loadIssues(opts: {
       catch {
         return undefined
       }
-    }),
-  )
+    })),
+    Promise.all(merged.map(async (issue) => {
+      const bucket = buckets.get(issue.number) ?? []
+      const { pr } = parseColumnFromComments(bucket)
+      return fetchPrMerged({ host, token, owner, repo, pr })
+    })),
+  ])
 
   const resolved: Issue[] = []
   for (let i = 0; i < merged.length; i++) {
     const issue = merged[i]
     const prerequisite = prerequisites[i]
+    const liveMerged = liveMergedList[i]
     const bucket = buckets.get(issue.number) ?? []
     resolved.push(await buildIssue({
       host,
@@ -346,6 +385,7 @@ export async function loadIssues(opts: {
       issue,
       comments: bucket,
       prerequisite,
+      liveMerged,
     }))
   }
 
@@ -385,6 +425,10 @@ export async function loadSingleIssue(opts: {
     })(),
   ])
 
+  // 解析 state JSON 拿到 pr 字段后实时查 merged 状态；失败 fallback undefined。
+  const { pr } = parseColumnFromComments(comments)
+  const liveMerged = await fetchPrMerged({ host, token, owner, repo, pr })
+
   return buildIssue({
     host,
     token,
@@ -394,5 +438,6 @@ export async function loadSingleIssue(opts: {
     issue,
     comments,
     prerequisite,
+    liveMerged,
   })
 }
