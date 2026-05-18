@@ -1169,6 +1169,50 @@ class WebhookCoordinator {
   ): Promise<void> {
     if (!this.ctx)
       return
+
+    // Read current column from state JSON; if it's still 'in-progress',
+    // auto-advance to 'review' so the kanban reflects "审查中" status. Skip if
+    // already in review/done to avoid bouncing the card around.
+    try {
+      const stateJson = await readStateJsonComment({
+        host: ctx.host,
+        token: ctx.token,
+        owner: ctx.owner,
+        repo: ctx.repo,
+        issueNumber,
+      })
+      if (stateJson.column === 'in-progress') {
+        await mergeStateJsonComment({
+          host: ctx.host,
+          token: ctx.token,
+          owner: ctx.owner,
+          repo: ctx.repo,
+          issueNumber,
+          extra: { column: 'review' },
+        })
+        this.activePanel?.postMessage({
+          type: 'issue/patch',
+          issueNumber,
+          patch: { column: 'review' },
+        })
+        logger.add({
+          level: 'info',
+          source: 'webhook',
+          message: `自动推进 #${issueNumber}: in-progress → review`,
+        })
+      }
+    }
+    catch (err) {
+      // Non-fatal: log and keep going with the review.
+      const message = err instanceof Error ? err.message : String(err)
+      logger.add({
+        level: 'warn',
+        source: 'webhook',
+        message: `读取/更新 column 失败 (auto-advance review) #${issueNumber}`,
+        details: message,
+      })
+    }
+
     const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
     if (!workspaceRoot) {
       logger.add({
