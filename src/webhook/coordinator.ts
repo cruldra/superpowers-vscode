@@ -11,7 +11,7 @@
 
 import type { ExtensionContext } from 'vscode'
 import type { KanbanWebviewPanel } from '../panel/KanbanPanel'
-import type { IssueWebhookEvent, PrWebhookEvent, WebhookEvent } from './server'
+import type { IssueCommentWebhookEvent, IssueWebhookEvent, PrWebhookEvent, WebhookEvent } from './server'
 import * as fs from 'node:fs'
 import { promises as fsp } from 'node:fs'
 import * as path from 'node:path'
@@ -351,6 +351,16 @@ class WebhookCoordinator {
           details: `issue=#${event.issueNumber}`,
         })
       }
+      return
+    }
+
+    if (event.kind === 'issue_comment') {
+      logger.add({
+        level: 'info',
+        source: 'webhook',
+        message: `收到 issue_comment 事件 action=${event.action} issue=#${event.issueNumber}`,
+      })
+      await this.handleIssueCommentCreated(event)
       return
     }
 
@@ -707,56 +717,6 @@ class WebhookCoordinator {
       })
       return
     }
-    // Detect PR replacement: if the issue's latest state JSON already has a
-    // non-empty `pr` that's different from this new event, the user has
-    // hard-deleted the old PR and re-pushed. Reset reviewSessionId so the
-    // next review starts a fresh codex thread.
-    let oldPr = ''
-    try {
-      const comments = await listIssueComments({
-        host: ctx.host,
-        token: ctx.token,
-        owner: ctx.owner,
-        repo: ctx.repo,
-        index: event.issueNumber,
-      })
-      const last = comments[comments.length - 1]
-      const body = (last?.body ?? '').trim()
-      if (body) {
-        try {
-          const parsed = JSON.parse(body) as { pr?: unknown }
-          if (typeof parsed?.pr === 'string')
-            oldPr = parsed.pr
-        }
-        catch {
-          // last comment isn't JSON — treat as no prior pr.
-        }
-      }
-    }
-    catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      logger.add({
-        level: 'warn',
-        source: 'webhook',
-        message: '读取 state JSON 失败（opened）',
-        details: message,
-      })
-    }
-
-    const merge: Record<string, unknown> = {
-      pr: event.pr,
-      implementStatus: 'done',
-    }
-    const isReplacement = oldPr.length > 0 && oldPr !== event.pr
-    if (isReplacement) {
-      merge.reviewSessionId = ''
-      logger.add({
-        level: 'info',
-        source: 'webhook',
-        message: `PR 已被替换 #${oldPr} → #${event.pr}, 重置 reviewSessionId`,
-        details: `issue=#${event.issueNumber}`,
-      })
-    }
 
     try {
       await mergeStateJsonComment({
@@ -765,7 +725,10 @@ class WebhookCoordinator {
         repo: ctx.repo,
         token: ctx.token,
         issueNumber: event.issueNumber,
-        extra: merge,
+        extra: {
+          pr: event.pr,
+          implementStatus: 'done',
+        },
       })
     }
     catch (err) {
@@ -844,7 +807,7 @@ class WebhookCoordinator {
     if (effectiveAutoReview) {
       // Fire-and-forget; the review can take minutes and we don't want to
       // block the webhook response or the panel refresh.
-      void this.triggerReview(event.issueNumber, event.pr, undefined, ctx)
+      void this.triggerReview(event.issueNumber, event.pr, ctx)
     }
     else {
       logger.add({
@@ -857,9 +820,10 @@ class WebhookCoordinator {
   }
 
   /**
-   * `synchronize`: re-fetch the state JSON, look up `reviewSessionId`, and
-   * resume the codex thread with a follow-up prompt. Skip entirely when
-   * autoReview is off or no prior session exists.
+   * `synchronize`: kick off a fresh `codex exec review` run when autoReview
+   * is on. Codex itself posts the review back as a PR comment, which loops
+   * around through {@link handleIssueCommentCreated} to inject into the
+   * implementation terminal.
    */
   private async handlePrSynchronize(event: ResolvedWebhookEvent): Promise<void> {
     if (!this.ctx)
@@ -904,53 +868,12 @@ class WebhookCoordinator {
       logger.add({
         level: 'info',
         source: 'webhook',
-        message: `未启用审查或未审过 synchronize #${event.issueNumber}`,
+        message: `跳过 synchronize 自动审查 #${event.issueNumber}`,
         details: `autoReview=off (source=${autoReviewSource})`,
       })
       return
     }
-    let reviewSessionId: string | undefined
-    try {
-      const comments = await listIssueComments({
-        host: ctx.host,
-        token: ctx.token,
-        owner: ctx.owner,
-        repo: ctx.repo,
-        index: event.issueNumber,
-      })
-      const last = comments[comments.length - 1]
-      const body = (last?.body ?? '').trim()
-      if (body) {
-        try {
-          const parsed = JSON.parse(body) as { reviewSessionId?: unknown }
-          if (typeof parsed?.reviewSessionId === 'string' && parsed.reviewSessionId.length > 0)
-            reviewSessionId = parsed.reviewSessionId
-        }
-        catch {
-          // last comment isn't JSON — fine, just no resume id.
-        }
-      }
-    }
-    catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      logger.add({
-        level: 'warn',
-        source: 'webhook',
-        message: '读取 state JSON 失败（synchronize）',
-        details: message,
-      })
-    }
-
-    if (!reviewSessionId) {
-      logger.add({
-        level: 'info',
-        source: 'webhook',
-        message: `未启用审查或未审过 synchronize #${event.issueNumber}`,
-        details: '缺少 reviewSessionId',
-      })
-      return
-    }
-    void this.triggerReview(event.issueNumber, event.pr, reviewSessionId, ctx)
+    void this.triggerReview(event.issueNumber, event.pr, ctx)
   }
 
   /**
@@ -969,16 +892,15 @@ class WebhookCoordinator {
   }
 
   /**
-   * `deleted`: the user hard-deleted the PR on gitea. Clear `pr` and
-   * `reviewSessionId` from the state JSON (using empty strings so the loader
-   * treats them as unset) and refresh the kanban. The webhook stays alive
-   * for the next push.
+   * `deleted`: the user hard-deleted the PR on gitea. Clear `pr` from the
+   * state JSON (using the empty string so the loader treats it as unset) and
+   * refresh the kanban. The webhook stays alive for the next push.
    */
   private async handlePrDeleted(event: ResolvedWebhookEvent): Promise<void> {
     logger.add({
       level: 'info',
       source: 'webhook',
-      message: `PR #${event.pr} deleted, 清空 state JSON 中的 pr / reviewSessionId`,
+      message: `PR #${event.pr} deleted, 清空 state JSON 中的 pr`,
       details: `issue=#${event.issueNumber}`,
     })
     const ctx = await this.resolveRepoContext(event.issueNumber)
@@ -998,7 +920,7 @@ class WebhookCoordinator {
         repo: ctx.repo,
         token: ctx.token,
         issueNumber: event.issueNumber,
-        extra: { pr: '', reviewSessionId: '' },
+        extra: { pr: '' },
       })
     }
     catch (err) {
@@ -1056,15 +978,110 @@ class WebhookCoordinator {
   }
 
   /**
-   * Run `codex exec review` (or resume) and inject the resulting text into
-   * the implementation cc terminal. Persists `reviewSessionId` the first
-   * time (when `resumeFrom` is undefined). Best-effort — any failure is
-   * logged + toasted but doesn't propagate.
+   * Inbound `issue_comment created` handler — picks up the marker comment that
+   * the codex review run posts back, strips the marker line, and injects the
+   * remaining markdown into the issue's implementation cc terminal.
+   *
+   * Comments without the `<!-- spx:review=1 -->` marker are ignored. Edited /
+   * deleted comments are also ignored (the dispatcher only routes 'created').
+   *
+   * `isFirstReview` is derived by counting the marker across the issue's
+   * existing comments — when this is the only one (count <= 1), it's the
+   * first review and `injectIntoImplTerminal` appends the merge-to-main
+   * suffix.
    */
+  private async handleIssueCommentCreated(event: IssueCommentWebhookEvent): Promise<void> {
+    if (event.action !== 'created') {
+      logger.add({
+        level: 'info',
+        source: 'webhook',
+        message: `跳过 issue_comment action=${event.action} #${event.issueNumber}`,
+      })
+      return
+    }
+    const body = event.commentBody
+    if (!/<!--\s*spx:review=1\s*-->/i.test(body)) {
+      logger.add({
+        level: 'info',
+        source: 'webhook',
+        message: `issue_comment 无 spx:review 标识，忽略 #${event.issueNumber}`,
+      })
+      return
+    }
+    const text = body.replace(/<!--\s*spx:review=1\s*-->\s*\n?/i, '').trim()
+    if (!text) {
+      logger.add({
+        level: 'warn',
+        source: 'webhook',
+        message: `审查评论正文为空 #${event.issueNumber}`,
+      })
+      return
+    }
+
+    const ctx = await this.resolveRepoContext(event.issueNumber)
+    if (!ctx) {
+      logger.add({
+        level: 'error',
+        source: 'webhook',
+        message: `无法解析 #${event.issueNumber} 的仓库上下文（issue_comment），跳过`,
+      })
+      return
+    }
+
+    // Count marker comments to determine isFirstReview. This call also
+    // includes the just-posted comment, so a first review yields count=1.
+    let reviewCount = 1
+    try {
+      const comments = await listIssueComments({
+        host: ctx.host,
+        token: ctx.token,
+        owner: ctx.owner,
+        repo: ctx.repo,
+        index: event.issueNumber,
+      })
+      reviewCount = comments.filter(c => /<!--\s*spx:review=1\s*-->/i.test(c.body ?? '')).length
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.add({
+        level: 'warn',
+        source: 'webhook',
+        message: `统计审查评论数失败 #${event.issueNumber}（按首次处理）`,
+        details: message,
+      })
+    }
+    const isFirstReview = reviewCount <= 1
+
+    const injected = this.activePanel
+      ? this.activePanel.injectIntoImplTerminal(event.issueNumber, text, isFirstReview)
+      : false
+    if (!injected) {
+      logger.add({
+        level: 'warn',
+        source: 'webhook',
+        message: `审查注入失败（实施 tab 未找到）#${event.issueNumber}`,
+      })
+      return
+    }
+
+    logger.add({
+      level: 'info',
+      source: 'webhook',
+      message: `审查反馈已注入实施终端 #${event.issueNumber} isFirstReview=${isFirstReview} length=${text.length}`,
+    })
+  }
+
+  /**
+   * Spawn `codex exec review` in the issue's worktree. Codex itself is
+   * instructed (via the review prompt) to post the review back as a PR
+   * comment with the `<!-- spx:review=1 -->` marker; the comment hits
+   * the webhook again as an `issue_comment created` event and loops
+   * around through {@link handleIssueCommentCreated}. Fire-and-forget.
+   */
+
   private async triggerReview(
     issueNumber: number,
     prNumber: string,
-    resumeFrom: string | undefined,
     ctx: { host: string, owner: string, repo: string, token: string },
   ): Promise<void> {
     if (!this.ctx)
@@ -1079,8 +1096,7 @@ class WebhookCoordinator {
       return
     }
 
-    // Re-fetch state JSON to pick up the issue's worktreePath. Same pattern
-    // as handlePrSynchronize uses for reviewSessionId.
+    // Re-fetch state JSON to pick up the issue's worktreePath.
     let worktreePath: string | undefined
     try {
       const comments = await listIssueComments({
@@ -1135,22 +1151,17 @@ class WebhookCoordinator {
     logger.add({
       level: 'info',
       source: 'webhook',
-      message: `开始审查 #${issueNumber} resume=${resumeFrom ? 'true' : 'false'} cwd=${cwd}`,
+      message: `开始审查 #${issueNumber} cwd=${cwd}`,
     })
 
-    const prompt = resumeFrom
-      ? 'PR 更新了，再次审查'
-      : getReviewPrompt(this.ctx, { prNumber })
+    const prompt = getReviewPrompt(this.ctx, { prNumber })
 
-    let result: { sessionId: string | null, text: string }
     try {
-      result = await runReview({
-        workspaceRoot: cwd,
-        prompt,
-        resumeFrom,
-      })
+      await runReview({ workspaceRoot: cwd, prompt })
     }
     catch (err) {
+      // runReview never throws now (it logs internally) but defensively
+      // catch in case future refactors reintroduce throws.
       const message = err instanceof Error ? err.message : String(err)
       logger.add({
         level: 'error',
@@ -1158,57 +1169,13 @@ class WebhookCoordinator {
         message: `审查执行失败 #${issueNumber}`,
         details: message,
       })
-      void window.showErrorMessage(`审查执行失败 #${issueNumber}: ${message}`)
       return
-    }
-
-    // First-time only: persist the captured codex thread id so synchronize
-    // can resume the same conversation.
-    if (!resumeFrom && result.sessionId) {
-      try {
-        await mergeStateJsonComment({
-          host: ctx.host,
-          owner: ctx.owner,
-          repo: ctx.repo,
-          token: ctx.token,
-          issueNumber,
-          extra: { reviewSessionId: result.sessionId },
-        })
-        if (this.activePanel) {
-          try {
-            await this.activePanel.loadAndPush()
-          }
-          catch {
-            // Non-fatal; panel might just be closed.
-          }
-        }
-      }
-      catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        logger.add({
-          level: 'warn',
-          source: 'webhook',
-          message: `持久化 reviewSessionId 失败 #${issueNumber}`,
-          details: message,
-        })
-      }
-    }
-
-    const injected = this.activePanel
-      ? this.activePanel.injectIntoImplTerminal(issueNumber, result.text, !resumeFrom)
-      : false
-    if (!injected) {
-      logger.add({
-        level: 'warn',
-        source: 'webhook',
-        message: `未找到实施终端，审查未注入 #${issueNumber}`,
-      })
     }
 
     logger.add({
       level: 'info',
       source: 'webhook',
-      message: `审查完成 #${issueNumber} length=${result.text.length}`,
+      message: `审查 spawn 完成 #${issueNumber}，等待 codex 通过 PR 评论回流`,
     })
   }
 }

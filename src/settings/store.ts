@@ -24,7 +24,14 @@ export const DEFAULT_BRAINSTORM_PROMPT = `/goal 我现在有这样一个需求 {
 export const DEFAULT_IMPLEMENT_PLAN_PROMPT
   = '/goal 使用子代理全程绿灯实施 @{planFile}，发起 PR 时务必在 PR body 中包含 "Closes #{issueNumber}"'
 
-export const DEFAULT_REVIEW_PROMPT = '先切换到当前目录，然后用 tea 拿到这个仓库的 #{prNumber} PR，再对其进行审查'
+export const DEFAULT_REVIEW_PROMPT = `先切换到当前目录，然后用 tea 拿到这个仓库的 #{prNumber} PR，再对其进行审查
+
+审查完毕后必须用 tea 命令把审查意见 post 成 PR 评论（不是 reply，是 issue comment）。评论 body 严格使用以下格式：
+
+<!-- spx:review=1 -->
+<审查意见正文，markdown 格式>
+
+第一行的 \`<!-- spx:review=1 -->\` 标识不能省略也不能改，否则后续流程识别不到这条评论。`
 
 export const DEFAULT_WEBHOOK_PORT = 17421
 

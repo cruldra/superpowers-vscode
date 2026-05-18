@@ -28,7 +28,7 @@ import { createServer } from 'node:http'
 import { EventEmitter } from 'vscode'
 import { logger } from '../logging/logger'
 
-export type WebhookEvent = PrWebhookEvent | IssueWebhookEvent
+export type WebhookEvent = PrWebhookEvent | IssueWebhookEvent | IssueCommentWebhookEvent
 
 export interface PrWebhookEvent {
   /** Discriminator: this event came from a `pull_request` payload. */
@@ -77,6 +77,26 @@ export interface IssueWebhookEvent {
   body: string
   /** Browser URL to the issue. */
   htmlUrl: string
+  /** Raw JSON payload. */
+  raw: unknown
+}
+
+export interface IssueCommentWebhookEvent {
+  /** Discriminator: this event came from an `issue_comment` payload. */
+  kind: 'issue_comment'
+  /** Action: 'created' / 'edited' / 'deleted'. */
+  action: string
+  /**
+   * Issue number — gitea uses the same number for issues and PRs. If the
+   * issue is actually a PR, {@link prNumber} is also set.
+   */
+  issueNumber: number
+  /** PR number when the comment is on a PR; otherwise undefined. */
+  prNumber: number | undefined
+  /** Comment body — caller scans for the `<!-- spx:review=1 -->` marker. */
+  commentBody: string
+  /** Browser URL to the comment. */
+  commentHtmlUrl: string
   /** Raw JSON payload. */
   raw: unknown
 }
@@ -223,6 +243,13 @@ export class WebhookServer {
                 message: `匹配 action=${event.action} PR #${event.pr} 分支 ${event.branch} ${issuePart} (event=${eventHeader})`,
               })
             }
+            else if (event.kind === 'issue_comment') {
+              logger.add({
+                level: 'info',
+                source: 'webhook',
+                message: `匹配 issue_comment action=${event.action} issue=#${event.issueNumber} pr=${event.prNumber ? `#${event.prNumber}` : '<no>'} (event=${eventHeader})`,
+              })
+            }
             else {
               logger.add({
                 level: 'info',
@@ -279,9 +306,45 @@ function parseEvent(
     action?: unknown
     pull_request?: unknown
     issue?: unknown
+    comment?: unknown
   }
   if (typeof obj.action !== 'string')
     return null
+
+  if (eventHeader === 'issue_comment') {
+    const issue = obj.issue
+    const comment = obj.comment
+    if (!issue || typeof issue !== 'object')
+      return null
+    if (!comment || typeof comment !== 'object')
+      return null
+    const issueObj = issue as {
+      number?: unknown
+      pull_request?: unknown
+    }
+    const commentObj = comment as {
+      body?: unknown
+      html_url?: unknown
+    }
+    const num = typeof issueObj.number === 'number' ? issueObj.number : Number(issueObj.number)
+    if (!Number.isFinite(num))
+      return null
+    // gitea sets issue.pull_request (non-null object) when the issue is a PR.
+    const prNumber = issueObj.pull_request && typeof issueObj.pull_request === 'object'
+      ? num
+      : undefined
+    const commentBody = typeof commentObj.body === 'string' ? commentObj.body : ''
+    const commentHtmlUrl = typeof commentObj.html_url === 'string' ? commentObj.html_url : ''
+    return {
+      kind: 'issue_comment',
+      action: obj.action,
+      issueNumber: num,
+      prNumber,
+      commentBody,
+      commentHtmlUrl,
+      raw,
+    }
+  }
 
   if (eventHeader === 'issues') {
     const issue = obj.issue
