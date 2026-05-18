@@ -74,7 +74,7 @@ export interface UseIssuesResult {
   openUrl: (url: string) => void
   resumeSession: (sessionId: string, profilePath?: string, cwd?: string, issueNumber?: number) => void
   resumeReviewSession: (sessionId: string, issueNumber: number, cwd?: string) => void
-  focusSession: (sessionId: string) => void
+  focusSession: (issueNumber: number) => void
   openFile: (path: string) => void
   implement: (issueNumber: number, planFile: string, profilePath?: string, sessionId?: string) => void
   openPr: (pr: string) => void
@@ -177,8 +177,8 @@ export function useIssues(): UseIssuesResult {
     postMessage({ type: 'session/resume', sessionId, profilePath, cwd, issueNumber })
   }, [])
 
-  const focusSession = useCallback((sessionId: string): void => {
-    postMessage({ type: 'session/focus', sessionId })
+  const focusSession = useCallback((issueNumber: number): void => {
+    postMessage({ type: 'session/focus', issueNumber })
   }, [])
 
   const resumeReviewSession = useCallback((sessionId: string, issueNumber: number, cwd?: string): void => {

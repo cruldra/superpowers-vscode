@@ -97,10 +97,14 @@ export function App() {
   }, [readyIssues, selectedId])
 
   // Auto-focus the terminal tab whenever the selected card has a session.
+  // 优先 implementSessionId（实施终端），没有再回退到 sessionId（规划/头脑风暴终端）；
+  // 依赖里加入 implementSessionId，让"先有规划、后有实施"的场景能正确切换。
   useEffect(() => {
-    if (selectedIssue?.sessionId)
-      focusSession(selectedIssue.sessionId)
-  }, [selectedIssue?.sessionId, focusSession])
+    if (!selectedIssue)
+      return
+    if (selectedIssue.implementSessionId || selectedIssue.sessionId)
+      focusSession(selectedIssue.number)
+  }, [selectedIssue?.implementSessionId, selectedIssue?.sessionId, selectedIssue?.number, focusSession])
 
   // Global keyboard navigation. Skipped whenever an overlay (new-issue, logs,
   // settings) is showing, so its inputs receive arrow/Enter without

@@ -61,7 +61,7 @@ export type WebviewToExtension =
   | { type: 'issue/create', userRequest: string, images?: Array<{ mediaType: string, base64: string }>, profilePath?: string }
   | { type: 'toast/open-url', url: string }
   | { type: 'session/resume', sessionId: string, profilePath?: string, cwd?: string, issueNumber?: number }
-  | { type: 'session/focus', sessionId: string }
+  | { type: 'session/focus', issueNumber: number }
   | { type: 'session/resume-review', sessionId: string, issueNumber: number, cwd?: string }
   | { type: 'editor/open-file', path: string }
   | { type: 'profiles/list' }

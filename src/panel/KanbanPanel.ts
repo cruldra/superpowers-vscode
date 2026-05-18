@@ -255,7 +255,7 @@ export class KanbanWebviewPanel {
       return
     }
     if (msg.type === 'session/focus') {
-      this.handleSessionFocus(msg.sessionId)
+      this.handleSessionFocus(msg.issueNumber)
       return
     }
     if (msg.type === 'session/resume-review') {
@@ -608,11 +608,22 @@ export class KanbanWebviewPanel {
    * keys / clicks — if there's no terminal for this session yet, this is a
    * no-op (user has to press Enter to spawn one).
    */
-  private handleSessionFocus(sessionId: string): void {
-    const existing = this.terminals.get(sessionId)
-    if (!existing)
-      return
-    existing.show(true)
+  private handleSessionFocus(issueNumber: number): void {
+    // Priority: 实施 > 规划 > 审查。Match by terminal.name since we know the
+    // convention (issue-${N}-实施 / issue-${N}-规划 / issue-${N}-审查).
+    const namePriority = [
+      `issue-${issueNumber}-实施`,
+      `issue-${issueNumber}-规划`,
+      `issue-${issueNumber}-审查`,
+    ]
+    for (const name of namePriority) {
+      const term = this.findExistingTerminal(name)
+      if (term) {
+        term.show(true)
+        return
+      }
+    }
+    // 找不到不报错，静默 return（用户没开过终端，正常）。
   }
 
   /**
