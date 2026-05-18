@@ -1090,6 +1090,14 @@ class WebhookCoordinator {
       return
     }
     const body = event.commentBody
+    // Diagnostic: dump body length + first 200 chars so we can see exactly
+    // what gitea is sending us when marker detection misses.
+    logger.add({
+      level: 'info',
+      source: 'webhook',
+      message: `issue_comment body diag #${event.issueNumber} len=${body.length}`,
+      details: body.slice(0, 200),
+    })
     if (!/<!--\s*spx:review=1\s*-->/i.test(body)) {
       logger.add({
         level: 'info',
