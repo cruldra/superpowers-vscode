@@ -1206,6 +1206,7 @@ export class KanbanWebviewPanel {
     let prStr: string | undefined
     let worktreePath: string | undefined
     let fromColumn: IssueColumn | undefined
+    let implementSessionId: string | undefined
     try {
       const comments = await listIssueComments({
         host: remote.host,
@@ -1231,6 +1232,8 @@ export class KanbanWebviewPanel {
               ) {
                 fromColumn = obj.column as IssueColumn
               }
+              if (typeof obj.implementSessionId === 'string' && obj.implementSessionId.length > 0)
+                implementSessionId = obj.implementSessionId
             }
           }
           catch {
@@ -1397,6 +1400,45 @@ export class KanbanWebviewPanel {
       })
       rollback(fromColumn)
       return
+    }
+
+    // Before removing the worktree, copy the impl-session jsonl into the
+    // workspace-root projects dir so `claude --resume` can still find it
+    // after the worktree (and its projects dir) are gone.
+    if (implementSessionId && worktreePath) {
+      try {
+        const worktreeAbs = path.isAbsolute(worktreePath)
+          ? worktreePath
+          : path.join(workspaceRoot, worktreePath)
+        const srcProjectsDir = projectsDirFor(worktreeAbs)
+        const dstProjectsDir = projectsDirFor(workspaceRoot)
+        const srcJsonl = path.join(srcProjectsDir, `${implementSessionId}.jsonl`)
+        const dstJsonl = path.join(dstProjectsDir, `${implementSessionId}.jsonl`)
+        if (fs.existsSync(srcJsonl)) {
+          if (!fs.existsSync(dstProjectsDir))
+            fs.mkdirSync(dstProjectsDir, { recursive: true })
+          if (!fs.existsSync(dstJsonl)) {
+            fs.copyFileSync(srcJsonl, dstJsonl)
+            logger.add({
+              level: 'info',
+              source: 'panel',
+              message: `已复制 cc session jsonl 到主 workspace projects 目录 (issue #${issueNumber})`,
+              details: `${srcJsonl} → ${dstJsonl}`,
+            })
+          }
+        }
+      }
+      catch (err) {
+        // Non-fatal — worktree cleanup still proceeds. User can manually copy
+        // the jsonl later if needed.
+        const message = err instanceof Error ? err.message : String(err)
+        logger.add({
+          level: 'warn',
+          source: 'panel',
+          message: `复制 cc session jsonl 失败 (issue #${issueNumber})，worktree 清理仍继续`,
+          details: message,
+        })
+      }
     }
 
     // 5. Best-effort cleanup of the worktree. Failures are non-fatal — the
