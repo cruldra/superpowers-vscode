@@ -11,6 +11,8 @@ export interface PastedImage {
 
 interface PastedImageWithId extends PastedImage {
   id: string
+  /** Monotonically increasing index used for the `[Image #N]` token. */
+  number: number
 }
 
 interface PastedText {
@@ -61,6 +63,7 @@ export function NewIssueModal({ open, onCancel, onSubmit, profiles, defaultProfi
   const [value, setValue] = useState('')
   const [images, setImages] = useState<PastedImageWithId[]>([])
   const [pastedTexts, setPastedTexts] = useState<PastedText[]>([])
+  const [nextImageNum, setNextImageNum] = useState(1)
   const [selectedProfile, setSelectedProfile] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -69,6 +72,7 @@ export function NewIssueModal({ open, onCancel, onSubmit, profiles, defaultProfi
       setValue('')
       setImages([])
       setPastedTexts([])
+      setNextImageNum(1)
       setSelectedProfile(null)
       return
     }
@@ -114,10 +118,32 @@ export function NewIssueModal({ open, onCancel, onSubmit, profiles, defaultProfi
       const ok = parsed.filter((p): p is PastedImage => p !== null)
       if (ok.length === 0)
         return
-      setImages(prev => [
-        ...prev,
-        ...ok.map(img => ({ ...img, id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}` })),
-      ])
+      // Assign sequential numbers; mirror pastedTexts and insert `[Image #N]`
+      // tokens at the current caret so claude sees where each image belongs.
+      let n = nextImageNum
+      const enriched: PastedImageWithId[] = ok.map((img) => {
+        const num = n
+        n += 1
+        return {
+          ...img,
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          number: num,
+        }
+      })
+      setNextImageNum(n)
+      setImages(prev => [...prev, ...enriched])
+      const tokens = enriched.map(img => `[Image #${img.number}]`).join('')
+      const ta = textareaRef.current
+      const start = ta?.selectionStart ?? value.length
+      const end = ta?.selectionEnd ?? value.length
+      const newVal = value.slice(0, start) + tokens + value.slice(end)
+      setValue(newVal)
+      requestAnimationFrame(() => {
+        if (textareaRef.current) {
+          textareaRef.current.selectionStart = textareaRef.current.selectionEnd = start + tokens.length
+          textareaRef.current.focus()
+        }
+      })
       return
     }
     // No images — check for large text paste.
@@ -145,7 +171,7 @@ export function NewIssueModal({ open, onCancel, onSubmit, profiles, defaultProfi
         }
       })
     }
-  }, [value])
+  }, [value, nextImageNum])
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>): void {
     if (e.key !== 'Backspace' && e.key !== 'Delete')
@@ -159,43 +185,50 @@ export function NewIssueModal({ open, onCancel, onSubmit, profiles, defaultProfi
 
     const pos = ta.selectionStart
     const text = ta.value
-    const tokenRegex = /\[复制的 \d+ 行文本\]/g
-    let match: RegExpExecArray | null = null
-    // eslint-disable-next-line no-cond-assign
-    while ((match = tokenRegex.exec(text)) !== null) {
-      const tokenStart = match.index
-      const tokenEnd = tokenStart + match[0].length
-      // Backspace: caret right after ] OR caret inside token → delete whole
-      if (e.key === 'Backspace' && pos > tokenStart && pos <= tokenEnd) {
+
+    function tryAtomicDelete(
+      tokenRegex: RegExp,
+      onMatch?: (match: RegExpExecArray) => void,
+    ): boolean {
+      let match: RegExpExecArray | null = null
+      // eslint-disable-next-line no-cond-assign
+      while ((match = tokenRegex.exec(text)) !== null) {
+        const tokenStart = match.index
+        const tokenEnd = tokenStart + match[0].length
+        const hitBackspace = e.key === 'Backspace' && pos > tokenStart && pos <= tokenEnd
+        const hitDelete = e.key === 'Delete' && pos >= tokenStart && pos < tokenEnd
+        if (!hitBackspace && !hitDelete)
+          continue
         e.preventDefault()
         const next = text.slice(0, tokenStart) + text.slice(tokenEnd)
         setValue(next)
+        onMatch?.(match)
         requestAnimationFrame(() => {
           if (textareaRef.current) {
             textareaRef.current.selectionStart = textareaRef.current.selectionEnd = tokenStart
             textareaRef.current.focus()
           }
         })
-        return
+        return true
       }
-      // Delete (forward): caret right before [ OR caret inside token → delete whole
-      if (e.key === 'Delete' && pos >= tokenStart && pos < tokenEnd) {
-        e.preventDefault()
-        const next = text.slice(0, tokenStart) + text.slice(tokenEnd)
-        setValue(next)
-        requestAnimationFrame(() => {
-          if (textareaRef.current) {
-            textareaRef.current.selectionStart = textareaRef.current.selectionEnd = tokenStart
-            textareaRef.current.focus()
-          }
-        })
-        return
-      }
+      return false
     }
+
+    if (tryAtomicDelete(/\[复制的 \d+ 行文本\]/g))
+      return
+    tryAtomicDelete(/\[Image #(\d+)\]/g, (m) => {
+      const num = Number.parseInt(m[1], 10)
+      setImages(prev => prev.filter(i => i.number !== num))
+    })
   }
 
   function removeImage(id: string): void {
+    const target = images.find(i => i.id === id)
     setImages(prev => prev.filter(i => i.id !== id))
+    if (target) {
+      const tok = `[Image #${target.number}]`
+      setValue(prev => prev.split(tok).join(''))
+    }
   }
 
   if (!open)
@@ -278,6 +311,13 @@ export function NewIssueModal({ open, onCancel, onSubmit, profiles, defaultProfi
                   alt="pasted"
                   className="h-full w-full object-cover"
                 />
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute left-0.5 top-0.5 rounded bg-black/60 px-1 text-[10px] leading-tight text-white/90"
+                >
+                  #
+                  {img.number}
+                </span>
                 <button
                   type="button"
                   onClick={() => removeImage(img.id)}
