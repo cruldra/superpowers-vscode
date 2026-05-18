@@ -87,6 +87,13 @@ export interface UseIssuesResult {
   logs: LogEntry[]
   fetchLogs: () => void
   clearLogs: () => void
+  /** True while the "提交当前代码" claude -p run is in flight. Used to
+   * disable the toolbar button and swap its icon to a spinner. */
+  commitRunning: boolean
+  /** Trigger a background `claude -p "提交下代码"` run in the workspace
+   * root, gated by `commitRunning`. The extension responds with
+   * `commit/state` messages and a `toast/show` on completion. */
+  runCommit: () => void
   /** ID of an issue that should be auto-selected after an `issue/append`
    * with `select: true` (i.e. user-initiated webhook creation). Consumers
    * read this in a `useEffect`, apply the selection, then call
@@ -103,6 +110,7 @@ export function useIssues(): UseIssuesResult {
   const [profiles, setProfiles] = useState<ClaudeProfile[]>([])
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [pendingSelectId, setPendingSelectId] = useState<string | null>(null)
+  const [commitRunning, setCommitRunning] = useState<boolean>(false)
 
   const clearPendingSelect = useCallback((): void => {
     setPendingSelectId(null)
@@ -232,6 +240,15 @@ export function useIssues(): UseIssuesResult {
     postMessage({ type: 'logs/clear' })
   }, [])
 
+  const runCommit = useCallback((): void => {
+    // The extension also guards via its own commitRunning flag, but we
+    // short-circuit the round-trip here so rapid double-clicks don't even
+    // hit the wire.
+    if (commitRunning)
+      return
+    postMessage({ type: 'commit/run' })
+  }, [commitRunning])
+
   const setIssues = useCallback((issues: Issue[]): void => {
     setState(prev => prev.status === 'ready' ? { status: 'ready', issues } : prev)
   }, [])
@@ -328,6 +345,9 @@ export function useIssues(): UseIssuesResult {
         case 'logs/cleared':
           setLogs([])
           break
+        case 'commit/state':
+          setCommitRunning(msg.running)
+          break
       }
     })
     postMessage({ type: 'issues/refresh' })
@@ -336,5 +356,5 @@ export function useIssues(): UseIssuesResult {
     return cleanup
   }, [])
 
-  return { state, settings, globalAutoReview, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, focusSession, openFile, implement, openPr, openWorktree, deleteWorktree, changeColumn, setDependency, clearDependency, updateIssueAutoReview, logs, fetchLogs, clearLogs, pendingSelectId, clearPendingSelect }
+  return { state, settings, globalAutoReview, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, focusSession, openFile, implement, openPr, openWorktree, deleteWorktree, changeColumn, setDependency, clearDependency, updateIssueAutoReview, logs, fetchLogs, clearLogs, pendingSelectId, clearPendingSelect, commitRunning, runCommit }
 }

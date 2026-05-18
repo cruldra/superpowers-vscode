@@ -59,6 +59,7 @@ export type ExtensionToWebview =
   | { type: 'logs/snapshot', entries: LogEntry[] }
   | { type: 'logs/append', entry: LogEntry }
   | { type: 'logs/cleared' }
+  | { type: 'commit/state', running: boolean }
 
 export type WebviewToExtension =
   | { type: 'issues/refresh' }
@@ -90,3 +91,4 @@ export type WebviewToExtension =
   | { type: 'issue/update-auto-review', issueNumber: number, value: boolean }
   | { type: 'logs/fetch' }
   | { type: 'logs/clear' }
+  | { type: 'commit/run' }

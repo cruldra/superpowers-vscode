@@ -18,6 +18,7 @@ import { deleteToken, getToken, setToken } from '../auth/secrets'
 import { listClaudeProfiles } from '../cc/profiles'
 import { getBrainstormPrompt, getImplementPlanPrompt } from '../cc/prompts'
 import { projectsDirFor, watchForNewSession } from '../cc/sessionWatcher'
+import { spawnClaude } from '../cc/spawnClaude'
 import { detectRepo } from '../git/remote'
 import { createWorktree } from '../git/worktree'
 import {
@@ -88,6 +89,13 @@ export class KanbanWebviewPanel {
     terminalName: string
     createdAt: number
   }>()
+
+  /**
+   * Concurrency lock for the "提交当前代码" button. The webview already
+   * disables the button while `commit/state running=true` is in flight, but
+   * we keep a server-side lock as defense against duplicate messages.
+   */
+  private commitRunning = false
 
   private constructor(private readonly context: ExtensionContext, panel: WebviewPanel) {
     this.panel = panel
@@ -241,6 +249,10 @@ export class KanbanWebviewPanel {
     if (msg.type === 'logs/clear') {
       logger.clear()
       this.postMessage({ type: 'logs/cleared' })
+      return
+    }
+    if (msg.type === 'commit/run') {
+      void this.handleCommitRun()
     }
   }
 
@@ -2024,6 +2036,72 @@ export class KanbanWebviewPanel {
     }
     catch {
       this.postMessage({ type: 'profiles/update', profiles: [] })
+    }
+  }
+
+
+  private async handleCommitRun(): Promise<void> {
+    if (this.commitRunning)
+      return
+
+    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    if (!workspaceRoot) {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: '请先打开一个工作区文件夹',
+        dismissOnTimer: 5000,
+      })
+      return
+    }
+
+    const profiles = await listClaudeProfiles()
+    const deepseek = profiles.find(p => p.name === 'deepseek')
+    if (!deepseek) {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: '未找到 deepseek profile，请在 /home/cruldra/Sources/cruldra-profile/claude-config/profiles/ 下创建 deepseek.json',
+        dismissOnTimer: 8000,
+      })
+      return
+    }
+
+    this.commitRunning = true
+    this.postMessage({ type: 'commit/state', running: true })
+
+    try {
+      // claude -p 提交流程可能跑得比较久（要 git add / 编 commit message / git
+      // commit），所以给一个比较宽松的超时（30 min）。
+      await spawnClaude({
+        prompt: '提交下代码',
+        cwd: workspaceRoot,
+        profilePath: deepseek.path,
+        timeoutMs: 30 * 60 * 1000,
+      })
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'success',
+        message: '提交完成',
+        dismissOnTimer: 5000,
+      })
+    }
+    catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: `提交失败: ${msg}`,
+        dismissOnTimer: 8000,
+      })
+    }
+    finally {
+      this.commitRunning = false
+      this.postMessage({ type: 'commit/state', running: false })
     }
   }
 
