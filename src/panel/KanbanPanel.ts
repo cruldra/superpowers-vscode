@@ -120,8 +120,25 @@ export class KanbanWebviewPanel {
     workspaceRoot: string
     inboxDir: string
     terminalName: string
+    /** The brainstorm terminal created synchronously in `handleIssueCreate`.
+     * Stored here so `linkPendingTerminalToIssue` can promote it into
+     * `newIssueTerminals` once the webhook tells us the issueNumber. */
+    terminal: Terminal
     createdAt: number
   }>()
+
+  /**
+   * issueNumber → the brainstorm terminal originally created via the new-issue
+   * flow (its name is `issue-new-{shortNonce}-规划`, NOT `issue-${N}-规划`).
+   * Populated by `linkPendingTerminalToIssue` after the webhook coordinator
+   * matches the nonce in `issue.body` to an entry in `pendingIssueCreations`.
+   *
+   * VS Code's Terminal API has no rename method, so we can't fix the tab name
+   * after the fact. Instead we keep this side-map so `handleSessionFocus`
+   * (card → terminal) and `handleActiveTerminalChanged` (terminal → card) can
+   * still find the tab and round-trip selection.
+   */
+  private readonly newIssueTerminals = new Map<number, Terminal>()
 
   /**
    * Concurrency lock for the "提交当前代码" button. The webview already
@@ -189,6 +206,12 @@ export class KanbanWebviewPanel {
         for (const [sid, t] of this.reviewTerminals) {
           if (t === closed) {
             this.reviewTerminals.delete(sid)
+            break
+          }
+        }
+        for (const [n, t] of this.newIssueTerminals) {
+          if (t === closed) {
+            this.newIssueTerminals.delete(n)
             break
           }
         }
@@ -644,7 +667,17 @@ export class KanbanWebviewPanel {
    * no-op (user has to press Enter to spawn one).
    */
   private handleSessionFocus(issueNumber: number): void {
-    // Priority: 实施 > 规划 > 审查。Match by terminal.name since we know the
+    // Priority 0: new-issue flow terminal whose name is `issue-new-{nonce}-规划`,
+    // not `issue-${N}-规划`. The webhook coordinator stitches issueNumber →
+    // terminal into `newIssueTerminals` via `linkPendingTerminalToIssue`.
+    // We can't rename the terminal tab (VS Code API limitation), so this
+    // side-map is the only way to find it by issueNumber.
+    const newIssueTerm = this.newIssueTerminals.get(issueNumber)
+    if (newIssueTerm && newIssueTerm.exitStatus === undefined) {
+      newIssueTerm.show(true)
+      return
+    }
+    // Priority 1-3: 实施 > 规划 > 审查. Match by terminal.name since we know the
     // convention (issue-${N}-实施 / issue-${N}-规划 / issue-${N}-审查).
     const namePriority = [
       `issue-${issueNumber}-实施`,
@@ -669,13 +702,25 @@ export class KanbanWebviewPanel {
    * 是新建工单流程的占位 tab，没有 issue number，跳过。
    */
   private handleActiveTerminalChanged(terminal: Terminal): void {
+    // Primary: `issue-${N}-(规划|实施|审查)` — the steady-state naming.
     const m = terminal.name.match(/^issue-(\d+)-(规划|实施|审查)/)
-    if (!m)
+    if (m) {
+      const issueNumber = Number.parseInt(m[1], 10)
+      if (Number.isFinite(issueNumber))
+        this.postMessage({ type: 'issue/select-by-number', issueNumber })
       return
-    const issueNumber = Number.parseInt(m[1], 10)
-    if (!Number.isFinite(issueNumber))
-      return
-    this.postMessage({ type: 'issue/select-by-number', issueNumber })
+    }
+    // Fallback: `issue-new-${shortNonce}-规划` — created via the new-issue flow
+    // before we knew the issueNumber. Reverse-scan `newIssueTerminals` (which
+    // was populated by the webhook coordinator via `linkPendingTerminalToIssue`).
+    if (terminal.name.startsWith('issue-new-')) {
+      for (const [num, term] of this.newIssueTerminals) {
+        if (term === terminal) {
+          this.postMessage({ type: 'issue/select-by-number', issueNumber: num })
+          return
+        }
+      }
+    }
   }
 
   /**
@@ -2175,6 +2220,7 @@ export class KanbanWebviewPanel {
       workspaceRoot,
       inboxDir,
       terminalName,
+      terminal,
       createdAt: Date.now(),
     })
 
@@ -2425,12 +2471,34 @@ export class KanbanWebviewPanel {
     workspaceRoot: string
     inboxDir: string
     terminalName: string
+    terminal: Terminal
     createdAt: number
   } | undefined {
     const entry = this.pendingIssueCreations.get(nonce)
     if (entry)
       this.pendingIssueCreations.delete(nonce)
     return entry
+  }
+
+  /**
+   * Called by the webhook coordinator after it parses a `spx:nonce=...` token
+   * out of `issue.body` and matches it to an entry in `pendingIssueCreations`.
+   * Promotes the in-flight brainstorm terminal into the issueNumber-keyed
+   * `newIssueTerminals` map so subsequent `handleSessionFocus(issueNumber)`
+   * and `handleActiveTerminalChanged` calls can find it.
+   *
+   * Also drops the terminal into `terminals` keyed by sessionId (when known)
+   * so `handleResumeSession` reuses the same tab instead of spawning a new
+   * one. Does NOT remove the pending entry — `takePendingIssueCreation` is
+   * still responsible for cleanup on its own path.
+   */
+  public linkPendingTerminalToIssue(nonce: string, issueNumber: number): void {
+    const pending = this.pendingIssueCreations.get(nonce)
+    if (!pending)
+      return
+    this.newIssueTerminals.set(issueNumber, pending.terminal)
+    if (pending.sessionId && pending.sessionId.length > 0)
+      this.terminals.set(pending.sessionId, pending.terminal)
   }
 
   private dispose(): void {

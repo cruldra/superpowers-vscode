@@ -456,6 +456,13 @@ class WebhookCoordinator {
 
     const nonceMatch = event.body.match(/<!--\s*spx:nonce=([0-9a-f-]+)\s*-->/i)
     const nonce = nonceMatch ? nonceMatch[1] : null
+    // Promote the in-flight brainstorm terminal into the panel's
+    // issueNumber-keyed map BEFORE we drain the pending entry. The terminal
+    // tab was created with name `issue-new-{nonce}-规划` (we didn't know
+    // issueNumber yet) and VS Code can't rename it, so this side-map is what
+    // lets card↔terminal selection round-trip after the webhook arrives.
+    if (nonce && this.activePanel)
+      this.activePanel.linkPendingTerminalToIssue(nonce, event.issueNumber)
     const pending = nonce && this.activePanel
       ? this.activePanel.takePendingIssueCreation(nonce)
       : undefined
