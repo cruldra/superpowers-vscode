@@ -127,6 +127,12 @@ export function KanbanBoard({
     }
     for (const issue of issues)
       map[issue.column].push(issue)
+    // Sort each column by issue.number descending so newer issues stay on top.
+    // For the todo column this is the input order into `buildTodoTree`, which
+    // pushes roots in input order — keeping the descending sort here makes
+    // the visible roots match number order too.
+    for (const col of Object.keys(map) as IssueColumn[])
+      map[col].sort((a, b) => b.number - a.number)
     return map
   }, [issues])
 
