@@ -30,6 +30,10 @@ export interface Issue {
   planFile?: string
   /** PR number associated with this issue (set after webhook fires). */
   pr?: string
+  /** Whether the associated PR has been merged. Set when the user drags to
+   * the 完成 列 (扩展代为合并) or when a `pull_request.closed` webhook arrives
+   * with `merged === true`. Persisted in the state JSON. */
+  prMerged?: boolean
   /** Branch name created for implementation, e.g. `feature/<hash>`. */
   branch?: string
   /** Workspace-relative path to the implementation worktree. */

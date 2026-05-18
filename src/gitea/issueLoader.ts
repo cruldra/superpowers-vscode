@@ -52,6 +52,7 @@ function parseColumnFromComments(comments: GiteaComment[]): {
   specFile?: string
   planFile?: string
   pr?: string
+  prMerged?: boolean
   branch?: string
   worktreePath?: string
   implementStatus?: 'running' | 'done' | 'failed'
@@ -76,6 +77,7 @@ function parseColumnFromComments(comments: GiteaComment[]): {
         specFile?: unknown
         planFile?: unknown
         pr?: unknown
+        prMerged?: unknown
         branch?: unknown
         worktreePath?: unknown
         implementStatus?: unknown
@@ -100,6 +102,7 @@ function parseColumnFromComments(comments: GiteaComment[]): {
         const pr = typeof obj.pr === 'string' && obj.pr.length > 0
           ? obj.pr
           : undefined
+        const prMerged = typeof obj.prMerged === 'boolean' ? obj.prMerged : undefined
         const branch = typeof obj.branch === 'string' && obj.branch.length > 0
           ? obj.branch
           : undefined
@@ -128,6 +131,7 @@ function parseColumnFromComments(comments: GiteaComment[]): {
           specFile,
           planFile,
           pr,
+          prMerged,
           branch,
           worktreePath,
           implementStatus,
@@ -215,6 +219,7 @@ async function buildIssue(opts: {
     specFile,
     planFile,
     pr,
+    prMerged,
     branch,
     worktreePath,
     implementStatus,
@@ -270,6 +275,7 @@ async function buildIssue(opts: {
     ...(specFile ? { specFile } : {}),
     ...(planFile ? { planFile } : {}),
     ...(pr ? { pr } : {}),
+    ...(prMerged !== undefined ? { prMerged } : {}),
     ...(branch ? { branch } : {}),
     ...(worktreePath ? { worktreePath } : {}),
     ...(worktreeExists !== undefined ? { worktreeExists } : {}),

@@ -20,7 +20,7 @@ import { getToken } from '../auth/secrets'
 import { getReviewPrompt } from '../cc/prompts'
 import { runReview } from '../cc/reviewFlow'
 import { detectRepo } from '../git/remote'
-import { deleteWebhook, listIssueComments } from '../gitea/api'
+import { deleteWebhook, getPullRequest, listIssueComments } from '../gitea/api'
 import { loadIssues, loadSingleIssue } from '../gitea/issueLoader'
 import { mergeStateJsonComment, readStateJsonComment } from '../gitea/stateJson'
 import { logger } from '../logging/logger'
@@ -893,6 +893,81 @@ class WebhookCoordinator {
       message: `PR #${event.pr} closed (保留 webhook 以备 reopen/重建)`,
       details: `issue=#${event.issueNumber}`,
     })
+
+    // 判断是否为合并关闭 —— gitea PR payload 里 merged 字段不在 ResolvedWebhookEvent
+    // 类型上，主动查一次 API 取 merged 状态（成本低，避免 server.ts 解析变动）。
+    if (!this.ctx)
+      return
+    const ctx = await this.resolveRepoContext(event.issueNumber)
+    if (!ctx)
+      return
+    const prIndex = Number.parseInt(event.pr, 10)
+    if (!Number.isFinite(prIndex))
+      return
+
+    let merged = false
+    try {
+      const pr = await getPullRequest({
+        host: ctx.host,
+        token: ctx.token,
+        owner: ctx.owner,
+        repo: ctx.repo,
+        index: prIndex,
+      })
+      merged = pr.merged
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.add({
+        level: 'warn',
+        source: 'webhook',
+        message: `查询 PR #${event.pr} merged 状态失败`,
+        details: message,
+      })
+      return
+    }
+
+    if (!merged)
+      return
+
+    try {
+      await mergeStateJsonComment({
+        host: ctx.host,
+        owner: ctx.owner,
+        repo: ctx.repo,
+        token: ctx.token,
+        issueNumber: event.issueNumber,
+        extra: { prMerged: true },
+      })
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.add({
+        level: 'warn',
+        source: 'webhook',
+        message: '写入 prMerged=true 到 state JSON 失败',
+        details: message,
+      })
+    }
+
+    if (this.activePanel) {
+      try {
+        this.activePanel.postMessage({
+          type: 'issue/patch',
+          issueNumber: event.issueNumber,
+          patch: { prMerged: true },
+        })
+      }
+      catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        logger.add({
+          level: 'warn',
+          source: 'webhook',
+          message: 'panel.postMessage (prMerged) 失败',
+          details: message,
+        })
+      }
+    }
   }
 
   /**

@@ -1125,6 +1125,16 @@ export class KanbanWebviewPanel {
       return
     }
 
+    // 失败回滚时使用的"原列"。读 state JSON 时尽量带出，最终读不到时
+    // 兜底到 'in-progress'（绝大多数被拖到 done 的工单来自 in-progress / review）。
+    const rollback = (fromColumn: IssueColumn | undefined): void => {
+      this.postMessage({
+        type: 'issue/patch',
+        issueNumber,
+        patch: { column: fromColumn ?? 'in-progress' },
+      })
+    }
+
     const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
     if (!workspaceRoot) {
       this.postMessage({
@@ -1134,6 +1144,7 @@ export class KanbanWebviewPanel {
         message: '请先打开一个工作区文件夹',
         dismissOnTimer: 5000,
       })
+      rollback(undefined)
       return
     }
 
@@ -1146,6 +1157,7 @@ export class KanbanWebviewPanel {
         message: '当前工作区没有 Gitea 远程仓库',
         dismissOnTimer: 5000,
       })
+      rollback(undefined)
       return
     }
 
@@ -1158,12 +1170,14 @@ export class KanbanWebviewPanel {
         message: '请先完成 Gitea 配置',
         dismissOnTimer: 5000,
       })
+      rollback(undefined)
       return
     }
 
     // 1. Re-fetch latest state JSON for this issue.
     let prStr: string | undefined
     let worktreePath: string | undefined
+    let fromColumn: IssueColumn | undefined
     try {
       const comments = await listIssueComments({
         host: remote.host,
@@ -1183,6 +1197,12 @@ export class KanbanWebviewPanel {
                 prStr = obj.pr
               if (typeof obj.worktreePath === 'string' && obj.worktreePath.length > 0)
                 worktreePath = obj.worktreePath
+              if (
+                typeof obj.column === 'string'
+                && ['todo', 'in-progress', 'review', 'done'].includes(obj.column)
+              ) {
+                fromColumn = obj.column as IssueColumn
+              }
             }
           }
           catch {
@@ -1206,7 +1226,7 @@ export class KanbanWebviewPanel {
         message: `读取工单 #${issueNumber} 状态失败: ${message}`,
         dismissOnTimer: 6000,
       })
-      void this.loadAndPush()
+      rollback(undefined)
       return
     }
 
@@ -1224,7 +1244,7 @@ export class KanbanWebviewPanel {
         message: `工单 #${issueNumber} 无关联 PR，无法标记完成`,
         dismissOnTimer: 6000,
       })
-      void this.loadAndPush()
+      rollback(fromColumn)
       return
     }
 
@@ -1237,7 +1257,7 @@ export class KanbanWebviewPanel {
         message: `工单 #${issueNumber} 的 PR 字段无效: ${prStr}`,
         dismissOnTimer: 6000,
       })
-      void this.loadAndPush()
+      rollback(fromColumn)
       return
     }
 
@@ -1267,14 +1287,13 @@ export class KanbanWebviewPanel {
         message: `无法读取 PR #${prIndex} 状态: ${message}`,
         dismissOnTimer: 6000,
       })
-      void this.loadAndPush()
+      rollback(fromColumn)
       return
     }
 
     if (!pullRequest.merged) {
       // PR 还没合并 → 由插件代为合并（用户拖到"完成"列即表示放行）。
-      // 合并失败（冲突 / 已关闭 / 权限）回滚拖动：loadAndPush 让 webview
-      // 重新拉一遍，工单留在原列。
+      // 合并失败（冲突 / 已关闭 / 权限）回滚拖动到原列。
       try {
         await mergePullRequest({
           host: remote.host,
@@ -1311,12 +1330,13 @@ export class KanbanWebviewPanel {
           message: `合并 PR #${prIndex} 失败: ${message}`,
           dismissOnTimer: 6000,
         })
-        void this.loadAndPush()
+        rollback(fromColumn)
         return
       }
     }
 
-    // 4. PR is merged — persist column='done' to state JSON.
+    // 4. PR is merged — persist column='done' + prMerged=true + 清空 worktreePath
+    // 到 state JSON。state JSON 用空字符串清空（loader 把 length===0 视为 unset）。
     try {
       await mergeStateJsonComment({
         host: remote.host,
@@ -1324,7 +1344,7 @@ export class KanbanWebviewPanel {
         repo: remote.repo,
         token,
         issueNumber,
-        extra: { column: 'done' },
+        extra: { column: 'done', worktreePath: '', prMerged: true },
       })
       logger.add({
         level: 'info',
@@ -1347,7 +1367,7 @@ export class KanbanWebviewPanel {
         message: `保存工单 #${issueNumber} 状态失败: ${message}`,
         dismissOnTimer: 6000,
       })
-      void this.loadAndPush()
+      rollback(fromColumn)
       return
     }
 
@@ -1395,13 +1415,24 @@ export class KanbanWebviewPanel {
             message: `工单 #${issueNumber} 已完成，但 worktree 清理失败: ${message}`,
             dismissOnTimer: 6000,
           })
-          void this.loadAndPush()
+          rollback(fromColumn)
           return
         }
       }
     }
 
-    void this.loadAndPush()
+    // 6. 全部成功 → 增量推 done + 清掉 worktreePath + 标记 prMerged。
+    // webview 端 `{ ...issue, ...patch }` spread 会把 worktreePath 覆盖成
+    // undefined，详情面板的 worktree 链接行因此消失。
+    this.postMessage({
+      type: 'issue/patch',
+      issueNumber,
+      patch: {
+        column: 'done',
+        worktreePath: undefined,
+        prMerged: true,
+      },
+    })
     this.postMessage({
       type: 'toast/show',
       id: makeNonce(),

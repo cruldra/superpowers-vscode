@@ -21,6 +21,8 @@ export interface Issue {
   planFile?: string
   /** PR number associated with this issue (set after webhook fires). */
   pr?: string
+  /** Whether the associated PR has been merged. */
+  prMerged?: boolean
   /** Branch name created for implementation, e.g. `feature/<hash>`. */
   branch?: string
   /** Workspace-relative path to the implementation worktree. */

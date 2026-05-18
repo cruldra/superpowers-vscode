@@ -4,7 +4,7 @@
  * Kept in sync manually; if the two ever diverge that's a step-3+ concern.
  */
 
-import type { Issue } from '../types'
+import type { Issue, IssueColumn } from '../types'
 
 export interface ToastLink {
   label: string
@@ -31,7 +31,7 @@ export type ExtensionToWebview =
   | { type: 'issues/loading' }
   | { type: 'issues/update', issues: Issue[], globalAutoReview: boolean }
   | { type: 'issues/error', message: string }
-  | { type: 'issue/patch', issueNumber: number, patch: { autoReview?: boolean, specFile?: string, planFile?: string, implementSessionId?: string, pr?: string, implementStatus?: 'running' | 'done' | 'failed' } }
+  | { type: 'issue/patch', issueNumber: number, patch: { autoReview?: boolean, specFile?: string, planFile?: string, implementSessionId?: string, pr?: string, implementStatus?: 'running' | 'done' | 'failed', column?: IssueColumn, worktreePath?: string, prMerged?: boolean } }
   | { type: 'issue/append', issue: Issue, select?: boolean }
   | { type: 'issue/select-by-number', issueNumber: number }
   | {

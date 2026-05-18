@@ -211,6 +211,13 @@ export function IssueDetailPanel({
             },
           },
           {
+            key: 'prMerged',
+            label: 'PR 状态',
+            type: 'string',
+            readOnly: true,
+            description: 'PR 是否已合并；拖到 完成 列或在 gitea 手动合并后置为"已合并"',
+          },
+          {
             key: 'branch',
             label: '分支',
             type: 'string',
@@ -260,6 +267,7 @@ export function IssueDetailPanel({
     specFile: issue.specFile ?? null,
     planFile: issue.planFile ?? null,
     pr: issue.pr ?? null,
+    prMerged: issue.pr ? (issue.prMerged ? '已合并' : '未合并') : null,
     branch: issue.branch ?? null,
     worktreePath: issue.worktreePath ?? null,
   }
