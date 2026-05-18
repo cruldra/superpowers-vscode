@@ -9,9 +9,9 @@ import { execFile } from 'node:child_process'
 import * as fs from 'node:fs'
 import { promises as fsp } from 'node:fs'
 import * as path from 'node:path'
-import { commands, env, TabInputTerminal, ThemeColor, ThemeIcon, Uri, ViewColumn, window, workspace } from 'vscode'
+import { commands, env, TabInputTerminal, ThemeColor, Uri, ViewColumn, window, workspace } from 'vscode'
 import type { ExtensionToWebview, WebviewToExtension } from './messages'
-import { issueTerminalColor, resolveIssueColor } from './issueColor'
+import { PALETTE, resolveIssueColor, themeColorIdToIconUri } from './issueColor'
 import { deleteToken, getToken, setToken } from '../auth/secrets'
 import { createIssueViaClaude } from '../cc/createIssueFlow'
 import { listClaudeProfiles } from '../cc/profiles'
@@ -277,19 +277,26 @@ export class KanbanWebviewPanel {
    * only call this once it has a usable workspace + Gitea remote + token.
    * Persistence failures are logged and swallowed.
    */
-  private async resolveIssueThemeColor(issueNumber: number): Promise<ThemeColor> {
+  private async resolveIssueIcon(issueNumber: number): Promise<{ themeColor: ThemeColor, iconUri: Uri }> {
+    // Helper: produce both representations from a palette id.
+    const pack = (id: string) => ({
+      themeColor: new ThemeColor(id),
+      iconUri: themeColorIdToIconUri(id),
+    })
+    // Deterministic fallback when we can't talk to gitea (no workspace, no
+    // remote, no token). Matches what `issueTerminalColor(issueNumber)` would
+    // pick so the icon is still stable across sessions.
+    const fallbackId = PALETTE[((issueNumber % PALETTE.length) + PALETTE.length) % PALETTE.length]
+
     const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
-    if (!workspaceRoot) {
-      // No workspace → can't talk to Gitea; fall back to deterministic color
-      // so we still distinguish issues visually.
-      return issueTerminalColor(issueNumber)
-    }
+    if (!workspaceRoot)
+      return pack(fallbackId)
     const remote = await detectRepo(workspaceRoot)
     if (!remote)
-      return issueTerminalColor(issueNumber)
+      return pack(fallbackId)
     const token = await getToken(this.context, remote.host)
     if (!token)
-      return issueTerminalColor(issueNumber)
+      return pack(fallbackId)
 
     let stored: string | undefined
     try {
@@ -328,7 +335,7 @@ export class KanbanWebviewPanel {
           console.warn('[superpowers] failed to persist issue color:', err)
         })
     }
-    return new ThemeColor(id)
+    return pack(id)
   }
 
   
@@ -404,14 +411,14 @@ export class KanbanWebviewPanel {
     // codicon so the tab actually shows the issue color. Keep `color` too:
     // harmless in the editor tab, still useful if the same terminal ever
     // gets rendered in panel-view mode.
-    const themeColor = issueNumber !== undefined
-      ? await this.resolveIssueThemeColor(issueNumber)
+    const issueIcon = issueNumber !== undefined
+      ? await this.resolveIssueIcon(issueNumber)
       : undefined
     const terminal = window.createTerminal({
       name: terminalName,
       cwd: effectiveCwd,
       location: this.resolveTerminalLocation(false),
-      ...(themeColor ? { iconPath: new ThemeIcon('circle-filled', themeColor), color: themeColor } : {}),
+      ...(issueIcon ? { iconPath: issueIcon.iconUri, color: issueIcon.themeColor } : {}),
     })
     this.terminals.set(sessionId, terminal)
     terminal.show(false)
@@ -530,12 +537,12 @@ export class KanbanWebviewPanel {
     // VS Code's default editor-tab icon (`>` arrow) does NOT honor the
     // `color` option. Force a `circle-filled` codicon so the tab actually
     // shows the issue color; keep `color` too for panel-view fallback.
-    const themeColor = await this.resolveIssueThemeColor(issueNumber)
+    const { themeColor, iconUri } = await this.resolveIssueIcon(issueNumber)
     const terminal = window.createTerminal({
       name: reviewTerminalName,
       cwd: worktreeAbs,
       location: this.resolveTerminalLocation(false),
-      iconPath: new ThemeIcon('circle-filled', themeColor),
+      iconPath: iconUri,
       color: themeColor,
     })
     this.reviewTerminals.set(sessionId, terminal)
@@ -952,12 +959,12 @@ export class KanbanWebviewPanel {
     // VS Code's default editor-tab icon (`>` arrow) does NOT honor the
     // `color` option. Force a `circle-filled` codicon so the tab actually
     // shows the issue color; keep `color` too for panel-view fallback.
-    const themeColor = await this.resolveIssueThemeColor(issueNumber)
+    const { themeColor, iconUri } = await this.resolveIssueIcon(issueNumber)
     const terminal = window.createTerminal({
       name: `issue-${issueNumber}-实施`,
       cwd: worktreePath,
       location: this.resolveTerminalLocation(false),
-      iconPath: new ThemeIcon('circle-filled', themeColor),
+      iconPath: iconUri,
       color: themeColor,
     })
     terminal.show(false)
