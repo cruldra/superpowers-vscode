@@ -966,7 +966,11 @@ export class KanbanWebviewPanel {
           issueNumber,
           extra: { implementSessionId: sid },
         })
-        void this.loadAndPush()
+        this.postMessage({
+          type: 'issue/patch',
+          issueNumber,
+          patch: { implementSessionId: sid },
+        })
       }
       catch (err) {
         console.warn('[superpowers] failed to persist implementSessionId:', err)
