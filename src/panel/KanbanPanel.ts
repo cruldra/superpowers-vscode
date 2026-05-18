@@ -313,40 +313,11 @@ export class KanbanWebviewPanel {
   }
 
   private resolveTerminalLocation(preserveFocus: boolean): TerminalEditorLocationOptions {
-    // Look for any tab belonging to a terminal we already manage; reuse its
-    // column so the new terminal stacks as a tab in the same group. This
-    // runs synchronously at spawn time — by now the existing terminal's
-    // tab is definitely in tabGroups.all (no async race).
-    //
-    // We track terminals across multiple Maps (sessionId-keyed for cc
-    // resumes, issueNumber-keyed for impl spawns); iterate ALL of them.
-    const tracked: Terminal[] = [
-      ...this.terminals.values(),
-      ...this.implTerminals.values(),
-      ...this.reviewTerminals.values(),
-    ]
-    for (const existing of tracked) {
-      for (const group of window.tabGroups.all) {
-        for (const tab of group.tabs) {
-          if (tab.input instanceof TabInputTerminal && tab.label.startsWith(existing.name)) {
-            logger.add({
-              level: 'info',
-              source: 'terminal',
-              message: `复用列 ${group.viewColumn}`,
-              details: `匹配到现有终端 "${existing.name}" 的 tab "${tab.label}"`,
-            })
-            return { viewColumn: group.viewColumn, preserveFocus }
-          }
-        }
-      }
-    }
-    logger.add({
-      level: 'info',
-      source: 'terminal',
-      message: '未找到已存在的终端 tab，使用 Beside',
-      details: `terminals.size=${this.terminals.size}, implTerminals.size=${this.implTerminals.size}, tabGroups.all.length=${window.tabGroups.all.length}`,
-    })
-    return { viewColumn: ViewColumn.Beside, preserveFocus }
+    // Pin all plugin-managed terminals to editor group 2 (right side of the
+    // kanban panel in column 1). VS Code creates the group on demand if it
+    // doesn't exist yet, and stacks new terminals as tabs in that group when
+    // it does — exactly what we want, no manual scan of existing tabs needed.
+    return { viewColumn: ViewColumn.Two, preserveFocus }
   }
 
   /**
