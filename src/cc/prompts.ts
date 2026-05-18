@@ -12,16 +12,30 @@
 import type { ExtensionContext } from 'vscode'
 import { getSettings } from '../settings/store'
 
-export function getCreateIssuePrompt(ctx: ExtensionContext, vars: { userRequest: string }): string {
+export function getCreateIssuePrompt(
+  ctx: ExtensionContext,
+  vars: { userRequest: string, nonce: string, imagePaths?: string[] },
+): string {
   const tpl = getSettings(ctx).createIssuePrompt
-  return tpl.split('{userRequest}').join(vars.userRequest)
+  let out = tpl
+    .split('{userRequest}')
+    .join(vars.userRequest)
+    .split('{nonce}')
+    .join(vars.nonce)
+  if (vars.imagePaths && vars.imagePaths.length > 0) {
+    const lines = vars.imagePaths.map(p => `- ${p}`).join('\n')
+    out += `\n\n参考图片（请用 Read 工具查看）：\n${lines}`
+  }
+  return out
 }
 
 export function getImplementPlanPrompt(ctx: ExtensionContext, vars: { planFile: string, issueNumber: number }): string {
   const tpl = getSettings(ctx).implementPlanPrompt
   return tpl
-    .split('{planFile}').join(vars.planFile)
-    .split('{issueNumber}').join(String(vars.issueNumber))
+    .split('{planFile}')
+    .join(vars.planFile)
+    .split('{issueNumber}')
+    .join(String(vars.issueNumber))
 }
 
 export function getReviewPrompt(ctx: ExtensionContext, vars: { prNumber: string }): string {

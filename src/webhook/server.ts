@@ -1,6 +1,11 @@
 /**
- * Minimal HTTP server that listens for Gitea PR webhooks and fires a VS Code
- * `Event<WebhookEvent>` for each `pull_request` payload.
+ * Minimal HTTP server that listens for Gitea webhooks and fires a VS Code
+ * `Event<WebhookEvent>` for each accepted payload. Two payload shapes are
+ * supported, discriminated by the `X-Gitea-Event` header:
+ *   - `pull_request` → {@link PrWebhookEvent}
+ *   - `issues`       → {@link IssueWebhookEvent} (used by the new-issue
+ *                      flow to round-trip a `<!-- spx:nonce=... -->` marker
+ *                      back into the panel)
  *
  * Routes accepted:
  *   - `POST /webhook/:issueNumber` (legacy) — the issue number is taken from
@@ -8,29 +13,38 @@
  *     that the extension previously created on gitea keep working.
  *   - `POST /webhook` (canonical) — the user configures a single shared
  *     webhook in gitea pointing here; the event leaves `issueNumber`
- *     undefined and the coordinator resolves it from the PR body
- *     (`Closes #N` / branch fallback).
+ *     undefined (PR case) and the coordinator resolves it from the PR body
+ *     (`Closes #N` / branch fallback). Issue events carry the number
+ *     directly in the payload, so the path doesn't matter for them.
  *
  * Other paths/methods get a 404/405. Malformed JSON or missing fields → 400.
  * Non-matching actions still respond 200 but skip the emit (gitea retries
  * less aggressively that way).
  */
 
-import type { Event } from 'vscode'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
+import type { Event } from 'vscode'
 import { createServer } from 'node:http'
 import { EventEmitter } from 'vscode'
 import { logger } from '../logging/logger'
 
-export interface WebhookEvent {
-  /** Issue number from the legacy `/webhook/:n` path. `undefined` when the
+export type WebhookEvent = PrWebhookEvent | IssueWebhookEvent
+
+export interface PrWebhookEvent {
+  /** Discriminator: this event came from a `pull_request` payload. */
+  kind: 'pr'
+  /**
+   * Issue number from the legacy `/webhook/:n` path. `undefined` when the
    * canonical `/webhook` route was used — the coordinator then resolves the
-   * issue via PR body / branch heuristics. */
+   * issue via PR body / branch heuristics.
+   */
   issueNumber: number | undefined
-  /** The `action` field from the `pull_request` payload (e.g. `opened`,
+  /**
+   * The `action` field from the `pull_request` payload (e.g. `opened`,
    * `reopened`, `synchronize`, `closed`, `edited`). The server fires this
    * event on every `pull_request` action whose payload parses correctly;
-   * downstream code dispatches on `action` to decide what to do. */
+   * downstream code dispatches on `action` to decide what to do.
+   */
   action: string
   /** PR number as string. */
   pr: string
@@ -43,6 +57,27 @@ export interface WebhookEvent {
   /** PR body / description — used by the coordinator for `Closes #N` parsing. */
   body: string
   /** Raw JSON payload, in case downstream needs more fields. */
+  raw: unknown
+}
+
+export interface IssueWebhookEvent {
+  /** Discriminator: this event came from an `issues` payload. */
+  kind: 'issue'
+  /**
+   * The `action` field from the `issues` payload (`opened` / `closed` /
+   * `edited` / `reopened` / `deleted`...). The server fires for every
+   * action; the coordinator decides which ones it actually handles.
+   */
+  action: string
+  /** Issue number. */
+  issueNumber: number
+  /** Issue title (best-effort). */
+  title: string
+  /** Issue body — used to extract the `<!-- spx:nonce=... -->` marker. */
+  body: string
+  /** Browser URL to the issue. */
+  htmlUrl: string
+  /** Raw JSON payload. */
   raw: unknown
 }
 
@@ -176,23 +211,32 @@ export class WebhookServer {
             return
           }
 
-          const event = parseEvent(issueNumber, parsed)
+          const event = parseEvent(eventHeader, issueNumber, parsed)
           if (event) {
-            const issuePart = typeof event.issueNumber === 'number'
-              ? `issue=#${event.issueNumber}`
-              : 'path=/webhook'
-            logger.add({
-              level: 'info',
-              source: 'webhook',
-              message: `匹配 action=${event.action} PR #${event.pr} 分支 ${event.branch} ${issuePart} (event=${eventHeader})`,
-            })
+            if (event.kind === 'pr') {
+              const issuePart = typeof event.issueNumber === 'number'
+                ? `issue=#${event.issueNumber}`
+                : 'path=/webhook'
+              logger.add({
+                level: 'info',
+                source: 'webhook',
+                message: `匹配 action=${event.action} PR #${event.pr} 分支 ${event.branch} ${issuePart} (event=${eventHeader})`,
+              })
+            }
+            else {
+              logger.add({
+                level: 'info',
+                source: 'webhook',
+                message: `匹配 issue action=${event.action} issue=#${event.issueNumber} (event=${eventHeader})`,
+              })
+            }
             this.emitter.fire(event)
           }
           else {
             logger.add({
               level: 'info',
               source: 'webhook',
-              message: `非 pull_request 事件，已忽略 (X-Gitea-Event=${eventHeader})`,
+              message: `未处理事件，已忽略 (X-Gitea-Event=${eventHeader})`,
             })
           }
 
@@ -200,19 +244,16 @@ export class WebhookServer {
           res.end(JSON.stringify({ ok: true }))
         }
         catch (err) {
-          // eslint-disable-next-line no-console
           console.error('[superpowers/webhook] handler error:', err)
           res.writeHead(500, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ ok: false, error: 'internal_error' }))
         }
       })
       req.on('error', (err) => {
-        // eslint-disable-next-line no-console
         console.error('[superpowers/webhook] request stream error:', err)
       })
     }
     catch (err) {
-      // eslint-disable-next-line no-console
       console.error('[superpowers/webhook] top-level error:', err)
       res.writeHead(500, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ ok: false, error: 'internal_error' }))
@@ -227,16 +268,50 @@ export class WebhookServer {
  * `undefined` when the request came in on the canonical `/webhook` route
  * (the coordinator resolves it from `body` / `branch` in that case).
  */
-function parseEvent(issueNumber: number | undefined, raw: unknown): WebhookEvent | null {
+function parseEvent(
+  eventHeader: string,
+  issueNumber: number | undefined,
+  raw: unknown,
+): WebhookEvent | null {
   if (!raw || typeof raw !== 'object')
     return null
   const obj = raw as {
     action?: unknown
     pull_request?: unknown
+    issue?: unknown
   }
   if (typeof obj.action !== 'string')
     return null
 
+  if (eventHeader === 'issues') {
+    const issue = obj.issue
+    if (!issue || typeof issue !== 'object')
+      return null
+    const issueObj = issue as {
+      number?: unknown
+      html_url?: unknown
+      title?: unknown
+      body?: unknown
+    }
+    const num = typeof issueObj.number === 'number' ? issueObj.number : Number(issueObj.number)
+    if (!Number.isFinite(num))
+      return null
+    const htmlUrl = typeof issueObj.html_url === 'string' ? issueObj.html_url : ''
+    const title = typeof issueObj.title === 'string' ? issueObj.title : ''
+    const body = typeof issueObj.body === 'string' ? issueObj.body : ''
+    return {
+      kind: 'issue',
+      action: obj.action,
+      issueNumber: num,
+      title,
+      body,
+      htmlUrl,
+      raw,
+    }
+  }
+
+  // Default path: pull_request payload (preserves legacy behaviour for any
+  // event header value, since gitea historically may not set the header).
   const pr = obj.pull_request
   if (!pr || typeof pr !== 'object')
     return null
@@ -260,6 +335,7 @@ function parseEvent(issueNumber: number | undefined, raw: unknown): WebhookEvent
     return null
 
   return {
+    kind: 'pr',
     issueNumber,
     action: obj.action,
     pr: String(num),

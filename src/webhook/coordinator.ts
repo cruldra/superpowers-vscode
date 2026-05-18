@@ -10,20 +10,21 @@
  */
 
 import type { ExtensionContext } from 'vscode'
+import type { KanbanWebviewPanel } from '../panel/KanbanPanel'
+import type { IssueWebhookEvent, PrWebhookEvent, WebhookEvent } from './server'
 import * as fs from 'node:fs'
+import { promises as fsp } from 'node:fs'
 import * as path from 'node:path'
 import { env, Uri, window, workspace } from 'vscode'
 import { getToken } from '../auth/secrets'
 import { getReviewPrompt } from '../cc/prompts'
 import { runReview } from '../cc/reviewFlow'
-import { deleteWebhook, listIssueComments } from '../gitea/api'
 import { detectRepo } from '../git/remote'
-import { loadIssues } from '../gitea/issueLoader'
+import { deleteWebhook, listIssueComments } from '../gitea/api'
+import { loadIssues, loadSingleIssue } from '../gitea/issueLoader'
 import { mergeStateJsonComment, readStateJsonComment } from '../gitea/stateJson'
 import { logger } from '../logging/logger'
 import { getSettings } from '../settings/store'
-import type { KanbanWebviewPanel } from '../panel/KanbanPanel'
-import type { WebhookEvent } from './server'
 import { WebhookServer } from './server'
 
 /**
@@ -41,9 +42,11 @@ export interface PendingHook {
   feature: string
 }
 
-/** A {@link WebhookEvent} whose `issueNumber` has been resolved (either from
- * the legacy `/webhook/:n` path or via PR-body / branch heuristics). */
-type ResolvedWebhookEvent = Omit<WebhookEvent, 'issueNumber'> & { issueNumber: number }
+/**
+ * A {@link PrWebhookEvent} whose `issueNumber` has been resolved (either from
+ * the legacy `/webhook/:n` path or via PR-body / branch heuristics).
+ */
+type ResolvedWebhookEvent = Omit<PrWebhookEvent, 'issueNumber'> & { issueNumber: number }
 
 class WebhookCoordinator {
   private ctx?: ExtensionContext
@@ -260,7 +263,7 @@ class WebhookCoordinator {
    * Returns `null` when none of the strategies produced a match — the
    * caller drops the event with a warning.
    */
-  private async resolveIssueNumber(event: WebhookEvent): Promise<number | null> {
+  private async resolveIssueNumber(event: PrWebhookEvent): Promise<number | null> {
     if (typeof event.issueNumber === 'number')
       return event.issueNumber
 
@@ -327,6 +330,27 @@ class WebhookCoordinator {
       })
       return
     }
+
+    if (event.kind === 'issue') {
+      logger.add({
+        level: 'info',
+        source: 'webhook',
+        message: `收到 issue 事件 action=${event.action} issue=#${event.issueNumber}`,
+      })
+      if (event.action === 'opened' || event.action === 'reopened') {
+        await this.handleIssueOpened(event)
+      }
+      else {
+        logger.add({
+          level: 'info',
+          source: 'webhook',
+          message: `未处理 issue action=${event.action}`,
+          details: `issue=#${event.issueNumber}`,
+        })
+      }
+      return
+    }
+
     logger.add({
       level: 'info',
       source: 'webhook',
@@ -371,6 +395,155 @@ class WebhookCoordinator {
           details: `issue=#${resolved.issueNumber} pr=#${resolved.pr}`,
         })
         break
+      }
+    }
+  }
+
+  /**
+   * Handles a freshly opened gitea issue. Two paths:
+   *   - The issue body carries `<!-- spx:nonce=... -->` and matches a
+   *     pending creation tracked by the panel → merge column / sessionId /
+   *     profilePath / color into the state-JSON comment, append the card
+   *     incrementally, then clean up the inbox tmpdir.
+   *   - No nonce / no match (external creation, e.g. manual `tea issues
+   *     create`) → just append the card so the kanban stays in sync; do
+   *     NOT touch the state-JSON comment.
+   */
+  private async handleIssueOpened(event: IssueWebhookEvent): Promise<void> {
+    if (!this.ctx)
+      return
+
+    const ws = workspace.workspaceFolders?.[0]?.uri.fsPath
+    if (!ws) {
+      logger.add({
+        level: 'warn',
+        source: 'webhook',
+        message: 'issue 事件忽略：未打开工作区',
+      })
+      return
+    }
+    const remote = await detectRepo(ws)
+    if (!remote) {
+      logger.add({
+        level: 'warn',
+        source: 'webhook',
+        message: 'issue 事件忽略：工作区未关联 gitea',
+      })
+      return
+    }
+    const token = await getToken(this.ctx, remote.host)
+    if (!token) {
+      logger.add({
+        level: 'warn',
+        source: 'webhook',
+        message: 'issue 事件忽略：未配置 token',
+      })
+      return
+    }
+
+    const nonceMatch = event.body.match(/<!--\s*spx:nonce=([0-9a-f-]+)\s*-->/i)
+    const nonce = nonceMatch ? nonceMatch[1] : null
+    const pending = nonce && this.activePanel
+      ? this.activePanel.takePendingIssueCreation(nonce)
+      : undefined
+
+    if (pending) {
+      logger.add({
+        level: 'info',
+        source: 'webhook',
+        message: `匹配到 pending 创建 nonce=${nonce} → 写入 state JSON`,
+        details: `issue=#${event.issueNumber} sessionId=${pending.sessionId ?? '<待定>'}`,
+      })
+      const extra: Record<string, unknown> = {
+        column: 'todo',
+        color: pending.color,
+      }
+      if (typeof pending.sessionId === 'string' && pending.sessionId.length > 0)
+        extra.sessionId = pending.sessionId
+      if (typeof pending.profilePath === 'string' && pending.profilePath.length > 0)
+        extra.profilePath = pending.profilePath
+
+      try {
+        await mergeStateJsonComment({
+          host: remote.host,
+          owner: remote.owner,
+          repo: remote.repo,
+          token,
+          issueNumber: event.issueNumber,
+          extra,
+        })
+      }
+      catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        logger.add({
+          level: 'warn',
+          source: 'webhook',
+          message: 'mergeStateJsonComment 失败（继续 append）',
+          details: msg,
+        })
+      }
+
+      // Best-effort cleanup of the inbox tmpdir.
+      try {
+        await fsp.rm(pending.inboxDir, { recursive: true, force: true })
+      }
+      catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        logger.add({
+          level: 'warn',
+          source: 'webhook',
+          message: 'inbox 清理失败',
+          details: msg,
+        })
+      }
+    }
+    else if (nonce) {
+      logger.add({
+        level: 'info',
+        source: 'webhook',
+        message: `issue body 含 nonce=${nonce} 但未匹配到 pending → 当作外部创建`,
+      })
+    }
+    else {
+      logger.add({
+        level: 'info',
+        source: 'webhook',
+        message: `issue body 无 spx:nonce → 当作外部创建`,
+      })
+    }
+
+    if (this.activePanel) {
+      try {
+        const issue = await loadSingleIssue({
+          host: remote.host,
+          owner: remote.owner,
+          repo: remote.repo,
+          token,
+          workspaceRoot: ws,
+          issueNumber: event.issueNumber,
+        })
+        if (issue) {
+          this.activePanel.postMessage({ type: 'issue/append', issue })
+          if (pending) {
+            this.activePanel.postMessage({
+              type: 'toast/show',
+              id: `issue-created-${event.issueNumber}`,
+              level: 'success',
+              message: `#${event.issueNumber} 已创建`,
+              link: { label: '查看', url: event.htmlUrl },
+              dismissOnTimer: 8000,
+            })
+          }
+        }
+      }
+      catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        logger.add({
+          level: 'warn',
+          source: 'webhook',
+          message: 'loadSingleIssue 失败',
+          details: msg,
+        })
       }
     }
   }

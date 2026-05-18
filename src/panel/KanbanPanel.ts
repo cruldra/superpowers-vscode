@@ -4,36 +4,37 @@ import type {
   TerminalEditorLocationOptions,
   WebviewPanel,
 } from 'vscode'
-import { createHash, randomBytes } from 'node:crypto'
+import type { IssueColumn } from '../gitea/types'
+import type { ExtensionToWebview, WebviewToExtension } from './messages'
+import { Buffer } from 'node:buffer'
 import { execFile } from 'node:child_process'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import * as fs from 'node:fs'
 import { promises as fsp } from 'node:fs'
+import * as os from 'node:os'
 import * as path from 'node:path'
 import { commands, env, TabInputTerminal, ThemeColor, Uri, ViewColumn, window, workspace } from 'vscode'
-import type { ExtensionToWebview, WebviewToExtension } from './messages'
-import { PALETTE, resolveIssueColor, themeColorIdToIconUri } from './issueColor'
 import { deleteToken, getToken, setToken } from '../auth/secrets'
-import { createIssueViaClaude } from '../cc/createIssueFlow'
 import { listClaudeProfiles } from '../cc/profiles'
-import { getImplementPlanPrompt } from '../cc/prompts'
+import { getCreateIssuePrompt, getImplementPlanPrompt } from '../cc/prompts'
 import { scanSessionFiles } from '../cc/sessionTranscript'
 import { projectsDirFor, watchForNewSession } from '../cc/sessionWatcher'
 import { detectRepo } from '../git/remote'
 import { createWorktree } from '../git/worktree'
 import {
   addDependency,
-  GiteaApiError,
   getPullRequest,
+  GiteaApiError,
   listIssueComments,
   postIssueComment,
   removeDependency,
 } from '../gitea/api'
-import type { IssueColumn } from '../gitea/types'
+import { loadIssues } from '../gitea/issueLoader'
 import { mergeStateJsonComment, readStateJsonComment } from '../gitea/stateJson'
-import { loadIssues, loadSingleIssue } from '../gitea/issueLoader'
 import { logger } from '../logging/logger'
 import { getSettings, saveSettings } from '../settings/store'
 import { webhookCoordinator } from '../webhook/coordinator'
+import { PALETTE, pickRandomIssueColor, resolveIssueColor, themeColorIdToIconUri } from './issueColor'
 
 const DEFAULT_PROFILE_PATH = '/home/cruldra/Sources/cruldra-profile/claude-config/profiles/offical.json'
 
@@ -68,6 +69,26 @@ export class KanbanWebviewPanel {
    * spawning a fresh one on every click.
    */
   private readonly reviewTerminals = new Map<string, Terminal>()
+
+  /**
+   * Tracks in-flight "create issue" runs keyed by the nonce embedded in the
+   * cc prompt. Populated synchronously in `handleIssueCreate` before the
+   * terminal is shown; the session watcher fills in `sessionId` once cc
+   * starts writing its jsonl. The webhook coordinator drains entries via
+   * `takePendingIssueCreation` when the corresponding `issues opened`
+   * payload arrives, then merges the column / sessionId / profilePath /
+   * color into the state-JSON comment and cleans up the inbox tmpdir.
+   */
+  private readonly pendingIssueCreations = new Map<string, {
+    sessionId?: string
+    profilePath?: string
+    /** Palette id (e.g. `terminal.ansiBlue`) — same shape stored in state JSON. */
+    color: string
+    workspaceRoot: string
+    inboxDir: string
+    terminalName: string
+    createdAt: number
+  }>()
 
   private constructor(private readonly context: ExtensionContext, panel: WebviewPanel) {
     this.panel = panel
@@ -228,7 +249,6 @@ export class KanbanWebviewPanel {
     }
   }
 
-
   private resolveTerminalLocation(preserveFocus: boolean): TerminalEditorLocationOptions {
     // Look for any tab belonging to a terminal we already manage; reuse its
     // column so the new terminal stacks as a tab in the same group. This
@@ -265,7 +285,6 @@ export class KanbanWebviewPanel {
     })
     return { viewColumn: ViewColumn.Beside, preserveFocus }
   }
-
 
   /**
    * Resolve the ThemeColor to use for an issue's terminal/tab. Reads the
@@ -311,7 +330,6 @@ export class KanbanWebviewPanel {
         stored = state.color
     }
     catch (err) {
-      // eslint-disable-next-line no-console
       console.warn('[superpowers] failed to read state JSON for color:', err)
     }
 
@@ -331,16 +349,11 @@ export class KanbanWebviewPanel {
           void this.loadAndPush()
         })
         .catch((err) => {
-          // eslint-disable-next-line no-console
           console.warn('[superpowers] failed to persist issue color:', err)
         })
     }
     return pack(id)
   }
-
-  
-
-  
 
   private async handleResumeSession(sessionId: string, profilePath?: string, relCwd?: string, issueNumber?: number): Promise<void> {
     // Server-side prerequisite gate. Webview already disables the entry
@@ -367,8 +380,8 @@ export class KanbanWebviewPanel {
       existing.show(false)
       return
     }
-    const effectiveProfilePath =
-      profilePath && profilePath.trim() !== '' ? profilePath : DEFAULT_PROFILE_PATH
+    const effectiveProfilePath
+      = profilePath && profilePath.trim() !== '' ? profilePath : DEFAULT_PROFILE_PATH
     // Reject paths containing single quotes — we shell-quote with single
     // quotes below, and embedded quotes would break out of the wrap. In
     // practice profile paths live under `/home/<user>/...` so this is a
@@ -740,7 +753,6 @@ export class KanbanWebviewPanel {
     }
   }
 
-
   /**
    * Kick off the end-to-end "implement this plan" flow:
    *   1. Detect repo + token, compute a stable feature_name from the plan path.
@@ -915,7 +927,6 @@ export class KanbanWebviewPanel {
       await fsp.mkdir(projDir, { recursive: true })
     }
     catch (err) {
-      // eslint-disable-next-line no-console
       console.warn('[superpowers] failed to mkdir claude projects dir:', err)
     }
 
@@ -1014,11 +1025,9 @@ export class KanbanWebviewPanel {
         void this.loadAndPush()
       }
       catch (err) {
-        // eslint-disable-next-line no-console
         console.warn('[superpowers] failed to persist implementSessionId:', err)
       }
     }).catch((err) => {
-      // eslint-disable-next-line no-console
       console.warn('[superpowers] session watch failed:', err)
     })
 
@@ -1044,7 +1053,6 @@ export class KanbanWebviewPanel {
     const url = `https://${remote.host}/${remote.owner}/${remote.repo}/pulls/${pr}`
     void env.openExternal(Uri.parse(url))
   }
-
 
   /**
    * Open the worktree directory in a **new** VS Code window. The Boolean
@@ -1131,14 +1139,12 @@ export class KanbanWebviewPanel {
       }
     }
     catch (err) {
-      // eslint-disable-next-line no-console
       console.warn('[superpowers] failed to clear worktree state JSON:', err)
     }
 
     void this.loadAndPush()
     void window.showInformationMessage(`已删除 worktree #${issueNumber}`)
   }
-
 
   /**
    * Persist a kanban column change to Gitea state JSON. Today we only handle
@@ -1617,7 +1623,6 @@ export class KanbanWebviewPanel {
     void this.loadAndPush()
   }
 
-
   /**
    * Persist the per-issue `autoReview` override into the issue's state-JSON
    * comment. The webhook coordinator reads this on every PR `opened` /
@@ -1722,8 +1727,10 @@ export class KanbanWebviewPanel {
     }
   }
 
-  /** Reloads issues from gitea and pushes to the webview. Public so the
-   * always-on webhook coordinator can refresh us when a PR event arrives. */
+  /**
+   * Reloads issues from gitea and pushes to the webview. Public so the
+   * always-on webhook coordinator can refresh us when a PR event arrives.
+   */
   async loadAndPush(): Promise<void> {
     this.postMessage({ type: 'issues/loading' })
 
@@ -1941,82 +1948,193 @@ export class KanbanWebviewPanel {
       return
     }
 
-    // The webview emits `toast/show` with the same id twice — first an
-    // info-level spinner toast, then a success/error toast — so the UI
-    // updates in place rather than stacking two distinct cards.
-    await createIssueViaClaude({
-      ctx: this.context,
-      workspaceRoot,
-      host: remote.host,
-      owner: remote.owner,
-      repo: remote.repo,
-      token,
+    // Ensure the always-on webhook listener is up so we can receive the
+    // `issues opened` callback that drives state-JSON fill-in.
+    const settings = getSettings(this.context)
+    try {
+      await webhookCoordinator.ensurePort(settings.webhookPort)
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: `webhook 服务启动失败: ${message}`,
+        dismissOnTimer: 8000,
+      })
+      return
+    }
+
+    const nonce = randomUUID()
+    const shortNonce = nonce.slice(0, 8)
+    const inboxDir = path.join(os.tmpdir(), 'spx-inbox', nonce)
+    try {
+      await fsp.mkdir(inboxDir, { recursive: true })
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: `创建临时目录失败: ${message}`,
+        dismissOnTimer: 8000,
+      })
+      return
+    }
+
+    // Persist any pasted images to the inbox tmpdir so cc can Read them.
+    // The `[Image #N]` tokens in `trimmed` stay in place — the prompt also
+    // lists absolute paths at the end so cc can correlate.
+    const mediaTypeToExt: Record<string, string> = {
+      'image/png': 'png',
+      'image/jpeg': 'jpg',
+      'image/jpg': 'jpg',
+      'image/gif': 'gif',
+      'image/webp': 'webp',
+    }
+    const imagePaths: string[] = []
+    if (images && images.length > 0) {
+      for (let i = 0; i < images.length; i++) {
+        const img = images[i]
+        const ext = mediaTypeToExt[img.mediaType.toLowerCase()] ?? 'png'
+        const abs = path.join(inboxDir, `${i + 1}.${ext}`)
+        try {
+          await fsp.writeFile(abs, Buffer.from(img.base64, 'base64'))
+          imagePaths.push(abs)
+        }
+        catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          logger.add({
+            level: 'warn',
+            source: 'panel',
+            message: `图片落盘失败 (${i + 1}/${images.length})`,
+            details: message,
+          })
+        }
+      }
+    }
+
+    const color = pickRandomIssueColor()
+    const prompt = getCreateIssuePrompt(this.context, {
       userRequest: trimmed,
-      images,
-      profilePath,
-      onProgress: async (event) => {
-        if (event.kind === 'started') {
-          this.postMessage({
-            type: 'toast/show',
-            id: event.toastId,
-            level: 'info',
-            message: '正在创建工单…',
-            spinner: true,
-          })
-          return
-        }
-        if (event.kind === 'success') {
-          this.postMessage({
-            type: 'toast/show',
-            id: event.toastId,
-            level: 'success',
-            message: `#${event.issueNumber} 已创建`,
-            link: { label: '查看', url: event.issueUrl },
-            dismissOnTimer: 8000,
-          })
-          // Incrementally fetch just the new issue and push to webview, so the
-          // existing kanban state (selection, scroll, other cards) is preserved.
-          // Falls back to a full reload only if the single-issue fetch fails.
-          try {
-            const issue = await loadSingleIssue({
-              host: remote.host,
-              owner: remote.owner,
-              repo: remote.repo,
-              token,
-              workspaceRoot,
-              issueNumber: event.issueNumber,
-            })
-            if (issue) {
-              this.postMessage({ type: 'issue/append', issue })
-            }
-            else {
-              // Issue not found — fall back to full reload as a safety net.
-              void this.loadAndPush()
-            }
-          }
-          catch (err) {
-            const message = err instanceof Error ? err.message : String(err)
-            logger.add({
-              level: 'warn',
-              source: 'panel',
-              message: `增量拉新工单失败，回退全量: ${message}`,
-            })
-            void this.loadAndPush()
-          }
-          return
-        }
-        // failed
-        this.postMessage({
-          type: 'toast/show',
-          id: event.toastId,
-          level: 'error',
-          message: event.message,
-          dismissOnTimer: 10000,
+      nonce,
+      imagePaths: imagePaths.length > 0 ? imagePaths : undefined,
+    })
+    if (prompt.includes('\'')) {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: '创建失败：prompt 含单引号，拒绝执行',
+        dismissOnTimer: 8000,
+      })
+      try {
+        await fsp.rm(inboxDir, { recursive: true, force: true })
+      }
+      catch {}
+      return
+    }
+
+    const effectiveProfilePath
+      = profilePath && profilePath.trim() !== '' ? profilePath : DEFAULT_PROFILE_PATH
+    if (effectiveProfilePath.includes('\'')) {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: `创建失败：profilePath 含单引号，拒绝执行 (${effectiveProfilePath})`,
+        dismissOnTimer: 8000,
+      })
+      try {
+        await fsp.rm(inboxDir, { recursive: true, force: true })
+      }
+      catch {}
+      return
+    }
+
+    // Ensure the claude projects subdir exists *before* spawning the
+    // terminal so the watcher can't miss the create event.
+    const projDir = projectsDirFor(workspaceRoot)
+    try {
+      await fsp.mkdir(projDir, { recursive: true })
+    }
+    catch (err) {
+      console.warn('[superpowers] failed to mkdir claude projects dir:', err)
+    }
+    const watchPromise = watchForNewSession({ projectsDir: projDir, timeoutMs: 120_000 })
+
+    const terminalName = `issue-new-${shortNonce}-规划`
+    const themeColor = new ThemeColor(color)
+    const iconUri = themeColorIdToIconUri(color)
+    const terminal = window.createTerminal({
+      name: terminalName,
+      cwd: workspaceRoot,
+      location: this.resolveTerminalLocation(false),
+      iconPath: iconUri,
+      color: themeColor,
+    })
+    terminal.show(false)
+    logger.add({
+      level: 'info',
+      source: 'terminal',
+      message: `已创建终端 "${terminal.name}"`,
+    })
+
+    this.pendingIssueCreations.set(nonce, {
+      profilePath: effectiveProfilePath,
+      color,
+      workspaceRoot,
+      inboxDir,
+      terminalName,
+      createdAt: Date.now(),
+    })
+
+    const cmd = `claude --dangerously-skip-permissions --settings '${effectiveProfilePath}' '${prompt}'`
+    terminal.sendText(cmd)
+    logger.add({
+      level: 'info',
+      source: 'panel',
+      message: `已发送新建工单 prompt nonce=${shortNonce}`,
+    })
+
+    this.postMessage({
+      type: 'toast/show',
+      id: `issue-new-${shortNonce}`,
+      level: 'info',
+      message: '正在打开新工单会话…',
+      spinner: true,
+      dismissOnTimer: 4000,
+    })
+
+    // Background: fill in sessionId once the jsonl materializes. If the
+    // matching webhook fires before this resolves, the pending entry has
+    // already been deleted and we silently no-op — the state JSON just
+    // lacks sessionId in that (rare) race case, and the user can resume
+    // from a later session id via the terminal.
+    watchPromise.then((sid) => {
+      if (!sid) {
+        logger.add({
+          level: 'warn',
+          source: 'panel',
+          message: `新建工单会话监听超时 nonce=${shortNonce}`,
         })
-      },
+        return
+      }
+      const pending = this.pendingIssueCreations.get(nonce)
+      if (pending) {
+        pending.sessionId = sid
+        logger.add({
+          level: 'info',
+          source: 'panel',
+          message: `已捕获新建工单会话 ${sid} nonce=${shortNonce}`,
+        })
+      }
+    }).catch((err) => {
+      console.warn('[superpowers] new-issue session watch failed:', err)
     })
   }
-
 
   /**
    * Read profiles from the hardcoded directory and push the list to the
@@ -2038,8 +2156,29 @@ export class KanbanWebviewPanel {
     void KanbanWebviewPanel.current?.handleEditSettingsRequest()
   }
 
-  private postMessage(msg: ExtensionToWebview): void {
+  postMessage(msg: ExtensionToWebview): void {
     void this.panel.webview.postMessage(msg)
+  }
+
+  /**
+   * Removes and returns the {@link pendingIssueCreations} entry for the
+   * given nonce, if any. Called by the webhook coordinator when a matching
+   * `issues opened` payload arrives. Returning `undefined` (and leaving the
+   * map untouched) signals "no match — treat as external issue creation".
+   */
+  takePendingIssueCreation(nonce: string): {
+    sessionId?: string
+    profilePath?: string
+    color: string
+    workspaceRoot: string
+    inboxDir: string
+    terminalName: string
+    createdAt: number
+  } | undefined {
+    const entry = this.pendingIssueCreations.get(nonce)
+    if (entry)
+      this.pendingIssueCreations.delete(nonce)
+    return entry
   }
 
   private dispose(): void {
