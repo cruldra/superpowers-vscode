@@ -743,14 +743,18 @@ class WebhookCoordinator {
 
     if (this.activePanel) {
       try {
-        await this.activePanel.loadAndPush()
+        this.activePanel.postMessage({
+          type: 'issue/patch',
+          issueNumber: event.issueNumber,
+          patch: { pr: event.pr, implementStatus: 'done' },
+        })
       }
       catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         logger.add({
           level: 'warn',
           source: 'webhook',
-          message: 'panel.loadAndPush 失败',
+          message: 'panel.postMessage 失败',
           details: message,
         })
       }
@@ -934,14 +938,18 @@ class WebhookCoordinator {
     }
     if (this.activePanel) {
       try {
-        await this.activePanel.loadAndPush()
+        this.activePanel.postMessage({
+          type: 'issue/patch',
+          issueNumber: event.issueNumber,
+          patch: { pr: undefined },
+        })
       }
       catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         logger.add({
           level: 'warn',
           source: 'webhook',
-          message: 'panel.loadAndPush 失败（deleted）',
+          message: 'panel.postMessage 失败（deleted）',
           details: message,
         })
       }

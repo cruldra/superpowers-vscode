@@ -300,6 +300,18 @@ export function useIssues(): UseIssuesResult {
           if (msg.select)
             setPendingSelectId(msg.issue.id)
           break
+        case 'issue/select-by-number':
+          // 反向选中：column 2 切换终端 tab → 在 ready issues 里按 number 找到
+          // 对应工单的 id，复用 pendingSelectId 机制让 App.tsx 切换 selectedId。
+          setState((prev) => {
+            if (prev.status !== 'ready')
+              return prev
+            const issue = prev.issues.find(i => i.number === msg.issueNumber)
+            if (issue)
+              setPendingSelectId(issue.id)
+            return prev
+          })
+          break
         case 'settings/show':
           // Open (or re-open) the overlay. Kanban state is preserved
           // underneath — when `canCancel === false` and we're still loading,

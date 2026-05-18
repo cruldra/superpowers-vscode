@@ -192,6 +192,12 @@ export class KanbanWebviewPanel {
           }
         }
       }),
+      // 用户在 column 2 切换终端 tab 时，反向选中看板上对应的工单卡片。
+      window.onDidChangeActiveTerminal((terminal) => {
+        if (!terminal)
+          return
+        this.handleActiveTerminalChanged(terminal)
+      }),
     )
 
     // Start observing the workspace repo so we can hide the "提交代码"
@@ -624,6 +630,23 @@ export class KanbanWebviewPanel {
       }
     }
     // 找不到不报错，静默 return（用户没开过终端，正常）。
+  }
+
+  /**
+   * 反向选中：用户在 column 2 切换 terminal tab 时，从 terminal.name 解析
+   * issueNumber 并通知 webview 选中对应工单。
+   *
+   * 终端名按 `issue-${N}-(规划|实施|审查)` 命名；`issue-new-${nonce}-...`
+   * 是新建工单流程的占位 tab，没有 issue number，跳过。
+   */
+  private handleActiveTerminalChanged(terminal: Terminal): void {
+    const m = terminal.name.match(/^issue-(\d+)-(规划|实施|审查)/)
+    if (!m)
+      return
+    const issueNumber = Number.parseInt(m[1], 10)
+    if (!Number.isFinite(issueNumber))
+      return
+    this.postMessage({ type: 'issue/select-by-number', issueNumber })
   }
 
   /**
