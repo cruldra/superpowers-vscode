@@ -436,9 +436,26 @@ export class KanbanWebviewPanel {
     const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
     // Implementation sessions live in a worktree; the caller can pass a
     // workspace-relative `relCwd` so `--resume` runs from the right place.
-    const effectiveCwd = relCwd && workspaceRoot
-      ? path.join(workspaceRoot, relCwd)
-      : workspaceRoot
+    // If the worktree has since been cleaned up (typical: drop card to
+    // "完成" → auto `git worktree remove`), fall back to the workspace
+    // root instead of pointing the terminal at a missing directory.
+    let effectiveCwd: string | undefined = workspaceRoot
+    let cwdFallback = false
+    if (relCwd && workspaceRoot) {
+      const resolved = path.join(workspaceRoot, relCwd)
+      if (fs.existsSync(resolved)) {
+        effectiveCwd = resolved
+      }
+      else {
+        cwdFallback = true
+        effectiveCwd = workspaceRoot
+        logger.add({
+          level: 'warn',
+          source: 'panel',
+          message: `worktree 不存在，退回工作区根目录 (#${issueNumber ?? '?'}): ${relCwd}`,
+        })
+      }
+    }
     // Open the terminal as an editor tab beside the kanban (not in the
     // bottom panel), so the user can see both side-by-side. `Beside` opens
     // in a new editor group when needed.
@@ -481,6 +498,17 @@ export class KanbanWebviewPanel {
       source: 'terminal',
       message: `已创建终端 "${terminal.name}"`,
     })
+    // Worktree 已清理时给用户一个明确提示，避免他们误以为 cc 在原
+    // worktree 路径里跑。toast 上 dismissOnTimer 5s 自动消失。
+    if (cwdFallback) {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'info',
+        message: `工单 #${issueNumber ?? '?'} 的 worktree 已清理，会话将在工作区根目录恢复`,
+        dismissOnTimer: 5000,
+      })
+    }
     const cmd = `claude --dangerously-skip-permissions --settings '${effectiveProfilePath}' --resume ${sessionId}`
     terminal.sendText(cmd)
   }

@@ -104,28 +104,23 @@ export function IssueDetailPanel({
                 onResumeSession(v, issue?.profilePath, undefined, issue?.number)
             },
           },
-          // 实施 / 审查 会话依赖 worktree；worktree 被清掉（典型场景：拖到
-          // 完成 列后扩展自动 worktree remove）后 resume 会失败，所以从
-          // action 降级为只读 string，只留 id 文本。
-          issue?.worktreeExists
-            ? {
-                key: 'implementSessionId',
-                label: '实施会话id',
-                type: 'action',
-                description: '点击在新终端运行 claude --resume <id> 恢复实施对话（cwd 为 worktree）',
-                actionIcon: <Terminal className="size-3.5" />,
-                onAction: (v) => {
-                  if (typeof v === 'string' && v.length > 0)
-                    onResumeSession(v, issue?.profilePath, issue?.worktreePath, issue?.number)
-                },
-              }
-            : {
-                key: 'implementSessionId',
-                label: '实施会话id',
-                type: 'string',
-                readOnly: true,
-                description: 'worktree 已清理，无法 resume；仅保留 id 文本',
-              },
+          // 实施会话即使 worktree 已被清掉也保留可点击的 resume 入口：
+          // extension 端 handleResumeSession 会在 worktree 路径不存在时退回
+          // 工作区根目录，并通过 toast 告知用户；description 在两种状态下
+          // 给出不同的提示文案。
+          {
+            key: 'implementSessionId',
+            label: '实施会话id',
+            type: 'action',
+            description: issue?.worktreeExists
+              ? '点击在新终端运行 claude --resume <id> 恢复实施对话（cwd 为 worktree）'
+              : 'worktree 已清理，将在工作区根目录恢复（cc 可能提示原 cwd 不存在）',
+            actionIcon: <Terminal className="size-3.5" />,
+            onAction: (v) => {
+              if (typeof v === 'string' && v.length > 0)
+                onResumeSession(v, issue?.profilePath, issue?.worktreePath, issue?.number)
+            },
+          },
           issue?.worktreeExists
             ? {
                 key: 'reviewSessionId',
