@@ -44,6 +44,7 @@ export function App() {
     clearPendingSelect,
     commitRunning,
     runCommit,
+    hasChanges,
   } = useIssues()
   const [showNewIssueModal, setShowNewIssueModal] = useState(false)
   const [showLogs, setShowLogs] = useState(false)
@@ -216,7 +217,7 @@ export function App() {
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-[var(--vscode-editor-background)]">
       {state.status === 'loading' && (
         <>
-          <PanelHeader onRefresh={refresh} onEditAuth={requestEditAuth} commitRunning={commitRunning} onCommit={runCommit} />
+          <PanelHeader onRefresh={refresh} onEditAuth={requestEditAuth} commitRunning={commitRunning} hasChanges={hasChanges} onCommit={runCommit} />
           <div className="flex h-full w-full items-center justify-center text-sm opacity-70">
             {blockedBySetup ? '请先完成设置' : '加载中…'}
           </div>
@@ -225,7 +226,7 @@ export function App() {
 
       {state.status === 'ready' && (
         <>
-          <PanelHeader onRefresh={refresh} onEditAuth={requestEditAuth} commitRunning={commitRunning} onCommit={runCommit} />
+          <PanelHeader onRefresh={refresh} onEditAuth={requestEditAuth} commitRunning={commitRunning} hasChanges={hasChanges} onCommit={runCommit} />
           <div className="flex min-h-0 flex-1 flex-col">
             <div className="min-h-0 flex-1 overflow-hidden">
               <KanbanBoard
@@ -262,7 +263,7 @@ export function App() {
 
       {state.status === 'error' && (
         <>
-          <PanelHeader onRefresh={refresh} onEditAuth={requestEditAuth} commitRunning={commitRunning} onCommit={runCommit} />
+          <PanelHeader onRefresh={refresh} onEditAuth={requestEditAuth} commitRunning={commitRunning} hasChanges={hasChanges} onCommit={runCommit} />
           <div className="flex flex-1 items-center justify-center p-6">
             <div className="max-w-md rounded-md border border-state-red/40 bg-state-red/10 p-4 text-sm">
               <div className="mb-3 font-medium text-state-red">无法加载 issues</div>

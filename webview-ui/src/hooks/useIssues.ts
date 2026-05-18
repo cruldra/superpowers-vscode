@@ -94,6 +94,12 @@ export interface UseIssuesResult {
    * root, gated by `commitRunning`. The extension responds with
    * `commit/state` messages and a `toast/show` on completion. */
   runCommit: () => void
+  /** Whether the workspace git working tree currently has any uncommitted
+   * changes (working tree / index / untracked). Pushed by the extension via
+   * `commit/has-changes` and used by `PanelHeader` to skip rendering the
+   * commit button when the tree is clean. Defaults to `false` until the
+   * extension reports its first observation. */
+  hasChanges: boolean
   /** ID of an issue that should be auto-selected after an `issue/append`
    * with `select: true` (i.e. user-initiated webhook creation). Consumers
    * read this in a `useEffect`, apply the selection, then call
@@ -111,6 +117,7 @@ export function useIssues(): UseIssuesResult {
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [pendingSelectId, setPendingSelectId] = useState<string | null>(null)
   const [commitRunning, setCommitRunning] = useState<boolean>(false)
+  const [hasChanges, setHasChanges] = useState<boolean>(false)
 
   const clearPendingSelect = useCallback((): void => {
     setPendingSelectId(null)
@@ -348,6 +355,9 @@ export function useIssues(): UseIssuesResult {
         case 'commit/state':
           setCommitRunning(msg.running)
           break
+        case 'commit/has-changes':
+          setHasChanges(msg.value)
+          break
       }
     })
     postMessage({ type: 'issues/refresh' })
@@ -356,5 +366,5 @@ export function useIssues(): UseIssuesResult {
     return cleanup
   }, [])
 
-  return { state, settings, globalAutoReview, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, focusSession, openFile, implement, openPr, openWorktree, deleteWorktree, changeColumn, setDependency, clearDependency, updateIssueAutoReview, logs, fetchLogs, clearLogs, pendingSelectId, clearPendingSelect, commitRunning, runCommit }
+  return { state, settings, globalAutoReview, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, focusSession, openFile, implement, openPr, openWorktree, deleteWorktree, changeColumn, setDependency, clearDependency, updateIssueAutoReview, logs, fetchLogs, clearLogs, pendingSelectId, clearPendingSelect, commitRunning, runCommit, hasChanges }
 }

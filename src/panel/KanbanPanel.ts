@@ -13,7 +13,7 @@ import * as fs from 'node:fs'
 import { promises as fsp } from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { commands, env, TabInputTerminal, ThemeColor, Uri, ViewColumn, window, workspace } from 'vscode'
+import { commands, env, extensions, TabInputTerminal, ThemeColor, Uri, ViewColumn, window, workspace } from 'vscode'
 import { deleteToken, getToken, setToken } from '../auth/secrets'
 import { listClaudeProfiles } from '../cc/profiles'
 import { getBrainstormPrompt, getImplementPlanPrompt } from '../cc/prompts'
@@ -37,6 +37,38 @@ import { webhookCoordinator } from '../webhook/coordinator'
 import { PALETTE, pickRandomIssueColor, resolveIssueColor, themeColorIdToIconUri } from './issueColor'
 
 const DEFAULT_PROFILE_PATH = '/home/cruldra/Sources/cruldra-profile/claude-config/profiles/offical.json'
+
+/**
+ * Minimal subset of the built-in `vscode.git` extension's public API that we
+ * consume. The official typings live in the VS Code repo's extension source
+ * (not on npm), so we inline just the fields needed to observe working-tree
+ * state and unregister our listener.
+ *
+ * Reference: microsoft/vscode → extensions/git/src/api/git.d.ts
+ */
+interface GitExtensionApiRepositoryStateChange {
+  (listener: () => unknown): { dispose: () => void }
+}
+
+interface GitExtensionApiRepositoryState {
+  readonly workingTreeChanges: ReadonlyArray<{ uri: Uri }>
+  readonly indexChanges: ReadonlyArray<{ uri: Uri }>
+  readonly untrackedChanges?: ReadonlyArray<{ uri: Uri }>
+  readonly onDidChange: GitExtensionApiRepositoryStateChange
+}
+
+interface GitExtensionApiRepository {
+  readonly rootUri: Uri
+  readonly state: GitExtensionApiRepositoryState
+}
+
+interface GitExtensionApi {
+  readonly repositories: ReadonlyArray<GitExtensionApiRepository>
+}
+
+interface GitExtensionExports {
+  getAPI: (version: 1) => GitExtensionApi
+}
 
 export class KanbanWebviewPanel {
   static readonly viewType = 'superpowers.kanbanPanel'
@@ -97,6 +129,25 @@ export class KanbanWebviewPanel {
    */
   private commitRunning = false
 
+  /**
+   * Whether the workspace git working tree currently has any uncommitted
+   * changes (working tree, index, or untracked). Populated by
+   * `setupGitWatcher()` via the built-in `vscode.git` extension and pushed to
+   * the webview as `commit/has-changes`. The webview only renders the
+   * "提交代码" toolbar button while this is true (or while a commit run is
+   * in flight, so users can still see the spinner). Defaults to `false` so
+   * the button stays hidden until we've actually observed the repo state.
+   */
+  private hasGitChanges = false
+
+  /**
+   * Disposable returned by `repository.state.onDidChange` while we're
+   * watching the workspace repo. Stored so we can detach the listener when
+   * the panel is disposed (otherwise the git extension would keep a strong
+   * reference to our callback closure for the lifetime of the editor).
+   */
+  private gitStateDisposable: { dispose: () => void } | undefined
+
   private constructor(private readonly context: ExtensionContext, panel: WebviewPanel) {
     this.panel = panel
 
@@ -142,6 +193,11 @@ export class KanbanWebviewPanel {
         }
       }),
     )
+
+    // Start observing the workspace repo so we can hide the "提交代码"
+    // toolbar button whenever the working tree is clean. Fire-and-forget —
+    // `setupGitWatcher` handles its own activation + retry logic.
+    this.setupGitWatcher()
   }
 
   static createOrShow(context: ExtensionContext): void {
@@ -1666,6 +1722,10 @@ export class KanbanWebviewPanel {
         issues,
         globalAutoReview: getSettings(this.context).autoReview,
       })
+      // Re-publish the cached git state so a slow webview boot (or a
+      // refresh after git events already fired) still picks up the latest
+      // value. Cheap — the webview discards if equal.
+      this.postMessage({ type: 'commit/has-changes', value: this.hasGitChanges })
     }
     catch (err) {
       if (err instanceof GiteaApiError && err.status === 401) {
@@ -2105,6 +2165,105 @@ export class KanbanWebviewPanel {
     }
   }
 
+
+  /**
+   * Subscribes to the built-in `vscode.git` extension so the webview can hide
+   * the "提交代码" toolbar button while the working tree is clean. Called
+   * once from the constructor.
+   *
+   * Failure modes:
+   *  - `vscode.git` extension not installed (rare; the user can disable
+   *    built-ins). We log a warning and force `hasGitChanges = true` so the
+   *    button stays visible — better to show a button that's a no-op than
+   *    to hide functionality the user can't recover.
+   *  - The repo for `workspaceFolders[0]` isn't in `api.repositories` yet
+   *    (git extension initializes asynchronously). We retry once after 1s
+   *    before giving up; on retry failure we leave `hasGitChanges = false`
+   *    (no repo means nothing to commit anyway).
+   */
+  private setupGitWatcher(): void {
+    const wsRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    if (!wsRoot)
+      return
+
+    const gitExt = extensions.getExtension<GitExtensionExports>('vscode.git')
+    if (!gitExt) {
+      logger.add({
+        level: 'warn',
+        source: 'panel',
+        message: 'vscode.git 扩展未找到，提交按钮将持续显示',
+      })
+      // Fallback: keep the button visible so users can at least trigger
+      // commits manually even though we can't observe state.
+      this.updateHasChanges(true)
+      return
+    }
+
+    const activation = gitExt.isActive
+      ? Promise.resolve(gitExt.exports)
+      : Promise.resolve(gitExt.activate())
+
+    void activation.then((exports) => {
+      const api = exports.getAPI(1)
+      const findRepo = (): GitExtensionApiRepository | undefined =>
+        api.repositories.find(r => r.rootUri.fsPath === wsRoot)
+
+      const updateState = (): void => {
+        const repo = findRepo()
+        if (!repo) {
+          this.updateHasChanges(false)
+          return
+        }
+        const total
+          = repo.state.workingTreeChanges.length
+            + repo.state.indexChanges.length
+            + (repo.state.untrackedChanges?.length ?? 0)
+        this.updateHasChanges(total > 0)
+      }
+
+      const subscribe = (repo: GitExtensionApiRepository): void => {
+        this.gitStateDisposable = repo.state.onDidChange(updateState)
+      }
+
+      updateState()
+      const repo = findRepo()
+      if (repo) {
+        subscribe(repo)
+        return
+      }
+      // vscode.git activation can resolve before its `repositories` array
+      // has populated for the freshly opened workspace. Retry once after a
+      // short delay; if still missing we just leave the button hidden.
+      setTimeout(() => {
+        const retried = findRepo()
+        if (retried)
+          subscribe(retried)
+        updateState()
+      }, 1000)
+    }).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err)
+      logger.add({
+        level: 'warn',
+        source: 'panel',
+        message: '激活 vscode.git 扩展失败，提交按钮将持续显示',
+        details: msg,
+      })
+      this.updateHasChanges(true)
+    })
+  }
+
+  /**
+   * Updates the cached `hasGitChanges` flag and (when it changed) notifies
+   * the webview. Idempotent — calling with the current value is a no-op, so
+   * `onDidChange` bursts from the git extension don't spam the webview.
+   */
+  private updateHasChanges(value: boolean): void {
+    if (this.hasGitChanges === value)
+      return
+    this.hasGitChanges = value
+    this.postMessage({ type: 'commit/has-changes', value })
+  }
+
   /** Forces the open panel (if any) into the setup-auth state. */
   static requestEditAuth(): void {
     void KanbanWebviewPanel.current?.handleEditSettingsRequest()
@@ -2138,6 +2297,8 @@ export class KanbanWebviewPanel {
   private dispose(): void {
     KanbanWebviewPanel.current = undefined
     webhookCoordinator.setActivePanel(undefined)
+    this.gitStateDisposable?.dispose()
+    this.gitStateDisposable = undefined
     while (this.disposables.length) {
       const d = this.disposables.pop()
       d?.dispose()

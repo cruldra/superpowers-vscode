@@ -60,6 +60,7 @@ export type ExtensionToWebview =
   | { type: 'logs/append', entry: LogEntry }
   | { type: 'logs/cleared' }
   | { type: 'commit/state', running: boolean }
+  | { type: 'commit/has-changes', value: boolean }
 
 export type WebviewToExtension =
   | { type: 'issues/refresh' }
