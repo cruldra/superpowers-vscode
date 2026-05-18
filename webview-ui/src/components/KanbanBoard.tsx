@@ -165,8 +165,11 @@ export function KanbanBoard({
       return 'edge'
     const activeCenterY = (activeRect.top + activeRect.bottom) / 2
     const overHeight = overRect.height
-    const middleStart = overRect.top + overHeight * 0.33
-    const middleEnd = overRect.top + overHeight * 0.67
+    // Widen the nest zone to the middle 60% of the over card so user doesn't
+    // need pixel-precision. Edge zone is just the top/bottom 20% slivers,
+    // which are still enough for sibling-reorder gestures.
+    const middleStart = overRect.top + overHeight * 0.2
+    const middleEnd = overRect.top + overHeight * 0.8
     return activeCenterY >= middleStart && activeCenterY <= middleEnd ? 'middle' : 'edge'
   }
 
