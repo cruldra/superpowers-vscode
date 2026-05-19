@@ -215,6 +215,11 @@ export class WebhookServer {
         try {
           const body = Buffer.concat(chunks).toString('utf-8')
           const eventHeader = (req.headers['x-gitea-event'] || '').toString() || '<missing>'
+          logger.add({
+            level: 'info',
+            source: 'webhook',
+            message: `收到请求 X-Gitea-Event=${eventHeader} bodyLen=${body.length}`,
+          })
           let parsed: unknown
           try {
             parsed = JSON.parse(body) as unknown
