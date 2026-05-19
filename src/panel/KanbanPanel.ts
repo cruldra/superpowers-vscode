@@ -1489,21 +1489,53 @@ export class KanbanWebviewPanel {
       return
     }
 
-    // 2. Require a PR association.
+    // 2. 无关联 PR 的工单（讨论 / 文档 / 运维类）也允许拖到完成列，
+    // 跳过 PR 合并 + worktree 清理，仅持久化 column='done'。
     if (!prStr) {
-      logger.add({
-        level: 'warn',
-        source: 'panel',
-        message: `工单 #${issueNumber} 无关联 PR，无法标记完成`,
-      })
-      this.postMessage({
-        type: 'toast/show',
-        id: makeNonce(),
-        level: 'error',
-        message: `工单 #${issueNumber} 无关联 PR，无法标记完成`,
-        dismissOnTimer: 6000,
-      })
-      rollback(fromColumn)
+      try {
+        await mergeStateJsonComment({
+          host: remote.host,
+          owner: remote.owner,
+          repo: remote.repo,
+          token,
+          issueNumber,
+          extra: { column: 'done' },
+        })
+        logger.add({
+          level: 'info',
+          source: 'panel',
+          message: `工单 #${issueNumber} 无 PR，直接标记完成`,
+        })
+        this.postMessage({
+          type: 'issue/patch',
+          issueNumber,
+          patch: { column: 'done' },
+        })
+        this.postMessage({
+          type: 'toast/show',
+          id: makeNonce(),
+          level: 'success',
+          message: `工单 #${issueNumber} 已完成`,
+          dismissOnTimer: 4000,
+        })
+      }
+      catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        logger.add({
+          level: 'error',
+          source: 'panel',
+          message: `持久化 column=done 失败 (#${issueNumber}, no PR)`,
+          details: message,
+        })
+        this.postMessage({
+          type: 'toast/show',
+          id: makeNonce(),
+          level: 'error',
+          message: `保存工单 #${issueNumber} 状态失败: ${message}`,
+          dismissOnTimer: 6000,
+        })
+        rollback(fromColumn)
+      }
       return
     }
 
