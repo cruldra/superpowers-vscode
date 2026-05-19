@@ -143,6 +143,21 @@ export class KanbanWebviewPanel {
   private readonly newIssueTerminals = new Map<number, Terminal>()
 
   /**
+   * Terminal → 它属于哪个 issue 的哪类会话 tab。
+   *
+   * 仅用于详情面板"会话 id 行右侧的关闭按钮"特性：在四个 issue-aware Map
+   * (`terminals` / `implTerminals` / `reviewTerminals` / `newIssueTerminals`)
+   * 任意一项 set 时同步登记，`onDidCloseTerminal` 命中后反查这里再推
+   * `issue/patch { brainstorm|implement|reviewTabOpen: false }` 给 webview。
+   *
+   * 用普通 Map 而不是 WeakMap：onDidCloseTerminal 需要把 closed Terminal
+   * 作为 key 查；WeakMap 不暴露 has/get 之外的迭代 API 但其实 get 就够用，
+   * 不过 VS Code 文档里 Terminal 实例生命周期与 Map 中的引用不冲突，普通
+   * Map 更易于 inspect / debug。条目数顶天就是当前活跃 tab 数，无压力。
+   */
+  private readonly terminalOrigin = new Map<Terminal, { issueNumber: number, kind: 'brainstorm' | 'implement' | 'review' }>()
+
+  /**
    * Concurrency lock for the "提交当前代码" button. The webview already
    * disables the button while `commit/state running=true` is in flight, but
    * we keep a server-side lock as defense against duplicate messages.
@@ -217,6 +232,8 @@ export class KanbanWebviewPanel {
             break
           }
         }
+        // 反查 terminalOrigin 给详情面板推 *TabOpen: false，让关闭按钮消失。
+        this.untrackClosedTerminal(closed)
       }),
       // 用户在 column 2 切换终端 tab 时，反向选中看板上对应的工单卡片。
       window.onDidChangeActiveTerminal((terminal) => {
@@ -341,6 +358,10 @@ export class KanbanWebviewPanel {
     }
     if (msg.type === 'commit/run') {
       void this.handleCommitRun()
+      return
+    }
+    if (msg.type === 'session/close-tab') {
+      this.handleCloseSessionTab(msg.issueNumber, msg.kind)
     }
   }
 
@@ -503,6 +524,8 @@ export class KanbanWebviewPanel {
     const existingByName = this.findExistingTerminal(terminalName)
     if (existingByName) {
       this.terminals.set(sessionId, existingByName)
+      if (issueNumber !== undefined)
+        this.trackSessionTerminal(existingByName, issueNumber, 'brainstorm')
       existingByName.show(false)
       return
     }
@@ -521,6 +544,8 @@ export class KanbanWebviewPanel {
       ...(issueIcon ? { iconPath: issueIcon.iconUri, color: issueIcon.themeColor } : {}),
     })
     this.terminals.set(sessionId, terminal)
+    if (issueNumber !== undefined)
+      this.trackSessionTerminal(terminal, issueNumber, 'brainstorm')
     terminal.show(false)
     logger.add({
       level: 'info',
@@ -566,6 +591,7 @@ export class KanbanWebviewPanel {
         if (t.name.startsWith(wantedPrefix)) {
           terminal = t
           this.implTerminals.set(issueNumber, t)
+          this.trackSessionTerminal(t, issueNumber, 'implement')
           break
         }
       }
@@ -642,6 +668,7 @@ export class KanbanWebviewPanel {
     const existingByName = this.findExistingTerminal(reviewTerminalName)
     if (existingByName) {
       this.reviewTerminals.set(sessionId, existingByName)
+      this.trackSessionTerminal(existingByName, issueNumber, 'review')
       existingByName.show(false)
       return
     }
@@ -657,6 +684,7 @@ export class KanbanWebviewPanel {
       color: themeColor,
     })
     this.reviewTerminals.set(sessionId, terminal)
+    this.trackSessionTerminal(terminal, issueNumber, 'review')
     terminal.show(false)
     terminal.sendText(`codex resume --dangerously-bypass-approvals-and-sandbox ${sessionId}`)
     logger.add({
@@ -732,6 +760,7 @@ export class KanbanWebviewPanel {
         message: `已创建审查终端 "${terminalName}" cwd=${effectiveCwd}`,
       })
     }
+    this.trackSessionTerminal(terminal, opts.issueNumber, 'review')
     terminal.show(false)
 
     if (cwdFallback) {
@@ -990,6 +1019,7 @@ export class KanbanWebviewPanel {
     const existingImpl = this.findExistingTerminal(implTerminalName)
     if (existingImpl) {
       this.implTerminals.set(issueNumber, existingImpl)
+      this.trackSessionTerminal(existingImpl, issueNumber, 'implement')
       existingImpl.show(false)
       logger.add({
         level: 'info',
@@ -1182,6 +1212,7 @@ export class KanbanWebviewPanel {
     // `injectIntoImplTerminal(issueNumber, text)` to feed review feedback
     // back into the same running cc session.
     this.implTerminals.set(issueNumber, terminal)
+    this.trackSessionTerminal(terminal, issueNumber, 'implement')
     logger.add({
       level: 'info',
       source: 'terminal',
@@ -2728,6 +2759,86 @@ export class KanbanWebviewPanel {
   }
 
   /**
+   * 登记一个新创建/复用的会话终端，并主动推一条 issue/patch 把对应 tab 打开
+   * 标志置 true。详情面板侧据此在三行会话 id 右侧渲染关闭按钮。
+   *
+   * 复用场景（map 命中、existingByName 命中）也会再调一次，是幂等的：
+   * 重复设置 terminalOrigin 不影响，重复推 true 在 webview 端的
+   * `mergeIssuePatch` 也是 no-op。
+   */
+  private trackSessionTerminal(
+    terminal: Terminal,
+    issueNumber: number,
+    kind: 'brainstorm' | 'implement' | 'review',
+  ): void {
+    this.terminalOrigin.set(terminal, { issueNumber, kind })
+    this.postMessage({
+      type: 'issue/patch',
+      issueNumber,
+      patch:
+        kind === 'brainstorm'
+          ? { brainstormTabOpen: true }
+          : kind === 'implement'
+            ? { implementTabOpen: true }
+            : { reviewTabOpen: true },
+    })
+  }
+
+  /**
+   * onDidCloseTerminal 触发后调用：反查 `terminalOrigin` 找到该 terminal
+   * 对应的工单 + 会话类型，并推 false 让详情面板隐藏关闭按钮。
+   *
+   * 同时从 `terminalOrigin` 删除条目；四个 issue-aware Map 的清理仍由
+   * 现有 onDidCloseTerminal 循环负责，本方法只关心 webview 通知。
+   */
+  private untrackClosedTerminal(closed: Terminal): void {
+    const origin = this.terminalOrigin.get(closed)
+    if (!origin)
+      return
+    this.terminalOrigin.delete(closed)
+    this.postMessage({
+      type: 'issue/patch',
+      issueNumber: origin.issueNumber,
+      patch:
+        origin.kind === 'brainstorm'
+          ? { brainstormTabOpen: false }
+          : origin.kind === 'implement'
+            ? { implementTabOpen: false }
+            : { reviewTabOpen: false },
+    })
+  }
+
+  /**
+   * webview 端"关闭 tab"按钮入口：直接扫 `terminalOrigin` 找匹配
+   * (issueNumber, kind) 的 terminal 并 `dispose()`。VS Code 随后会发
+   * onDidCloseTerminal，由统一回调清理四个 issue-aware Map 和推 flag=false
+   * ——本方法不直接改任何 Map，避免双重清理。
+   *
+   * 用 terminalOrigin 而不是分别查四个 Map：审查 tab 在
+   * `triggerAutoReviewTab` 路径里不会进 `reviewTerminals`（那个 Map 按
+   * thread_id 索引，此路径还没 thread_id），但会被登记到 terminalOrigin，
+   * 所以用它做单一真相源最稳。
+   */
+  private handleCloseSessionTab(issueNumber: number, kind: 'brainstorm' | 'implement' | 'review'): void {
+    let terminal: Terminal | undefined
+    for (const [t, origin] of this.terminalOrigin) {
+      if (origin.issueNumber === issueNumber && origin.kind === kind) {
+        terminal = t
+        break
+      }
+    }
+    if (!terminal) {
+      logger.add({
+        level: 'warn',
+        source: 'panel',
+        message: `关闭 ${kind} tab 失败 #${issueNumber}：未找到对应终端`,
+      })
+      return
+    }
+    terminal.dispose()
+  }
+
+  /**
    * Removes and returns the {@link pendingIssueCreations} entry for the
    * given nonce, if any. Called by the webhook coordinator when a matching
    * `issues opened` payload arrives. Returning `undefined` (and leaving the
@@ -2768,6 +2879,7 @@ export class KanbanWebviewPanel {
     this.newIssueTerminals.set(issueNumber, pending.terminal)
     if (pending.sessionId && pending.sessionId.length > 0)
       this.terminals.set(pending.sessionId, pending.terminal)
+    this.trackSessionTerminal(pending.terminal, issueNumber, 'brainstorm')
   }
 
   private dispose(): void {

@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { ExternalLink, Play, Terminal, Trash2 } from 'lucide-react'
+import { ExternalLink, Play, Terminal, Trash2, X } from 'lucide-react'
 import type { Issue, IssueColumn } from '../types'
 import { COLUMN_LABELS, COLUMN_ORDER } from '../types'
 import { isIssueLocked } from '../lib/dependencies'
@@ -27,6 +27,10 @@ interface IssueDetailPanelProps {
   onOpenWorktree: (path: string) => void
   /** Delete the worktree (`git worktree remove`) and clear it from state. */
   onDeleteWorktree: (issueNumber: number, path: string) => void
+  /** Close the matching session terminal tab. The extension watches
+   * onDidCloseTerminal and clears the corresponding `*TabOpen` flag, which
+   * makes the X button vanish on its own. */
+  onCloseSessionTab: (issueNumber: number, kind: 'brainstorm' | 'implement' | 'review') => void
   /** Persist a per-issue `autoReview` override into the state JSON. */
   onUpdateAutoReview: (issueNumber: number, value: boolean) => void
   /** Open the in-webview log modal. */
@@ -53,6 +57,7 @@ export function IssueDetailPanel({
   onOpenPr,
   onOpenWorktree,
   onDeleteWorktree,
+  onCloseSessionTab,
   onUpdateAutoReview,
   onOpenLogs,
 }: IssueDetailPanelProps) {
@@ -103,6 +108,17 @@ export function IssueDetailPanel({
               if (typeof v === 'string' && v.length > 0)
                 onResumeSession(v, issue?.profilePath, undefined, issue?.number)
             },
+            // 仅当 extension 端登记了该工单的头脑风暴 tab 正在打开时才显示 X
+            // 关闭按钮——状态由 extension 在创建/复用终端时推 brainstormTabOpen=true、
+            // onDidCloseTerminal 时推 false 来维护。
+            secondaryActionIcon: issue?.brainstormTabOpen
+              ? <X className="size-3.5" />
+              : undefined,
+            secondaryActionTitle: '关闭头脑风暴 tab',
+            onSecondaryAction: () => {
+              if (issue)
+                onCloseSessionTab(issue.number, 'brainstorm')
+            },
           },
           // 实施会话即使 worktree 已被清掉也保留可点击的 resume 入口：
           // extension 端 handleResumeSession 会在 worktree 路径不存在时退回
@@ -120,6 +136,14 @@ export function IssueDetailPanel({
               if (typeof v === 'string' && v.length > 0)
                 onResumeSession(v, issue?.profilePath, issue?.worktreePath, issue?.number)
             },
+            secondaryActionIcon: issue?.implementTabOpen
+              ? <X className="size-3.5" />
+              : undefined,
+            secondaryActionTitle: '关闭实施 tab',
+            onSecondaryAction: () => {
+              if (issue)
+                onCloseSessionTab(issue.number, 'implement')
+            },
           },
           issue?.worktreeExists
             ? {
@@ -131,6 +155,14 @@ export function IssueDetailPanel({
                 onAction: (v) => {
                   if (typeof v === 'string' && v.length > 0 && issue)
                     onResumeReviewSession(v, issue.number, issue?.worktreePath)
+                },
+                secondaryActionIcon: issue?.reviewTabOpen
+                  ? <X className="size-3.5" />
+                  : undefined,
+                secondaryActionTitle: '关闭审查 tab',
+                onSecondaryAction: () => {
+                  if (issue)
+                    onCloseSessionTab(issue.number, 'review')
                 },
               }
             : {
@@ -237,7 +269,7 @@ export function IssueDetailPanel({
         ],
       },
     ],
-    [onResumeSession, onResumeReviewSession, onOpenFile, onImplement, onOpenPr, onOpenWorktree, onDeleteWorktree, onOpenLogs, issue, locked, lockTitle],
+    [onResumeSession, onResumeReviewSession, onOpenFile, onImplement, onOpenPr, onOpenWorktree, onDeleteWorktree, onCloseSessionTab, onOpenLogs, issue, locked, lockTitle, globalAutoReview],
   )
 
   if (!issue) {

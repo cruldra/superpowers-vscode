@@ -64,13 +64,13 @@ export interface PropertyDef {
   onReload?: () => void
   /** type='file-link' 专用：重新加载按钮的图标，默认为 RefreshCw */
   reloadIcon?: ReactNode
-  /** type='file-link' 专用：第二个右侧按钮的图标，缺省则不渲染该按钮 */
+  /** type='file-link' / 'action' 通用：第二个右侧按钮的图标，缺省则不渲染该按钮 */
   secondaryActionIcon?: ReactNode
-  /** type='file-link' 专用：第二个右侧按钮的 tooltip */
+  /** type='file-link' / 'action' 通用：第二个右侧按钮的 tooltip */
   secondaryActionTitle?: string
-  /** type='file-link' 专用：第二个右侧按钮的点击回调 */
+  /** type='file-link' / 'action' 通用：第二个右侧按钮的点击回调 */
   onSecondaryAction?: () => void
-  /** type='file-link' 专用：第二个右侧按钮是否禁用 */
+  /** type='file-link' / 'action' 通用：第二个右侧按钮是否禁用 */
   secondaryDisabled?: boolean
 }
 
@@ -273,24 +273,49 @@ function PropertyRow({
           </div>
         )
 
-      case 'action':
+      case 'action': {
         if (value == null || value === '') {
           return <span className="px-2 py-1.5 text-xs opacity-50">—</span>
         }
+        const hasSecondaryAction = propDef.secondaryActionIcon != null
+        const secondaryDisabledAction = !!propDef.secondaryDisabled
         return (
-          <button
-            type="button"
-            data-property-action="primary"
-            onClick={() => propDef.onAction?.(value)}
-            disabled={ro}
-            className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left text-xs text-[var(--vscode-textLink-foreground)] hover:text-[var(--vscode-textLink-activeForeground)] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {propDef.actionIcon}
-            <span className="truncate font-mono underline-offset-2 hover:underline">
-              {String(value)}
-            </span>
-          </button>
+          <div className="flex w-full items-center">
+            <button
+              type="button"
+              data-property-action="primary"
+              onClick={() => propDef.onAction?.(value)}
+              disabled={ro}
+              className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 text-left text-xs text-[var(--vscode-textLink-foreground)] hover:text-[var(--vscode-textLink-activeForeground)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {propDef.actionIcon}
+              <span className="truncate font-mono underline-offset-2 hover:underline">
+                {String(value)}
+              </span>
+            </button>
+            {hasSecondaryAction && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (secondaryDisabledAction)
+                    return
+                  propDef.onSecondaryAction?.()
+                }}
+                disabled={secondaryDisabledAction}
+                title={propDef.secondaryActionTitle}
+                aria-label={propDef.secondaryActionTitle ?? '次要操作'}
+                className={`mr-2 grid size-5 shrink-0 place-items-center ${
+                  secondaryDisabledAction
+                    ? 'cursor-not-allowed opacity-30'
+                    : 'opacity-60 hover:opacity-100'
+                }`}
+              >
+                {propDef.secondaryActionIcon}
+              </button>
+            )}
+          </div>
         )
+      }
 
       case 'file-link': {
         const hasValue = typeof value === 'string' && value.length > 0

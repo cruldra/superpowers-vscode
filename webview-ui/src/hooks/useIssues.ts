@@ -80,6 +80,9 @@ export interface UseIssuesResult {
   openPr: (pr: string) => void
   openWorktree: (path: string) => void
   deleteWorktree: (issueNumber: number, path: string) => void
+  /** Dispose the matching session terminal tab. Extension reacts via
+   * onDidCloseTerminal and clears `*TabOpen` so the X button disappears. */
+  closeSessionTab: (issueNumber: number, kind: 'brainstorm' | 'implement' | 'review') => void
   changeColumn: (issueNumber: number, toColumn: IssueColumn) => void
   setDependency: (issueNumber: number, prerequisiteNumber: number) => void
   clearDependency: (issueNumber: number, prerequisiteNumber: number) => void
@@ -209,6 +212,13 @@ export function useIssues(): UseIssuesResult {
   const deleteWorktree = useCallback((issueNumber: number, path: string): void => {
     postMessage({ type: 'worktree/delete', issueNumber, path })
   }, [])
+
+  const closeSessionTab = useCallback(
+    (issueNumber: number, kind: 'brainstorm' | 'implement' | 'review'): void => {
+      postMessage({ type: 'session/close-tab', issueNumber, kind })
+    },
+    [],
+  )
 
   const changeColumn = useCallback((issueNumber: number, toColumn: IssueColumn): void => {
     postMessage({ type: 'column/change', issueNumber, toColumn })
@@ -378,5 +388,5 @@ export function useIssues(): UseIssuesResult {
     return cleanup
   }, [])
 
-  return { state, settings, globalAutoReview, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, focusSession, openFile, implement, openPr, openWorktree, deleteWorktree, changeColumn, setDependency, clearDependency, updateIssueAutoReview, logs, fetchLogs, clearLogs, pendingSelectId, clearPendingSelect, commitRunning, runCommit, hasChanges }
+  return { state, settings, globalAutoReview, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, focusSession, openFile, implement, openPr, openWorktree, deleteWorktree, closeSessionTab, changeColumn, setDependency, clearDependency, updateIssueAutoReview, logs, fetchLogs, clearLogs, pendingSelectId, clearPendingSelect, commitRunning, runCommit, hasChanges }
 }

@@ -44,6 +44,11 @@ export interface Issue {
   /** Per-issue override of the global `autoReview` setting. Undefined = follow
    * global setting; true/false = explicit override stored in state JSON. */
   autoReview?: boolean
+  /** 三类会话 tab 是否当前在编辑器分组里打开（由 extension 通过 issue/patch 同步）。
+   * 仅用于详情面板控制是否在三行会话 id 右侧显示 "关闭 tab" 按钮，不持久化到 state JSON。 */
+  brainstormTabOpen?: boolean
+  implementTabOpen?: boolean
+  reviewTabOpen?: boolean
 }
 
 export const COLUMN_ORDER: IssueColumn[] = ['todo', 'in-progress', 'review', 'done']
