@@ -17,6 +17,7 @@ import { commands, env, extensions, TabInputTerminal, ThemeColor, Uri, ViewColum
 import { deleteToken, getToken, setToken } from '../auth/secrets'
 import { listClaudeProfiles } from '../cc/profiles'
 import { getBrainstormPrompt, getImplementPlanPrompt } from '../cc/prompts'
+import { watchForNewCodexSession } from '../cc/codexSessionWatcher'
 import { projectsDirFor, watchForNewSession } from '../cc/sessionWatcher'
 import { spawnClaude } from '../cc/spawnClaude'
 import { detectRepo } from '../git/remote'
@@ -742,6 +743,17 @@ export class KanbanWebviewPanel {
       })
     }
 
+    // Start the codex session watcher BEFORE sendText so we don't race the
+    // rollout-*.jsonl creation. codex writes a new file under
+    // ~/.codex/sessions/YYYY/MM/DD/ on every run; we extract thread_id from
+    // its name and persist it as reviewSessionId so the detail panel's
+    // resume button works after the user closes this tab.
+    const codexSessionsRoot = path.join(os.homedir(), '.codex', 'sessions')
+    const watcherPromise = watchForNewCodexSession({
+      baseDir: codexSessionsRoot,
+      timeoutMs: 120_000,
+    })
+
     // Intentionally NOT passing --json: codex's NDJSON output is unreadable
     // in a terminal. Users want to watch codex think, not parse json.
     const cmd = `codex exec review --dangerously-bypass-approvals-and-sandbox '${opts.prompt}'`
@@ -751,6 +763,65 @@ export class KanbanWebviewPanel {
       source: 'terminal',
       message: `已发送 codex review 命令到 #${opts.issueNumber}-审查 tab`,
     })
+
+    // Fire-and-forget: when the watcher resolves with a thread_id, persist
+    // it to state JSON + push an issue/patch so the webview shows the resume
+    // button. Failures here don't break the review run itself.
+    void watcherPromise.then(async (threadId) => {
+      if (!threadId) {
+        logger.add({
+          level: 'warn',
+          source: 'review',
+          message: `审查会话监听超时 (#${opts.issueNumber})`,
+        })
+        return
+      }
+      logger.add({
+        level: 'info',
+        source: 'review',
+        message: `已捕获审查会话 ${threadId} (#${opts.issueNumber})`,
+      })
+      try {
+        const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+        if (!workspaceRoot)
+          return
+        const remote = await detectRepo(workspaceRoot)
+        if (!remote)
+          return
+        const token = await getToken(this.context, remote.host)
+        if (!token)
+          return
+        await mergeStateJsonComment({
+          host: remote.host,
+          token,
+          owner: remote.owner,
+          repo: remote.repo,
+          issueNumber: opts.issueNumber,
+          extra: { reviewSessionId: threadId },
+        })
+        this.postMessage({
+          type: 'issue/patch',
+          issueNumber: opts.issueNumber,
+          patch: { reviewSessionId: threadId },
+        })
+      }
+      catch (err) {
+        logger.add({
+          level: 'warn',
+          source: 'review',
+          message: `持久化 reviewSessionId 失败 (#${opts.issueNumber})`,
+          details: err instanceof Error ? err.message : String(err),
+        })
+      }
+    }).catch((err) => {
+      logger.add({
+        level: 'warn',
+        source: 'review',
+        message: `审查 session watcher 异常 (#${opts.issueNumber})`,
+        details: err instanceof Error ? err.message : String(err),
+      })
+    })
+
     return true
   }
 
