@@ -344,6 +344,25 @@ export async function mergePullRequest(opts: {
   await ensureOk(res)
 }
 
+export async function closeIssue(opts: {
+  host: string
+  token: string
+  owner: string
+  repo: string
+  issueNumber: number
+}): Promise<void> {
+  const url = `${baseUrl(opts.host)}/repos/${opts.owner}/${opts.repo}/issues/${opts.issueNumber}`
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      ...authHeaders(opts.token),
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ state: 'closed' }),
+  })
+  await ensureOk(res)
+}
+
 export async function removeDependency(opts: {
   host: string
   token: string

@@ -24,6 +24,7 @@ import { detectRepo } from '../git/remote'
 import { createWorktree } from '../git/worktree'
 import {
   addDependency,
+  closeIssue,
   getPullRequest,
   GiteaApiError,
   listIssueComments,
@@ -1506,6 +1507,13 @@ export class KanbanWebviewPanel {
           source: 'panel',
           message: `工单 #${issueNumber} 无 PR，直接标记完成`,
         })
+        await this.syncCloseGiteaIssue({
+          host: remote.host,
+          token,
+          owner: remote.owner,
+          repo: remote.repo,
+          issueNumber,
+        })
         this.postMessage({
           type: 'issue/patch',
           issueNumber,
@@ -1662,6 +1670,14 @@ export class KanbanWebviewPanel {
       return
     }
 
+    await this.syncCloseGiteaIssue({
+      host: remote.host,
+      token,
+      owner: remote.owner,
+      repo: remote.repo,
+      issueNumber,
+    })
+
     // Before removing the worktree, copy the impl-session jsonl into the
     // workspace-root projects dir so `claude --resume` can still find it
     // after the worktree (and its projects dir) are gone.
@@ -1770,6 +1786,44 @@ export class KanbanWebviewPanel {
       message: `工单 #${issueNumber} 已完成，worktree 已清理`,
       dismissOnTimer: 5000,
     })
+  }
+
+  /**
+   * 把 Gitea 工单状态改成 closed。failure non-fatal —— state JSON 已写、PR 已合、
+   * 看板已切到 done 列，rollback 意义不大。失败时打 warn 日志 + warning toast，
+   * 用户可手动关闭工单。
+   */
+  private async syncCloseGiteaIssue(opts: {
+    host: string
+    token: string
+    owner: string
+    repo: string
+    issueNumber: number
+  }): Promise<void> {
+    try {
+      await closeIssue(opts)
+      logger.add({
+        level: 'info',
+        source: 'panel',
+        message: `已关闭 Gitea 工单 #${opts.issueNumber}`,
+      })
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.add({
+        level: 'warn',
+        source: 'panel',
+        message: `同步关闭 Gitea 工单 #${opts.issueNumber} 失败`,
+        details: message,
+      })
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: `工单 #${opts.issueNumber} 状态同步失败，请手动关闭: ${message}`,
+        dismissOnTimer: 6000,
+      })
+    }
   }
 
   /**
