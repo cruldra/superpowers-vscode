@@ -665,6 +665,96 @@ export class KanbanWebviewPanel {
   }
 
   /**
+   * Open (or re-use) the review terminal tab for an issue and send the codex
+   * review command. Used by the webhook auto-review flow so the user can watch
+   * codex work in real time instead of it running headless in the background.
+   *
+   * Re-use semantics: if a tab named `issue-${N}-审查` already exists (live, not
+   * exited), we `show` it and `sendText` a fresh review command — this lets
+   * subsequent PR sync events stack their review runs in the same tab. We do
+   * NOT track the terminal in `reviewTerminals` (that map is keyed by codex
+   * thread_id, which we don't have on this path).
+   *
+   * Returns true if the command was successfully dispatched, false if a
+   * pre-condition failed (single-quote in prompt currently is the only one).
+   */
+  public async triggerAutoReviewTab(opts: {
+    issueNumber: number
+    prNumber: string
+    prompt: string
+    /** workspace-relative or absolute path; if missing/invalid we fall back to workspaceRoot. */
+    worktreePath: string
+    workspaceRoot: string
+  }): Promise<boolean> {
+    // codex command is shell-quoted with single quotes; reject prompts that
+    // would break the quoting rather than try to escape (same posture as
+    // handleImplement).
+    if (opts.prompt.includes('\'')) {
+      logger.add({
+        level: 'error',
+        source: 'webhook',
+        message: `审查 prompt 含单引号，拒绝执行 #${opts.issueNumber}`,
+      })
+      return false
+    }
+
+    // Resolve cwd. If worktreePath is provided but doesn't exist on disk
+    // (worktree was cleaned up after merge), fall back to workspaceRoot and
+    // toast the user — same fallback as handleResumeSession.
+    let effectiveCwd = opts.workspaceRoot
+    let cwdFallback = false
+    if (opts.worktreePath) {
+      const abs = path.isAbsolute(opts.worktreePath)
+        ? opts.worktreePath
+        : path.join(opts.workspaceRoot, opts.worktreePath)
+      if (fs.existsSync(abs))
+        effectiveCwd = abs
+      else
+        cwdFallback = true
+    }
+
+    const terminalName = `issue-${opts.issueNumber}-审查`
+    let terminal = this.findExistingTerminal(terminalName)
+    if (!terminal) {
+      const { themeColor, iconUri } = await this.resolveIssueIcon(opts.issueNumber)
+      terminal = window.createTerminal({
+        name: terminalName,
+        cwd: effectiveCwd,
+        location: this.resolveTerminalLocation(false),
+        iconPath: iconUri,
+        color: themeColor,
+      })
+      logger.add({
+        level: 'info',
+        source: 'terminal',
+        message: `已创建审查终端 "${terminalName}" cwd=${effectiveCwd}`,
+      })
+    }
+    terminal.show(false)
+
+    if (cwdFallback) {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'info',
+        message: `工单 #${opts.issueNumber} 的 worktree 已清理，审查将在工作区根目录跑`,
+        dismissOnTimer: 5000,
+      })
+    }
+
+    // Intentionally NOT passing --json: codex's NDJSON output is unreadable
+    // in a terminal. Users want to watch codex think, not parse json.
+    const cmd = `codex exec review --dangerously-bypass-approvals-and-sandbox '${opts.prompt}'`
+    terminal.sendText(cmd)
+    logger.add({
+      level: 'info',
+      source: 'terminal',
+      message: `已发送 codex review 命令到 #${opts.issueNumber}-审查 tab`,
+    })
+    return true
+  }
+
+  /**
    * Focus an already-open terminal for `sessionId` without stealing focus
    * from the kanban. Called when the webview's selection changes via arrow
    * keys / clicks — if there's no terminal for this session yet, this is a

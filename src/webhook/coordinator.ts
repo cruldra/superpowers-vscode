@@ -12,13 +12,10 @@
 import type { ExtensionContext } from 'vscode'
 import type { KanbanWebviewPanel } from '../panel/KanbanPanel'
 import type { IssueCommentWebhookEvent, IssueWebhookEvent, PrWebhookEvent, WebhookEvent } from './server'
-import * as fs from 'node:fs'
 import { promises as fsp } from 'node:fs'
-import * as path from 'node:path'
 import { env, Uri, window, workspace } from 'vscode'
 import { getToken } from '../auth/secrets'
 import { getReviewPrompt } from '../cc/prompts'
-import { runReview } from '../cc/reviewFlow'
 import { detectRepo } from '../git/remote'
 import { deleteWebhook, getPullRequest, listIssueComments } from '../gitea/api'
 import { loadIssues, loadSingleIssue } from '../gitea/issueLoader'
@@ -1275,6 +1272,15 @@ class WebhookCoordinator {
       })
     }
 
+    if (!this.activePanel) {
+      logger.add({
+        level: 'warn',
+        source: 'webhook',
+        message: `无 active panel，跳过审查 #${issueNumber}`,
+      })
+      return
+    }
+
     const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
     if (!workspaceRoot) {
       logger.add({
@@ -1285,8 +1291,10 @@ class WebhookCoordinator {
       return
     }
 
-    // Re-fetch state JSON to pick up the issue's worktreePath.
-    let worktreePath: string | undefined
+    // Re-fetch state JSON to pick up the issue's worktreePath. We don't
+    // hard-fail if it's missing — triggerAutoReviewTab will fall back to
+    // workspaceRoot and toast the user.
+    let worktreePath = ''
     try {
       const comments = await listIssueComments({
         host: ctx.host,
@@ -1318,78 +1326,26 @@ class WebhookCoordinator {
       })
     }
 
-    if (!worktreePath) {
-      logger.add({
-        level: 'error',
-        source: 'webhook',
-        message: `审查中止 #${issueNumber}：state JSON 中无 worktreePath`,
-      })
-      return
-    }
-    const worktreeAbs = path.join(workspaceRoot, worktreePath)
-    if (!fs.existsSync(worktreeAbs)) {
-      logger.add({
-        level: 'error',
-        source: 'webhook',
-        message: `审查中止 #${issueNumber}：worktree 不存在 ${worktreeAbs}`,
-      })
-      return
-    }
-    const cwd = worktreeAbs
-
     logger.add({
       level: 'info',
       source: 'webhook',
-      message: `开始审查 #${issueNumber} cwd=${cwd}`,
+      message: `开始审查 #${issueNumber} worktreePath=${worktreePath || '(none)'}`,
     })
 
     const prompt = getReviewPrompt(this.ctx, { prNumber })
 
-    try {
-      await runReview({
-        workspaceRoot: cwd,
-        prompt,
-        onThreadId: async (id) => {
-          try {
-            await mergeStateJsonComment({
-              host: ctx.host,
-              token: ctx.token,
-              owner: ctx.owner,
-              repo: ctx.repo,
-              issueNumber,
-              extra: { reviewSessionId: id },
-            })
-            this.activePanel?.postMessage({
-              type: 'issue/patch',
-              issueNumber,
-              patch: { reviewSessionId: id },
-            })
-            logger.add({
-              level: 'info',
-              source: 'webhook',
-              message: `已捕获审查会话 ${id} (issue #${issueNumber})`,
-            })
-          }
-          catch (err) {
-            logger.add({
-              level: 'warn',
-              source: 'webhook',
-              message: `持久化 reviewSessionId 失败 (issue #${issueNumber})`,
-              details: err instanceof Error ? err.message : String(err),
-            })
-          }
-        },
-      })
-    }
-    catch (err) {
-      // runReview never throws now (it logs internally) but defensively
-      // catch in case future refactors reintroduce throws.
-      const message = err instanceof Error ? err.message : String(err)
+    const ok = await this.activePanel.triggerAutoReviewTab({
+      issueNumber,
+      prNumber,
+      prompt,
+      worktreePath,
+      workspaceRoot,
+    })
+    if (!ok) {
       logger.add({
-        level: 'error',
+        level: 'warn',
         source: 'webhook',
-        message: `审查执行失败 #${issueNumber}`,
-        details: message,
+        message: `triggerAutoReviewTab 失败 #${issueNumber}`,
       })
       return
     }
@@ -1397,7 +1353,7 @@ class WebhookCoordinator {
     logger.add({
       level: 'info',
       source: 'webhook',
-      message: `审查 spawn 完成 #${issueNumber}，等待 codex 通过 PR 评论回流`,
+      message: `审查 tab 已就绪 #${issueNumber}，等待 codex 通过 PR 评论回流`,
     })
   }
 }
