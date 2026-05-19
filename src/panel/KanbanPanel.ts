@@ -599,11 +599,15 @@ export class KanbanWebviewPanel {
     if (!terminal)
       return false
     // cc 的 TUI 在 raw 模式下，LF (\n) 只算输入框内的换行，CR (\r)
-    // 才会被识别为 Enter（提交消息）。VS Code 的 sendText(..., true)
-    // 在 Linux 上追加的是 LF，所以这里手动末尾接一个 \r、addNewLine
-    // 设 false。
-    const payload = `\n[审查反馈]\n${text}\r`
-    terminal.sendText(payload, false)
+    // 才会被识别为 Enter（提交消息）。实测把多行内容 + 末尾 \r 在同一次
+    // sendText 里发出去时，cc 进入多行输入模式后并不会把紧跟的 \r 当成
+    // 提交键，结果就是反馈只粘贴到输入框、没提交。
+    // 拆两次发：先把内容完整推进输入框，250ms 后再独立发一个 \r 作为 Enter。
+    const body = `\n[审查反馈]\n${text}`
+    terminal.sendText(body, false)
+    setTimeout(() => {
+      terminal!.sendText('\r', false)
+    }, 250)
     return true
   }
 
