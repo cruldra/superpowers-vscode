@@ -784,9 +784,10 @@ export class KanbanWebviewPanel {
       timeoutMs: 120_000,
     })
 
-    // Intentionally NOT passing --json: codex's NDJSON output is unreadable
-    // in a terminal. Users want to watch codex think, not parse json.
-    const cmd = `codex exec review --dangerously-bypass-approvals-and-sandbox '${opts.prompt}'`
+    // Interactive TUI (`codex` without `exec`/`review` subcommands): keeps
+    // the terminal alive after the run so users can follow up with codex,
+    // mirroring how claude implementation/brainstorm sessions stay open.
+    const cmd = `codex --dangerously-bypass-approvals-and-sandbox '${opts.prompt}'`
     terminal.sendText(cmd)
     logger.add({
       level: 'info',
