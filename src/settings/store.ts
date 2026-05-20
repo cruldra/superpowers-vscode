@@ -30,7 +30,7 @@ export const DEFAULT_IMPLEMENT_PLAN_PROMPT
 
 **严禁合并 PR**：你的职责只到发起 PR 为止，后续审查反馈到了请继续修复并 push，永远不要执行 \`tea pulls merge\` 或任何合并操作。合并由用户在看板上拖工单到"完成"列时由插件代为执行。`
 
-export const DEFAULT_REVIEW_PROMPT = `先切换到当前目录，然后用 tea 拿到这个仓库的 #{prNumber} PR，再对其进行审查
+export const DEFAULT_REVIEW_PROMPT = `/review 先切换到当前目录，然后用 tea 拿到这个仓库的 #{prNumber} PR，再对其进行审查
 
 审查完毕后必须用 tea 命令把审查意见 post 成 PR 评论（不是 reply，是 issue comment）。评论 body 严格使用以下格式：
 

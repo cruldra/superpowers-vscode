@@ -825,11 +825,8 @@ export class KanbanWebviewPanel {
     // Interactive TUI (`codex` without `exec`/`review` subcommands): keeps
     // the terminal alive after the run so users can follow up with codex,
     // mirroring how claude implementation/brainstorm sessions stay open.
-    // Prefix the prompt with `/review` so codex TUI enters its built-in
-    // review workflow on startup; `\n` keeps the slash command on its own
-    // line (slash commands are parsed single-line).
-    const promptWithSlash = `/review\n${opts.prompt}`
-    const cmd = `codex --dangerously-bypass-approvals-and-sandbox '${promptWithSlash}'`
+    // 提示词模板自带 /review 前缀，不在这里再拼。
+    const cmd = `codex --dangerously-bypass-approvals-and-sandbox '${opts.prompt}'`
     terminal.sendText(cmd)
     logger.add({
       level: 'info',
