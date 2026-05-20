@@ -245,8 +245,7 @@ export function KanbanBoard({
       next.splice(activeIndex, 1)
       next.push({ ...activeItem, column: overIdStr })
       onIssuesChange(next)
-      if (overIdStr === 'done')
-        onColumnChange?.(activeItem.number, overIdStr)
+      onColumnChange?.(activeItem.number, overIdStr)
       return
     }
 
@@ -269,8 +268,7 @@ export function KanbanBoard({
       const insertAt = newOverIndex < 0 ? next.length : newOverIndex
       next.splice(insertAt, 0, { ...activeItem, column: overItem.column })
       onIssuesChange(next)
-      if (overItem.column === 'done')
-        onColumnChange?.(activeItem.number, overItem.column)
+      onColumnChange?.(activeItem.number, overItem.column)
       return
     }
 
