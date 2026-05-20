@@ -3238,19 +3238,58 @@ export class KanbanWebviewPanel {
 
   /**
    * Push the current env-lock state to the webview. State persists in
-   * `workspaceState` under `'envLocked'`, defaulting to `false`. The file
-   * count is recomputed via a fresh scan each time so the toolbar reflects
-   * what the next toggle will actually act on.
+   * `workspaceState` under `'envLocked'`. First call (key not yet set)
+   * defaults to locked AND eagerly chmods all `.env*` files to 0o444 so
+   * UI and filesystem agree; subsequent calls trust the stored value.
+   * The file count is recomputed via a fresh scan each time so the toolbar
+   * reflects what the next toggle will actually act on.
    */
   private async handleEnvLockCheck(): Promise<void> {
     const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
-    const locked = this.context.workspaceState.get<boolean>('envLocked', false)
+    // 用底层 get 不传默认值，能区分"从未设过"(undefined) 和"用户主动选 false"。
+    const stored = this.context.workspaceState.get<boolean>('envLocked')
     if (!workspaceRoot) {
-      this.postMessage({ type: 'env-lock/status', locked: false, fileCount: 0 })
+      // 无工作区时无文件可锁，UI 默认显示锁定状态但 fileCount=0 等价于无操作。
+      this.postMessage({ type: 'env-lock/status', locked: stored ?? true, fileCount: 0 })
       return
     }
+
+    if (stored === undefined) {
+      // 首次启动：默认锁定 + 真正 chmod 0o444 + 持久化，避免 UI 与 fs 不一致。
+      const result = await lockEnvFiles(workspaceRoot)
+      await this.context.workspaceState.update('envLocked', true)
+      if (result.total === 0) {
+        logger.add({
+          level: 'info',
+          source: 'panel',
+          message: '首次启动：工作区无 .env 文件，跳过自动锁定',
+        })
+      }
+      else if (result.failed.length === 0) {
+        logger.add({
+          level: 'info',
+          source: 'panel',
+          message: `首次启动自动锁定 ${result.ok.length} 个 .env 文件`,
+        })
+      }
+      else {
+        logger.add({
+          level: 'warn',
+          source: 'panel',
+          message: `首次启动自动锁定：成功 ${result.ok.length} 个，失败 ${result.failed.length} 个`,
+        })
+      }
+      this.postMessage({
+        type: 'env-lock/status',
+        locked: true,
+        fileCount: result.total,
+        failedCount: result.failed.length > 0 ? result.failed.length : undefined,
+      })
+      return
+    }
+
     const files = await findEnvFiles(workspaceRoot)
-    this.postMessage({ type: 'env-lock/status', locked, fileCount: files.length })
+    this.postMessage({ type: 'env-lock/status', locked: stored, fileCount: files.length })
   }
 
   /**
