@@ -1545,6 +1545,7 @@ export class KanbanWebviewPanel {
     let fromColumn: IssueColumn | undefined
     let implementSessionId: string | undefined
     let featureBranch: string | undefined
+    let profilePath: string | undefined
     try {
       const comments = await listIssueComments({
         host: remote.host,
@@ -1574,6 +1575,8 @@ export class KanbanWebviewPanel {
                 implementSessionId = obj.implementSessionId
               if (typeof obj.branch === 'string' && obj.branch.length > 0)
                 featureBranch = obj.branch
+              if (typeof obj.profilePath === 'string' && obj.profilePath.length > 0)
+                profilePath = obj.profilePath
             }
           }
           catch {
@@ -1744,6 +1747,7 @@ export class KanbanWebviewPanel {
             workspaceRoot,
             featureBranch,
             worktreePath,
+            profilePath,
           })
         }
         else {
@@ -1934,8 +1938,9 @@ export class KanbanWebviewPanel {
     workspaceRoot: string
     featureBranch: string
     worktreePath: string
+    profilePath?: string
   }): Promise<void> {
-    const { issueNumber, prIndex, workspaceRoot, featureBranch, worktreePath } = opts
+    const { issueNumber, prIndex, workspaceRoot, featureBranch, worktreePath, profilePath } = opts
     const settings = getSettings(this.context)
     const devBranch = settings.devBranch || 'main'
 
@@ -2082,13 +2087,33 @@ export class KanbanWebviewPanel {
       return
     }
     terminal.show(false)
-    const cmd = `claude --dangerously-skip-permissions '${prompt}'`
+    // 与 handleImplement 保持一致：用同一份 profile 启动 cc，让冲突解决会话
+    // 与该工单的实施/头脑风暴会话体验一致。空串/未传时回落到默认 profile。
+    const effectiveProfilePath
+      = profilePath && profilePath.trim() !== '' ? profilePath : DEFAULT_PROFILE_PATH
+    if (effectiveProfilePath.includes('\'')) {
+      logger.add({
+        level: 'error',
+        source: 'panel',
+        message: `冲突解决：profilePath 含单引号，拒绝执行 (issue #${issueNumber})`,
+        details: effectiveProfilePath,
+      })
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: `冲突解决失败：profilePath 含单引号 (${effectiveProfilePath})`,
+        dismissOnTimer: 6000,
+      })
+      return
+    }
+    const cmd = `claude --dangerously-skip-permissions --settings '${effectiveProfilePath}' '${prompt}'`
     terminal.sendText(cmd)
 
     logger.add({
       level: 'info',
       source: 'panel',
-      message: `冲突解决：cc 会话已启动 (issue #${issueNumber}, PR #${prIndex}, branch ${featureBranch}, cwd ${worktreeAbs})`,
+      message: `冲突解决：cc 会话已启动 (issue #${issueNumber}, PR #${prIndex}, branch ${featureBranch}, cwd ${worktreeAbs}, profile ${effectiveProfilePath})`,
     })
     this.postMessage({
       type: 'toast/show',
