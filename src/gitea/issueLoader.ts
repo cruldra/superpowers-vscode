@@ -40,7 +40,7 @@ const COLUMN_IDS: readonly IssueColumn[] = ['todo', 'in-progress', 'review', 'do
  * 在 brainstorm 阶段写 issue body 时塞进去的占位说明文，webhook
  * 历史版本正则太宽松会把它们写进 state JSON，这里读出时兜底清掉。
  */
-function isValidSpxFilePath(v: unknown): v is string {
+export function isValidSpxFilePath(v: unknown): v is string {
   return typeof v === 'string'
     && v.length > 0
     && v.includes('/')

@@ -33,7 +33,7 @@ import {
   postIssueComment,
   removeDependency,
 } from '../gitea/api'
-import { loadIssues } from '../gitea/issueLoader'
+import { isValidSpxFilePath, loadIssues } from '../gitea/issueLoader'
 import { mergeStateJsonComment, readStateJsonComment } from '../gitea/stateJson'
 import { logger } from '../logging/logger'
 import { getSettings, saveSettings } from '../settings/store'
@@ -1453,6 +1453,11 @@ export class KanbanWebviewPanel {
    *   5. Refresh + success toast.
    */
   private async handleColumnChange(issueNumber: number, toColumn: IssueColumn): Promise<void> {
+    if (toColumn === 'in-progress') {
+      await this.handleDropToInProgress(issueNumber)
+      return
+    }
+
     if (toColumn !== 'done') {
       logger.add({
         level: 'info',
@@ -1866,6 +1871,165 @@ export class KanbanWebviewPanel {
       message: `工单 #${issueNumber} 已完成，worktree 已清理`,
       dismissOnTimer: 5000,
     })
+  }
+
+  /**
+   * Handle a "drag to in-progress" kanban move.
+   *
+   * Validates the issue has a valid `planFile` recorded in its state JSON,
+   * and that the file actually exists on disk, then delegates the full
+   * implementation pipeline to `handleImplement` (which owns issue locking,
+   * tab reuse, state JSON column/branch/worktreePath writes, gitea webhook
+   * registration, cc spawn). On any pre-flight failure, rolls the optimistic
+   * column move back to the source column.
+   */
+  private async handleDropToInProgress(issueNumber: number): Promise<void> {
+    // Failed pre-flight → rollback optimistic move to source column.
+    // Drags into in-progress typically originate from 'todo', so fall back
+    // there when state JSON has no usable column field.
+    const rollback = (fromColumn: IssueColumn | undefined): void => {
+      this.postMessage({
+        type: 'issue/patch',
+        issueNumber,
+        patch: { column: fromColumn ?? 'todo' },
+      })
+    }
+
+    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    if (!workspaceRoot) {
+      rollback(undefined)
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: '请先打开一个工作区文件夹',
+        dismissOnTimer: 5000,
+      })
+      return
+    }
+
+    const remote = await detectRepo(workspaceRoot)
+    if (!remote) {
+      rollback(undefined)
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: '当前工作区没有 Gitea 远程仓库',
+        dismissOnTimer: 5000,
+      })
+      return
+    }
+
+    const token = await getToken(this.context, remote.host)
+    if (!token) {
+      rollback(undefined)
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: '请先完成 Gitea 配置',
+        dismissOnTimer: 5000,
+      })
+      return
+    }
+
+    // Read latest state JSON to obtain source column + planFile + optional
+    // profilePath / sessionId.
+    let stateObj: Record<string, unknown> = {}
+    try {
+      stateObj = await readStateJsonComment({
+        host: remote.host,
+        owner: remote.owner,
+        repo: remote.repo,
+        token,
+        issueNumber,
+      })
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.add({
+        level: 'error',
+        source: 'panel',
+        message: `读取工单 #${issueNumber} 状态失败`,
+        details: message,
+      })
+      rollback(undefined)
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: `读取工单 #${issueNumber} 状态失败: ${message}`,
+        dismissOnTimer: 6000,
+      })
+      return
+    }
+
+    const fromColumn: IssueColumn | undefined
+      = (typeof stateObj.column === 'string'
+        && ['todo', 'in-progress', 'review', 'done'].includes(stateObj.column))
+        ? stateObj.column as IssueColumn
+        : undefined
+
+    // No-op if state JSON already says in-progress (drag-on-self).
+    if (fromColumn === 'in-progress') {
+      logger.add({
+        level: 'info',
+        source: 'panel',
+        message: `#${issueNumber} 已在 in-progress，跳过拖放触发`,
+      })
+      return
+    }
+
+    // planFile must be a valid spx path and actually exist on disk.
+    const planFileRaw = stateObj.planFile
+    if (!isValidSpxFilePath(planFileRaw)) {
+      rollback(fromColumn)
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: `工单 #${issueNumber} 无合法 planFile，无法启动实施`,
+        dismissOnTimer: 5000,
+      })
+      return
+    }
+    const planFile: string = planFileRaw
+    const absPlan = path.isAbsolute(planFile) ? planFile : path.join(workspaceRoot, planFile)
+    if (!fs.existsSync(absPlan)) {
+      rollback(fromColumn)
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: `计划文件不存在 #${issueNumber}: ${planFile}`,
+        dismissOnTimer: 5000,
+      })
+      return
+    }
+
+    const profilePath = typeof stateObj.profilePath === 'string' ? stateObj.profilePath : undefined
+    const sessionId = typeof stateObj.sessionId === 'string' ? stateObj.sessionId : undefined
+    try {
+      await this.handleImplement(issueNumber, planFile, profilePath, sessionId)
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      rollback(fromColumn)
+      logger.add({
+        level: 'error',
+        source: 'panel',
+        message: `拖到 in-progress 触发实施失败 #${issueNumber}`,
+        details: message,
+      })
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: `启动实施失败 #${issueNumber}`,
+        dismissOnTimer: 5000,
+      })
+    }
   }
 
   /**
