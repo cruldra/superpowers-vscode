@@ -704,13 +704,20 @@ export class KanbanWebviewPanel {
    * codex work in real time instead of it running headless in the background.
    *
    * Re-use semantics: if a tab named `issue-${N}-审查` already exists (live, not
-   * exited), we `show` it and `sendText` a fresh review command — this lets
-   * subsequent PR sync events stack their review runs in the same tab. We do
-   * NOT track the terminal in `reviewTerminals` (that map is keyed by codex
-   * thread_id, which we don't have on this path).
+   * exited), codex TUI is already running inside; we just `show` the tab and
+   * send a short follow-up message ("PR 更新了，再审一下") as the next user
+   * input so codex handles it as a new round, reusing the existing session
+   * context. We deliberately do NOT re-run the full
+   * `codex --dangerously-bypass-... '/review\n<prompt>'` startup command on
+   * reuse (it would be received as a long redundant user message, wasting
+   * tokens) and we do NOT restart the codex session watcher (reuse doesn't
+   * write a new rollout-*.jsonl, so the watcher would just idle until
+   * timeout). We do NOT track the terminal in `reviewTerminals` (that map is
+   * keyed by codex thread_id, which we don't have on this path).
    *
    * Returns true if the command was successfully dispatched, false if a
-   * pre-condition failed (single-quote in prompt currently is the only one).
+   * pre-condition failed (single-quote in prompt — only checked on the
+   * new-terminal path since reuse sends a fixed string).
    */
   public async triggerAutoReviewTab(opts: {
     issueNumber: number
@@ -720,21 +727,10 @@ export class KanbanWebviewPanel {
     worktreePath: string
     workspaceRoot: string
   }): Promise<boolean> {
-    // codex command is shell-quoted with single quotes; reject prompts that
-    // would break the quoting rather than try to escape (same posture as
-    // handleImplement).
-    if (opts.prompt.includes('\'')) {
-      logger.add({
-        level: 'error',
-        source: 'webhook',
-        message: `审查 prompt 含单引号，拒绝执行 #${opts.issueNumber}`,
-      })
-      return false
-    }
-
     // Resolve cwd. If worktreePath is provided but doesn't exist on disk
     // (worktree was cleaned up after merge), fall back to workspaceRoot and
-    // toast the user — same fallback as handleResumeSession.
+    // toast the user — same fallback as handleResumeSession. Only matters on
+    // the new-terminal path (an existing terminal already has its cwd set).
     let effectiveCwd = opts.workspaceRoot
     let cwdFallback = false
     if (opts.worktreePath) {
@@ -748,22 +744,60 @@ export class KanbanWebviewPanel {
     }
 
     const terminalName = `issue-${opts.issueNumber}-审查`
-    let terminal = this.findExistingTerminal(terminalName)
-    if (!terminal) {
-      const { themeColor, iconUri } = await this.resolveIssueIcon(opts.issueNumber)
-      terminal = window.createTerminal({
-        name: terminalName,
-        cwd: effectiveCwd,
-        location: this.resolveTerminalLocation(false),
-        iconPath: iconUri,
-        color: themeColor,
-      })
+    const existing = this.findExistingTerminal(terminalName)
+    const isReuse = !!existing
+
+    if (isReuse) {
+      const terminal = existing!
+      this.trackSessionTerminal(terminal, opts.issueNumber, 'review')
+      terminal.show(false)
+      // codex TUI already running inside this tab; sending the full
+      // startup command would be received as a long redundant user message.
+      // Mirror the two-step submit pattern from injectIntoImplTerminal:
+      // push the body first, then send a standalone \r 250ms later so codex
+      // TUI registers it as Enter (single-shot \r packed with the body is
+      // sometimes consumed as a newline, not a submit).
+      const body = 'PR 更新了，再审一下'
+      terminal.sendText(body, false)
+      setTimeout(() => {
+        terminal.sendText('\r', false)
+      }, 250)
       logger.add({
         level: 'info',
         source: 'terminal',
-        message: `已创建审查终端 "${terminalName}" cwd=${effectiveCwd}`,
+        message: `已发送"PR 更新了，再审一下"到复用的 #${opts.issueNumber}-审查 tab`,
       })
+      return true
     }
+
+    // --- new-terminal path: full codex startup + session watcher ---
+
+    // codex command is shell-quoted with single quotes; reject prompts that
+    // would break the quoting rather than try to escape (same posture as
+    // handleImplement). Only relevant on the new-terminal path — the reuse
+    // path sends a fixed string, not opts.prompt.
+    if (opts.prompt.includes('\'')) {
+      logger.add({
+        level: 'error',
+        source: 'webhook',
+        message: `审查 prompt 含单引号，拒绝执行 #${opts.issueNumber}`,
+      })
+      return false
+    }
+
+    const { themeColor, iconUri } = await this.resolveIssueIcon(opts.issueNumber)
+    const terminal = window.createTerminal({
+      name: terminalName,
+      cwd: effectiveCwd,
+      location: this.resolveTerminalLocation(false),
+      iconPath: iconUri,
+      color: themeColor,
+    })
+    logger.add({
+      level: 'info',
+      source: 'terminal',
+      message: `已创建审查终端 "${terminalName}" cwd=${effectiveCwd}`,
+    })
     this.trackSessionTerminal(terminal, opts.issueNumber, 'review')
     terminal.show(false)
 
