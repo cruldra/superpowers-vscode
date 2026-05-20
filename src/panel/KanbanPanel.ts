@@ -20,6 +20,7 @@ import { getBrainstormPrompt, getImplementPlanPrompt } from '../cc/prompts'
 import { watchForNewCodexSession } from '../cc/codexSessionWatcher'
 import { projectsDirFor, watchForNewSession } from '../cc/sessionWatcher'
 import { spawnClaude } from '../cc/spawnClaude'
+import { lockEnvFiles, findEnvFiles, unlockEnvFiles } from '../files/envLock'
 import { checkBranchSync, runBranchSync } from '../git/branchSync'
 import { detectRepo } from '../git/remote'
 import { createWorktree } from '../git/worktree'
@@ -379,6 +380,14 @@ export class KanbanWebviewPanel {
     }
     if (msg.type === 'branch-sync/run') {
       void this.handleBranchSyncRun()
+      return
+    }
+    if (msg.type === 'env-lock/check') {
+      void this.handleEnvLockCheck()
+      return
+    }
+    if (msg.type === 'env-lock/toggle') {
+      void this.handleEnvLockToggle()
     }
   }
 
@@ -3225,6 +3234,89 @@ export class KanbanWebviewPanel {
       // the new behind count (0 on success, unchanged on failure).
       void this.handleBranchSyncCheck()
     }
+  }
+
+  /**
+   * Push the current env-lock state to the webview. State persists in
+   * `workspaceState` under `'envLocked'`, defaulting to `false`. The file
+   * count is recomputed via a fresh scan each time so the toolbar reflects
+   * what the next toggle will actually act on.
+   */
+  private async handleEnvLockCheck(): Promise<void> {
+    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    const locked = this.context.workspaceState.get<boolean>('envLocked', false)
+    if (!workspaceRoot) {
+      this.postMessage({ type: 'env-lock/status', locked: false, fileCount: 0 })
+      return
+    }
+    const files = await findEnvFiles(workspaceRoot)
+    this.postMessage({ type: 'env-lock/status', locked, fileCount: files.length })
+  }
+
+  /**
+   * Flip the env-lock state: chmod every `.env*` file to 0o444 (lock) or
+   * 0o644 (unlock), then persist the new state and re-emit status. Failures
+   * surface as a toast but don't block the state flip — partially-locked
+   * trees are visible via the failedCount in the next `env-lock/status`.
+   */
+  private async handleEnvLockToggle(): Promise<void> {
+    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    if (!workspaceRoot) {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: '请先打开一个工作区文件夹',
+        dismissOnTimer: 5000,
+      })
+      void this.handleEnvLockCheck()
+      return
+    }
+
+    const prevLocked = this.context.workspaceState.get<boolean>('envLocked', false)
+    const nextLocked = !prevLocked
+    const result = nextLocked
+      ? await lockEnvFiles(workspaceRoot)
+      : await unlockEnvFiles(workspaceRoot)
+
+    await this.context.workspaceState.update('envLocked', nextLocked)
+
+    if (result.total === 0) {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'info',
+        message: '工作区无 .env 文件',
+        dismissOnTimer: 5000,
+      })
+    }
+    else if (result.failed.length === 0) {
+      const verb = nextLocked ? '锁定' : '解锁'
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'success',
+        message: `已${verb} ${result.ok.length} 个 .env 文件`,
+        dismissOnTimer: 4000,
+      })
+    }
+    else {
+      const verb = nextLocked ? '锁定' : '解锁'
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: `${verb}完成：成功 ${result.ok.length} 个，失败 ${result.failed.length} 个`,
+        dismissOnTimer: 8000,
+      })
+    }
+
+    this.postMessage({
+      type: 'env-lock/status',
+      locked: nextLocked,
+      fileCount: result.total,
+      failedCount: result.failed.length > 0 ? result.failed.length : undefined,
+    })
   }
 
   /**

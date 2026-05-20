@@ -122,6 +122,19 @@ export interface UseIssuesResult {
   branchSyncTitle: string
   /** Trigger a fast-forward push from remote dev to remote auto-build. */
   runBranchSync: () => void
+  /** Whether the workspace's `.env*` files are currently chmod-locked
+   * according to `workspaceState`. Persisted per-workspace. */
+  envLocked: boolean
+  /** File count from the latest `env-lock/status`. 0 disables the toggle. */
+  envFileCount: number
+  /** True while a `env-lock/toggle` chmod batch is in flight. Cleared when
+   * the next `env-lock/status` arrives. */
+  envLockRunning: boolean
+  /** Tooltip text for the env-lock button, pre-composed from lock state +
+   * file count. */
+  envLockTitle: string
+  /** Flip the env-lock state: chmod all `.env*` files to 444 or 644. */
+  toggleEnvLock: () => void
   /** ID of an issue that should be auto-selected after an `issue/append`
    * with `select: true` (i.e. user-initiated webhook creation). Consumers
    * read this in a `useEffect`, apply the selection, then call
@@ -144,6 +157,10 @@ export function useIssues(): UseIssuesResult {
   const [branchSyncRunning, setBranchSyncRunning] = useState<boolean>(false)
   const [branchSyncDisabled, setBranchSyncDisabled] = useState<boolean>(true)
   const [branchSyncTitle, setBranchSyncTitle] = useState<string>('正在检查分支同步状态…')
+  const [envLocked, setEnvLocked] = useState<boolean>(false)
+  const [envFileCount, setEnvFileCount] = useState<number>(0)
+  const [envLockRunning, setEnvLockRunning] = useState<boolean>(false)
+  const [envLockTitle, setEnvLockTitle] = useState<string>('正在检查 .env 锁定状态…')
 
   const clearPendingSelect = useCallback((): void => {
     setPendingSelectId(null)
@@ -155,6 +172,8 @@ export function useIssues(): UseIssuesResult {
     // Re-poll branch-sync state on user refresh — branches may have moved
     // on the remote since the last check.
     postMessage({ type: 'branch-sync/check' })
+    // Re-poll env-lock state so newly added .env files surface in the count.
+    postMessage({ type: 'env-lock/check' })
   }, [])
 
   const saveSettings = useCallback((values: SettingsValues): void => {
@@ -303,6 +322,14 @@ export function useIssues(): UseIssuesResult {
     postMessage({ type: 'branch-sync/run' })
   }, [branchSyncRunning])
 
+  const toggleEnvLock = useCallback((): void => {
+    // Double-click guard — the next `env-lock/status` clears the running flag.
+    if (envLockRunning)
+      return
+    setEnvLockRunning(true)
+    postMessage({ type: 'env-lock/toggle' })
+  }, [envLockRunning])
+
   const setIssues = useCallback((issues: Issue[]): void => {
     setState(prev => prev.status === 'ready' ? { status: 'ready', issues } : prev)
   }, [])
@@ -440,14 +467,33 @@ export function useIssues(): UseIssuesResult {
           }
           break
         }
+        case 'env-lock/status': {
+          setEnvLocked(msg.locked)
+          setEnvFileCount(msg.fileCount)
+          setEnvLockRunning(false)
+          // Title is fully derived from payload so consumers don't recompute.
+          if (msg.fileCount === 0) {
+            setEnvLockTitle('工作区无 .env 文件')
+          }
+          else if (msg.locked) {
+            const suffix = msg.failedCount ? `（${msg.failedCount} 个失败）` : ''
+            setEnvLockTitle(`已锁定 ${msg.fileCount} 个 .env 文件${suffix}，点击解锁`)
+          }
+          else {
+            const suffix = msg.failedCount ? `（${msg.failedCount} 个失败）` : ''
+            setEnvLockTitle(`点击锁定 ${msg.fileCount} 个 .env 文件${suffix}`)
+          }
+          break
+        }
       }
     })
     postMessage({ type: 'issues/refresh' })
     postMessage({ type: 'profiles/list' })
     postMessage({ type: 'logs/fetch' })
     postMessage({ type: 'branch-sync/check' })
+    postMessage({ type: 'env-lock/check' })
     return cleanup
   }, [])
 
-  return { state, settings, globalAutoReview, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, focusSession, openFile, implement, openPr, openWorktree, deleteWorktree, closeSessionTab, changeColumn, setDependency, clearDependency, updateIssueAutoReview, logs, fetchLogs, clearLogs, pendingSelectId, clearPendingSelect, commitRunning, runCommit, hasChanges, branchSyncBehind, branchSyncRunning, branchSyncDisabled, branchSyncTitle, runBranchSync }
+  return { state, settings, globalAutoReview, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, focusSession, openFile, implement, openPr, openWorktree, deleteWorktree, closeSessionTab, changeColumn, setDependency, clearDependency, updateIssueAutoReview, logs, fetchLogs, clearLogs, pendingSelectId, clearPendingSelect, commitRunning, runCommit, hasChanges, branchSyncBehind, branchSyncRunning, branchSyncDisabled, branchSyncTitle, runBranchSync, envLocked, envFileCount, envLockRunning, envLockTitle, toggleEnvLock }
 }

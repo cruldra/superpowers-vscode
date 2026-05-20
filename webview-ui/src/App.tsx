@@ -51,6 +51,11 @@ export function App() {
     branchSyncDisabled,
     branchSyncTitle,
     runBranchSync,
+    envLocked,
+    envFileCount,
+    envLockRunning,
+    envLockTitle,
+    toggleEnvLock,
   } = useIssues()
   const [showNewIssueModal, setShowNewIssueModal] = useState(false)
   const [showLogs, setShowLogs] = useState(false)
@@ -237,6 +242,11 @@ export function App() {
             branchSyncRunning={branchSyncRunning}
             branchSyncDisabled={branchSyncDisabled}
             branchSyncTitle={branchSyncTitle}
+            envLocked={envLocked}
+            envFileCount={envFileCount}
+            envLockRunning={envLockRunning}
+            envLockTitle={envLockTitle}
+            onToggleEnvLock={toggleEnvLock}
             onSyncBranch={runBranchSync}
           />
           <div className="flex h-full w-full items-center justify-center text-sm opacity-70">
@@ -257,6 +267,11 @@ export function App() {
             branchSyncRunning={branchSyncRunning}
             branchSyncDisabled={branchSyncDisabled}
             branchSyncTitle={branchSyncTitle}
+            envLocked={envLocked}
+            envFileCount={envFileCount}
+            envLockRunning={envLockRunning}
+            envLockTitle={envLockTitle}
+            onToggleEnvLock={toggleEnvLock}
             onSyncBranch={runBranchSync}
           />
           <div className="flex min-h-0 flex-1 flex-col">
@@ -306,6 +321,11 @@ export function App() {
             branchSyncRunning={branchSyncRunning}
             branchSyncDisabled={branchSyncDisabled}
             branchSyncTitle={branchSyncTitle}
+            envLocked={envLocked}
+            envFileCount={envFileCount}
+            envLockRunning={envLockRunning}
+            envLockTitle={envLockTitle}
+            onToggleEnvLock={toggleEnvLock}
             onSyncBranch={runBranchSync}
           />
           <div className="flex flex-1 items-center justify-center p-6">

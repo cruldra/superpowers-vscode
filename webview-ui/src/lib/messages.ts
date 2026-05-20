@@ -72,6 +72,7 @@ export type ExtensionToWebview =
     unavailable?: boolean
     reason?: string
   }
+  | { type: 'env-lock/status', locked: boolean, fileCount: number, failedCount?: number }
 
 export type WebviewToExtension =
   | { type: 'issues/refresh' }
@@ -109,3 +110,5 @@ export type WebviewToExtension =
   | { type: 'session/close-tab', issueNumber: number, kind: 'brainstorm' | 'implement' | 'review' }
   | { type: 'branch-sync/check' }
   | { type: 'branch-sync/run' }
+  | { type: 'env-lock/check' }
+  | { type: 'env-lock/toggle' }
