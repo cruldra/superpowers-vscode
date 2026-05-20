@@ -184,6 +184,14 @@ export class KanbanWebviewPanel {
    */
   private gitStateDisposable: { dispose: () => void } | undefined
 
+  /**
+   * 最近一次 onDidChangeActiveTerminal 触发反选 webview 的时间戳（ms epoch）。
+   * `handleSessionFocus` 收到 webview 回发的 session/focus 时检查这个，
+   * 距离 <200ms 且工单号相同 → 跳过优先级跳转，避免点审查 tab 自动弹回实施 tab。
+   */
+  private lastReverseSelectAt = 0
+  private lastReverseSelectIssueNumber = -1
+
   private constructor(private readonly context: ExtensionContext, panel: WebviewPanel) {
     this.panel = panel
 
@@ -911,6 +919,16 @@ export class KanbanWebviewPanel {
    * no-op (user has to press Enter to spawn one).
    */
   private handleSessionFocus(issueNumber: number): void {
+    // 如果这次 session/focus 是 onDidChangeActiveTerminal 反选触发的回路
+    // （而不是用户主动点卡片切换工单），跳过优先级跳转，否则会把用户刚刚
+    // 点的"审查 tab"弹回到优先级更高的"实施 tab"。
+    const REVERSE_LOOP_WINDOW_MS = 200
+    if (
+      this.lastReverseSelectIssueNumber === issueNumber
+      && Date.now() - this.lastReverseSelectAt < REVERSE_LOOP_WINDOW_MS
+    ) {
+      return
+    }
     // Priority 0: new-issue flow terminal whose name is `issue-new-{nonce}-规划`,
     // not `issue-${N}-规划`. The webhook coordinator stitches issueNumber →
     // terminal into `newIssueTerminals` via `linkPendingTerminalToIssue`.
@@ -950,8 +968,11 @@ export class KanbanWebviewPanel {
     const m = terminal.name.match(/^issue-(\d+)-(规划|实施|审查)/)
     if (m) {
       const issueNumber = Number.parseInt(m[1], 10)
-      if (Number.isFinite(issueNumber))
+      if (Number.isFinite(issueNumber)) {
+        this.lastReverseSelectAt = Date.now()
+        this.lastReverseSelectIssueNumber = issueNumber
         this.postMessage({ type: 'issue/select-by-number', issueNumber })
+      }
       return
     }
     // Fallback: `issue-new-${shortNonce}-规划` — created via the new-issue flow
@@ -960,6 +981,8 @@ export class KanbanWebviewPanel {
     if (terminal.name.startsWith('issue-new-')) {
       for (const [num, term] of this.newIssueTerminals) {
         if (term === terminal) {
+          this.lastReverseSelectAt = Date.now()
+          this.lastReverseSelectIssueNumber = num
           this.postMessage({ type: 'issue/select-by-number', issueNumber: num })
           return
         }
