@@ -21,6 +21,8 @@ interface SubmitValues {
   implementPlanPrompt: string
   autoReview: boolean
   reviewPrompt: string
+  devBranch: string
+  autoBuildBranch: string
 }
 
 export interface SettingsModalProps {
@@ -34,6 +36,8 @@ export interface SettingsModalProps {
   initialImplementPlanPrompt: string
   initialAutoReview: boolean
   initialReviewPrompt: string
+  initialDevBranch: string
+  initialAutoBuildBranch: string
   onSubmit: (values: SubmitValues) => void
   onCancel?: () => void
 }
@@ -89,6 +93,8 @@ export function SettingsModal({
   initialImplementPlanPrompt,
   initialAutoReview,
   initialReviewPrompt,
+  initialDevBranch,
+  initialAutoBuildBranch,
   onSubmit,
   onCancel,
 }: SettingsModalProps): ReactElement | null {
@@ -100,6 +106,8 @@ export function SettingsModal({
   const [implementPlanPrompt, setImplementPlanPrompt] = useState(initialImplementPlanPrompt)
   const [autoReview, setAutoReview] = useState(initialAutoReview)
   const [reviewPrompt, setReviewPrompt] = useState(initialReviewPrompt)
+  const [devBranch, setDevBranch] = useState(initialDevBranch)
+  const [autoBuildBranch, setAutoBuildBranch] = useState(initialAutoBuildBranch)
   const [errors, setErrors] = useState<Partial<Record<ErrorKey, string>>>({})
 
   // Reset local state whenever the modal opens with fresh server values.
@@ -116,6 +124,8 @@ export function SettingsModal({
     setImplementPlanPrompt(initialImplementPlanPrompt)
     setAutoReview(initialAutoReview)
     setReviewPrompt(initialReviewPrompt)
+    setDevBranch(initialDevBranch)
+    setAutoBuildBranch(initialAutoBuildBranch)
     setErrors({})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
@@ -181,6 +191,8 @@ export function SettingsModal({
       implementPlanPrompt,
       autoReview,
       reviewPrompt,
+      devBranch: devBranch.trim(),
+      autoBuildBranch: autoBuildBranch.trim(),
     })
   }
 
@@ -286,6 +298,43 @@ export function SettingsModal({
                     value={token}
                     onChange={e => setToken(e.target.value)}
                     placeholder={initialTokenSaved ? '••••••••' : '例如 1a2b3c4d…'}
+                    className={inputClass}
+                  />
+                </Field>
+
+                <Field
+                  label="开发分支"
+                  hint={(
+                    <>
+                      日常推送的分支，留空默认
+                      {' '}
+                      <code>main</code>
+                      。同步按钮把这条分支的最新提交快进到下面的构建分支。
+                    </>
+                  )}
+                >
+                  <input
+                    type="text"
+                    value={devBranch}
+                    onChange={e => setDevBranch(e.target.value)}
+                    placeholder="main"
+                    className={inputClass}
+                  />
+                </Field>
+
+                <Field
+                  label="自动化构建分支"
+                  hint={(
+                    <>
+                      gitea webhook → Jenkins 监听的分支。留空表示与开发分支相同，同步按钮会一直禁用。
+                    </>
+                  )}
+                >
+                  <input
+                    type="text"
+                    value={autoBuildBranch}
+                    onChange={e => setAutoBuildBranch(e.target.value)}
+                    placeholder="留空 = 与开发分支相同"
                     className={inputClass}
                   />
                 </Field>

@@ -20,6 +20,7 @@ import { getBrainstormPrompt, getImplementPlanPrompt } from '../cc/prompts'
 import { watchForNewCodexSession } from '../cc/codexSessionWatcher'
 import { projectsDirFor, watchForNewSession } from '../cc/sessionWatcher'
 import { spawnClaude } from '../cc/spawnClaude'
+import { checkBranchSync, runBranchSync } from '../git/branchSync'
 import { detectRepo } from '../git/remote'
 import { createWorktree } from '../git/worktree'
 import {
@@ -362,6 +363,14 @@ export class KanbanWebviewPanel {
     }
     if (msg.type === 'session/close-tab') {
       this.handleCloseSessionTab(msg.issueNumber, msg.kind)
+      return
+    }
+    if (msg.type === 'branch-sync/check') {
+      void this.handleBranchSyncCheck()
+      return
+    }
+    if (msg.type === 'branch-sync/run') {
+      void this.handleBranchSyncRun()
     }
   }
 
@@ -2235,6 +2244,8 @@ export class KanbanWebviewPanel {
         implementPlanPrompt: s.implementPlanPrompt,
         autoReview: s.autoReview,
         reviewPrompt: s.reviewPrompt,
+        devBranch: s.devBranch,
+        autoBuildBranch: s.autoBuildBranch,
       })
       return
     }
@@ -2265,6 +2276,8 @@ export class KanbanWebviewPanel {
           implementPlanPrompt: s.implementPlanPrompt,
           autoReview: s.autoReview,
           reviewPrompt: s.reviewPrompt,
+          devBranch: s.devBranch,
+          autoBuildBranch: s.autoBuildBranch,
         })
         return
       }
@@ -2282,9 +2295,13 @@ export class KanbanWebviewPanel {
     implementPlanPrompt: string
     autoReview: boolean
     reviewPrompt: string
+    devBranch: string
+    autoBuildBranch: string
   }): Promise<void> {
     const trimmedHost = payload.host.trim()
     const trimmedToken = payload.token.trim()
+    const trimmedDevBranch = payload.devBranch.trim()
+    const trimmedAutoBuildBranch = payload.autoBuildBranch.trim()
     const prev = getSettings(this.context)
     // Capture the previous token *for this host* before overwriting it, so
     // we can decide below whether the kanban needs a re-fetch. (Only host
@@ -2305,6 +2322,8 @@ export class KanbanWebviewPanel {
         implementPlanPrompt: payload.implementPlanPrompt || prev.implementPlanPrompt,
         autoReview: payload.autoReview,
         reviewPrompt: payload.reviewPrompt || prev.reviewPrompt,
+        devBranch: trimmedDevBranch || prev.devBranch,
+        autoBuildBranch: trimmedAutoBuildBranch,
       })
       return
     }
@@ -2314,6 +2333,11 @@ export class KanbanWebviewPanel {
       implementPlanPrompt: payload.implementPlanPrompt,
       autoReview: payload.autoReview,
       reviewPrompt: payload.reviewPrompt,
+      // Persist trimmed values; '' is meaningful for autoBuildBranch
+      // ("follow devBranch"), so don't coerce — getSettings handles the
+      // fallback at read time.
+      devBranch: trimmedDevBranch,
+      autoBuildBranch: trimmedAutoBuildBranch,
     })
     if (!keepExisting)
       await setToken(this.context, trimmedHost, trimmedToken)
@@ -2346,6 +2370,8 @@ export class KanbanWebviewPanel {
     // guarantees no auth change.
     if (!keepExisting && oldToken !== trimmedToken)
       await this.loadAndPush()
+    // Branch-sync inputs may have changed — refresh the toolbar button.
+    void this.handleBranchSyncCheck()
   }
 
   private async handleEditSettingsRequest(): Promise<void> {
@@ -2370,6 +2396,8 @@ export class KanbanWebviewPanel {
       implementPlanPrompt: s.implementPlanPrompt,
       autoReview: s.autoReview,
       reviewPrompt: s.reviewPrompt,
+      devBranch: s.devBranch,
+      autoBuildBranch: s.autoBuildBranch,
     })
   }
 
@@ -2690,6 +2718,99 @@ export class KanbanWebviewPanel {
     }
   }
 
+  /**
+   * Compute how far the remote auto-build branch is behind the remote dev
+   * branch, then push a `branch-sync/status` to the webview. Called on
+   * webview init, after `settings/save`, and after a successful sync.
+   *
+   * Empty `autoBuildBranch` setting means "use devBranch" — collapsing to
+   * the equal-branch case in `checkBranchSync`, which marks it unavailable.
+   */
+  private async handleBranchSyncCheck(): Promise<void> {
+    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    const s = getSettings(this.context)
+    const devBranch = s.devBranch
+    // Empty string in storage means "follow devBranch" — resolve to
+    // devBranch so the check naturally hits the "same branch" disabled
+    // branch.
+    const autoBuildBranch = s.autoBuildBranch.length > 0 ? s.autoBuildBranch : devBranch
+
+    if (!workspaceRoot) {
+      this.postMessage({
+        type: 'branch-sync/status',
+        behind: 0,
+        devBranch,
+        autoBuildBranch,
+        unavailable: true,
+        reason: '请先打开一个工作区文件夹',
+      })
+      return
+    }
+
+    const status = await checkBranchSync({ workspaceRoot, devBranch, autoBuildBranch })
+    this.postMessage({ type: 'branch-sync/status', ...status })
+  }
+
+  /**
+   * Fast-forward push remote dev to remote autoBuild. Toasts on
+   * success/failure and re-emits status so the button updates.
+   */
+  private async handleBranchSyncRun(): Promise<void> {
+    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    const s = getSettings(this.context)
+    const devBranch = s.devBranch
+    const autoBuildBranch = s.autoBuildBranch.length > 0 ? s.autoBuildBranch : devBranch
+
+    if (!workspaceRoot) {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: '请先打开一个工作区文件夹',
+        dismissOnTimer: 5000,
+      })
+      void this.handleBranchSyncCheck()
+      return
+    }
+
+    if (devBranch === autoBuildBranch) {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'info',
+        message: '开发分支与自动化构建分支相同，无需同步',
+        dismissOnTimer: 5000,
+      })
+      void this.handleBranchSyncCheck()
+      return
+    }
+
+    try {
+      await runBranchSync({ workspaceRoot, devBranch, autoBuildBranch })
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'success',
+        message: `已同步 ${devBranch} → ${autoBuildBranch}`,
+        dismissOnTimer: 5000,
+      })
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: `分支同步失败：${message}`,
+        dismissOnTimer: 8000,
+      })
+    }
+    finally {
+      // Re-emit status regardless of success/failure so the button reflects
+      // the new behind count (0 on success, unchanged on failure).
+      void this.handleBranchSyncCheck()
+    }
+  }
 
   /**
    * Subscribes to the built-in `vscode.git` extension so the webview can hide

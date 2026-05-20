@@ -45,6 +45,8 @@ export type ExtensionToWebview =
     implementPlanPrompt: string
     autoReview: boolean
     reviewPrompt: string
+    devBranch: string
+    autoBuildBranch: string
   }
   | {
     type: 'toast/show'
@@ -62,6 +64,14 @@ export type ExtensionToWebview =
   | { type: 'logs/cleared' }
   | { type: 'commit/state', running: boolean }
   | { type: 'commit/has-changes', value: boolean }
+  | {
+    type: 'branch-sync/status'
+    behind: number
+    devBranch: string
+    autoBuildBranch: string
+    unavailable?: boolean
+    reason?: string
+  }
 
 export type WebviewToExtension =
   | { type: 'issues/refresh' }
@@ -74,6 +84,8 @@ export type WebviewToExtension =
     implementPlanPrompt: string
     autoReview: boolean
     reviewPrompt: string
+    devBranch: string
+    autoBuildBranch: string
   }
   | { type: 'settings/edit-request' }
   | { type: 'issue/create', userRequest: string, images?: Array<{ mediaType: string, base64: string }>, profilePath?: string }
@@ -95,3 +107,5 @@ export type WebviewToExtension =
   | { type: 'logs/clear' }
   | { type: 'commit/run' }
   | { type: 'session/close-tab', issueNumber: number, kind: 'brainstorm' | 'implement' | 'review' }
+  | { type: 'branch-sync/check' }
+  | { type: 'branch-sync/run' }

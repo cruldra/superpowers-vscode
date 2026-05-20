@@ -58,6 +58,14 @@ export interface Settings {
   autoReview: boolean
   /** Prompt template for the auto-review flow. `{prNumber}` placeholder. */
   reviewPrompt: string
+  /** Day-to-day development branch (e.g. `main`). Jenkins doesn't watch it. */
+  devBranch: string
+  /**
+   * Branch the Gitea webhook → Jenkins job listens on. Empty string means
+   * "same as `devBranch`", in which case the branch-sync button stays
+   * disabled because there's nothing to fast-forward.
+   */
+  autoBuildBranch: string
 }
 
 export const SETTINGS_KEY = 'superpowers.settings'
@@ -69,6 +77,8 @@ function defaults(): Settings {
     implementPlanPrompt: DEFAULT_IMPLEMENT_PLAN_PROMPT,
     autoReview: true,
     reviewPrompt: DEFAULT_REVIEW_PROMPT,
+    devBranch: 'main',
+    autoBuildBranch: '',
   }
 }
 
@@ -91,6 +101,17 @@ export function getSettings(ctx: ExtensionContext): Settings {
   const reviewPrompt = typeof stored.reviewPrompt === 'string' && stored.reviewPrompt.length > 0
     ? stored.reviewPrompt
     : base.reviewPrompt
+  // devBranch always has a usable value — fall back to 'main' if missing/blank
+  // so we never end up trying to fetch the empty string.
+  const devBranch = typeof stored.devBranch === 'string' && stored.devBranch.length > 0
+    ? stored.devBranch
+    : base.devBranch
+  // autoBuildBranch is kept as-is — '' is meaningful ("follow devBranch, sync
+  // disabled"), so we don't coerce to a default here. Anything non-string
+  // (legacy installs that never wrote it) collapses to ''.
+  const autoBuildBranch = typeof stored.autoBuildBranch === 'string'
+    ? stored.autoBuildBranch
+    : base.autoBuildBranch
 
   return {
     webhookPort,
@@ -98,6 +119,8 @@ export function getSettings(ctx: ExtensionContext): Settings {
     implementPlanPrompt,
     autoReview,
     reviewPrompt,
+    devBranch,
+    autoBuildBranch,
   }
 }
 

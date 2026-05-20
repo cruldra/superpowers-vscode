@@ -30,6 +30,8 @@ export interface SettingsValues {
   implementPlanPrompt: string
   autoReview: boolean
   reviewPrompt: string
+  devBranch: string
+  autoBuildBranch: string
 }
 
 export interface SettingsOverlayState {
@@ -42,6 +44,8 @@ export interface SettingsOverlayState {
   implementPlanPrompt: string
   autoReview: boolean
   reviewPrompt: string
+  devBranch: string
+  autoBuildBranch: string
 }
 
 export type UseIssuesState =
@@ -103,6 +107,21 @@ export interface UseIssuesResult {
    * commit button when the tree is clean. Defaults to `false` until the
    * extension reports its first observation. */
   hasChanges: boolean
+  /** Commits the remote auto-build branch is behind the remote dev branch
+   * (per latest `branch-sync/status`). 0 ⇒ in sync ⇒ disable button. */
+  branchSyncBehind: number
+  /** True while a `branch-sync/run` request is in flight. The extension
+   * doesn't echo a "running" state itself — we set this on click and clear
+   * it when the next `branch-sync/status` arrives. */
+  branchSyncRunning: boolean
+  /** True when sync is structurally unavailable (same branch, missing
+   * remote, fetch error, …). Disables the button regardless of behind. */
+  branchSyncDisabled: boolean
+  /** Tooltip text for the sync button (already includes branch names /
+   * behind count / unavailable reason). */
+  branchSyncTitle: string
+  /** Trigger a fast-forward push from remote dev to remote auto-build. */
+  runBranchSync: () => void
   /** ID of an issue that should be auto-selected after an `issue/append`
    * with `select: true` (i.e. user-initiated webhook creation). Consumers
    * read this in a `useEffect`, apply the selection, then call
@@ -121,6 +140,10 @@ export function useIssues(): UseIssuesResult {
   const [pendingSelectId, setPendingSelectId] = useState<string | null>(null)
   const [commitRunning, setCommitRunning] = useState<boolean>(false)
   const [hasChanges, setHasChanges] = useState<boolean>(false)
+  const [branchSyncBehind, setBranchSyncBehind] = useState<number>(0)
+  const [branchSyncRunning, setBranchSyncRunning] = useState<boolean>(false)
+  const [branchSyncDisabled, setBranchSyncDisabled] = useState<boolean>(true)
+  const [branchSyncTitle, setBranchSyncTitle] = useState<string>('正在检查分支同步状态…')
 
   const clearPendingSelect = useCallback((): void => {
     setPendingSelectId(null)
@@ -129,6 +152,9 @@ export function useIssues(): UseIssuesResult {
   const refresh = useCallback((): void => {
     setState({ status: 'loading' })
     postMessage({ type: 'issues/refresh' })
+    // Re-poll branch-sync state on user refresh — branches may have moved
+    // on the remote since the last check.
+    postMessage({ type: 'branch-sync/check' })
   }, [])
 
   const saveSettings = useCallback((values: SettingsValues): void => {
@@ -144,6 +170,8 @@ export function useIssues(): UseIssuesResult {
       implementPlanPrompt: values.implementPlanPrompt,
       autoReview: values.autoReview,
       reviewPrompt: values.reviewPrompt,
+      devBranch: values.devBranch,
+      autoBuildBranch: values.autoBuildBranch,
     })
   }, [])
 
@@ -266,6 +294,15 @@ export function useIssues(): UseIssuesResult {
     postMessage({ type: 'commit/run' })
   }, [commitRunning])
 
+  const runBranchSync = useCallback((): void => {
+    // Double-click guard. The next `branch-sync/status` message clears the
+    // running flag — both on success and on failure.
+    if (branchSyncRunning)
+      return
+    setBranchSyncRunning(true)
+    postMessage({ type: 'branch-sync/run' })
+  }, [branchSyncRunning])
+
   const setIssues = useCallback((issues: Issue[]): void => {
     setState(prev => prev.status === 'ready' ? { status: 'ready', issues } : prev)
   }, [])
@@ -337,6 +374,8 @@ export function useIssues(): UseIssuesResult {
             implementPlanPrompt: msg.implementPlanPrompt,
             autoReview: msg.autoReview,
             reviewPrompt: msg.reviewPrompt,
+            devBranch: msg.devBranch,
+            autoBuildBranch: msg.autoBuildBranch,
           })
           break
         case 'toast/show': {
@@ -380,13 +419,35 @@ export function useIssues(): UseIssuesResult {
         case 'commit/has-changes':
           setHasChanges(msg.value)
           break
+        case 'branch-sync/status': {
+          setBranchSyncBehind(msg.behind)
+          setBranchSyncRunning(false)
+          // Title + disabled derive purely from the status payload, so we
+          // resolve them here once instead of recomputing in each render.
+          if (msg.unavailable) {
+            setBranchSyncDisabled(true)
+            setBranchSyncTitle(msg.reason ?? '分支同步不可用')
+          }
+          else if (msg.behind <= 0) {
+            setBranchSyncDisabled(true)
+            setBranchSyncTitle(`${msg.devBranch} → ${msg.autoBuildBranch} 已同步`)
+          }
+          else {
+            setBranchSyncDisabled(false)
+            setBranchSyncTitle(
+              `同步 ${msg.devBranch} → ${msg.autoBuildBranch}（落后 ${msg.behind} 个提交）`,
+            )
+          }
+          break
+        }
       }
     })
     postMessage({ type: 'issues/refresh' })
     postMessage({ type: 'profiles/list' })
     postMessage({ type: 'logs/fetch' })
+    postMessage({ type: 'branch-sync/check' })
     return cleanup
   }, [])
 
-  return { state, settings, globalAutoReview, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, focusSession, openFile, implement, openPr, openWorktree, deleteWorktree, closeSessionTab, changeColumn, setDependency, clearDependency, updateIssueAutoReview, logs, fetchLogs, clearLogs, pendingSelectId, clearPendingSelect, commitRunning, runCommit, hasChanges }
+  return { state, settings, globalAutoReview, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, focusSession, openFile, implement, openPr, openWorktree, deleteWorktree, closeSessionTab, changeColumn, setDependency, clearDependency, updateIssueAutoReview, logs, fetchLogs, clearLogs, pendingSelectId, clearPendingSelect, commitRunning, runCommit, hasChanges, branchSyncBehind, branchSyncRunning, branchSyncDisabled, branchSyncTitle, runBranchSync }
 }
