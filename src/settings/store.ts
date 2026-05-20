@@ -23,6 +23,8 @@ export const DEFAULT_BRAINSTORM_PROMPT = `/goal 我现在有这样一个需求 {
 - spec 文件（路径形如 docs/superpowers/specs/*.md）→ 立即用 tea 命令把工单 body 末尾的 <!-- spx:spec=路径 --> 注释更新成最新路径（没有就追加，已有就替换那一行）
 - plan 文件（路径形如 docs/superpowers/plans/*.md）→ 同样规则更新 <!-- spx:plan=路径 -->
 
+**严禁**预先在 body 里写 <!-- spx:spec=占位 --> 或 <!-- spx:plan=占位 -->（包括 \`...\` 之类占位符）。只有当真实文件（路径包含 \`/\` 且以 \`.md\` 结尾）已经存在/被你创建时才追加对应的 marker 行，否则就不要写这两行。
+
 修改 body 时必须保留所有 <!-- spx:* --> 注释（包括 nonce）；只增加或替换自己负责的那一行。`
 
 export const DEFAULT_IMPLEMENT_PLAN_PROMPT

@@ -34,6 +34,21 @@ import {
 
 const COLUMN_IDS: readonly IssueColumn[] = ['todo', 'in-progress', 'review', 'done']
 
+/**
+ * 过滤 specFile / planFile 字段里的垃圾值：
+ * 真实路径必须包含 `/` 且以 `.md` 结尾。`...`、`…` 这类是 cc
+ * 在 brainstorm 阶段写 issue body 时塞进去的占位说明文，webhook
+ * 历史版本正则太宽松会把它们写进 state JSON，这里读出时兜底清掉。
+ */
+function isValidSpxFilePath(v: unknown): v is string {
+  return typeof v === 'string'
+    && v.length > 0
+    && v.includes('/')
+    && v.endsWith('.md')
+    && v !== '...'
+    && v !== '…'
+}
+
 function isIssueColumn(value: unknown): value is IssueColumn {
   return typeof value === 'string' && (COLUMN_IDS as readonly string[]).includes(value)
 }
@@ -94,12 +109,8 @@ function parseColumnFromComments(comments: GiteaComment[]): {
         const profilePath = typeof obj.profilePath === 'string' && obj.profilePath.length > 0
           ? obj.profilePath
           : undefined
-        const specFile = typeof obj.specFile === 'string' && obj.specFile.length > 0
-          ? obj.specFile
-          : undefined
-        const planFile = typeof obj.planFile === 'string' && obj.planFile.length > 0
-          ? obj.planFile
-          : undefined
+        const specFile = isValidSpxFilePath(obj.specFile) ? obj.specFile : undefined
+        const planFile = isValidSpxFilePath(obj.planFile) ? obj.planFile : undefined
         const pr = typeof obj.pr === 'string' && obj.pr.length > 0
           ? obj.pr
           : undefined

@@ -604,8 +604,9 @@ class WebhookCoordinator {
       return
     }
 
-    const specMatch = event.body.match(/<!--\s*spx:spec=([^\s>]+)\s*-->/)
-    const planMatch = event.body.match(/<!--\s*spx:plan=([^\s>]+)\s*-->/)
+    // 路径必须含 `/` 且以 `.md` 结尾，避免 cc 写的 `<!-- spx:spec=... -->` 占位被当真。
+    const specMatch = event.body.match(/<!--\s*spx:spec=([^\s>]*\/[^\s>]*\.md)\s*-->/)
+    const planMatch = event.body.match(/<!--\s*spx:plan=([^\s>]*\/[^\s>]*\.md)\s*-->/)
     const specFile = specMatch ? specMatch[1] : undefined
     const planFile = planMatch ? planMatch[1] : undefined
 
