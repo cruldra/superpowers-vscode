@@ -1544,6 +1544,7 @@ export class KanbanWebviewPanel {
     let worktreePath: string | undefined
     let fromColumn: IssueColumn | undefined
     let implementSessionId: string | undefined
+    let featureBranch: string | undefined
     try {
       const comments = await listIssueComments({
         host: remote.host,
@@ -1571,6 +1572,8 @@ export class KanbanWebviewPanel {
               }
               if (typeof obj.implementSessionId === 'string' && obj.implementSessionId.length > 0)
                 implementSessionId = obj.implementSessionId
+              if (typeof obj.branch === 'string' && obj.branch.length > 0)
+                featureBranch = obj.branch
             }
           }
           catch {
@@ -1724,19 +1727,35 @@ export class KanbanWebviewPanel {
       }
       catch (err) {
         const message = err instanceof Error ? err.message : String(err)
+        const isConflict = err instanceof GiteaApiError
+          && (err.status === 405 || /conflict/i.test(err.message))
         logger.add({
           level: 'error',
           source: 'panel',
-          message: `合并 PR #${prIndex} 失败 (issue #${issueNumber})`,
+          message: `合并 PR #${prIndex} 失败 (issue #${issueNumber})${isConflict ? ' [冲突]' : ''}`,
           details: message,
         })
-        this.postMessage({
-          type: 'toast/show',
-          id: makeNonce(),
-          level: 'error',
-          message: `合并 PR #${prIndex} 失败: ${message}`,
-          dismissOnTimer: 6000,
-        })
+        if (isConflict && featureBranch) {
+          // 走冲突解决分支：在主 workspace 拉 feature → merge dev 制造冲突落地，
+          // 再开一个临时 cc 会话让 cc 解决。fire-and-forget，不进任何 map / state JSON。
+          await this.startConflictResolution({
+            issueNumber,
+            prIndex,
+            workspaceRoot,
+            featureBranch,
+          })
+        }
+        else {
+          this.postMessage({
+            type: 'toast/show',
+            id: makeNonce(),
+            level: 'error',
+            message: isConflict
+              ? `合并 PR #${prIndex} 失败 [冲突]：state JSON 无 branch 字段，无法自动解决`
+              : `合并 PR #${prIndex} 失败: ${message}`,
+            dismissOnTimer: 6000,
+          })
+        }
         rollback(fromColumn)
         return
       }
@@ -1893,6 +1912,204 @@ export class KanbanWebviewPanel {
       level: 'success',
       message: `工单 #${issueNumber} 已完成，worktree 已清理`,
       dismissOnTimer: 5000,
+    })
+  }
+
+  /**
+   * 当 done 列的 PR merge 因冲突失败时调用：在主 workspace 检出 feature 分支
+   * 并 merge dev 让冲突落地到 working tree，然后启一个临时 cc 会话让 cc 解决
+   * 冲突 + commit + push。这个临时会话**不**进 state JSON、不进任何 map，
+   * 用户解决完后需要手动再拖一次完成列触发重试。
+   *
+   * 流程：
+   *   1. 校验主 workspace working tree 干净（否则 checkout 会丢用户改动）
+   *   2. fetch + checkout feature → fetch dev → merge origin/dev（冲突落地）
+   *   3. 用 claude --dangerously-skip-permissions 启临时终端，给 cc 写死的
+   *      解决指引。cc commit + push 后由用户重新拖到完成列触发重试。
+   */
+  private async startConflictResolution(opts: {
+    issueNumber: number
+    prIndex: number
+    workspaceRoot: string
+    featureBranch: string
+  }): Promise<void> {
+    const { issueNumber, prIndex, workspaceRoot, featureBranch } = opts
+    const settings = getSettings(this.context)
+    const devBranch = settings.devBranch || 'main'
+
+    const runGit = (args: string[], timeoutMs = 30_000): Promise<{ ok: boolean, stdout: string, stderr: string }> => {
+      return new Promise((resolve) => {
+        execFile(
+          'git',
+          ['-C', workspaceRoot, ...args],
+          { timeout: timeoutMs, encoding: 'utf8' },
+          (err, stdout, stderr) => {
+            if (err) {
+              resolve({ ok: false, stdout: stdout ?? '', stderr: stderr ?? '' })
+              return
+            }
+            resolve({ ok: true, stdout: stdout ?? '', stderr: stderr ?? '' })
+          },
+        )
+      })
+    }
+
+    // 1. working tree 干净检查
+    const statusResult = await runGit(['status', '--porcelain'], 10_000)
+    if (!statusResult.ok) {
+      const detail = statusResult.stderr.trim() || 'git status 执行失败'
+      logger.add({
+        level: 'error',
+        source: 'panel',
+        message: `冲突解决：检查工作区状态失败 (issue #${issueNumber})`,
+        details: detail,
+      })
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: `检查工作区状态失败：${detail}`,
+        dismissOnTimer: 6000,
+      })
+      return
+    }
+    if (statusResult.stdout.trim().length > 0) {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: `工作区有未提交改动，无法解决 PR #${prIndex} 冲突。请先提交或 stash。`,
+        dismissOnTimer: 8000,
+      })
+      return
+    }
+
+    // 2. fetch + checkout feature → fetch dev
+    const fetchFeature = await runGit(['fetch', 'origin', `${featureBranch}:${featureBranch}`])
+    if (!fetchFeature.ok) {
+      // 已经在本地存在时 -u 形式可能拒绝；改用普通 fetch + checkout origin/<feature>
+      const fetchPlain = await runGit(['fetch', 'origin', featureBranch])
+      if (!fetchPlain.ok) {
+        const detail = (fetchPlain.stderr || fetchFeature.stderr).trim() || 'git fetch 失败'
+        logger.add({
+          level: 'error',
+          source: 'panel',
+          message: `冲突解决：fetch feature 分支失败 (issue #${issueNumber})`,
+          details: detail,
+        })
+        this.postMessage({
+          type: 'toast/show',
+          id: makeNonce(),
+          level: 'error',
+          message: `拉取 feature 分支失败：${detail}`,
+          dismissOnTimer: 6000,
+        })
+        return
+      }
+    }
+    const checkoutFeature = await runGit(['checkout', featureBranch])
+    if (!checkoutFeature.ok) {
+      const detail = checkoutFeature.stderr.trim() || 'git checkout 失败'
+      logger.add({
+        level: 'error',
+        source: 'panel',
+        message: `冲突解决：checkout feature 分支失败 (issue #${issueNumber})`,
+        details: detail,
+      })
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: `切换到分支 ${featureBranch} 失败：${detail}`,
+        dismissOnTimer: 6000,
+      })
+      return
+    }
+    const fetchDev = await runGit(['fetch', 'origin', devBranch])
+    if (!fetchDev.ok) {
+      const detail = fetchDev.stderr.trim() || 'git fetch dev 失败'
+      logger.add({
+        level: 'error',
+        source: 'panel',
+        message: `冲突解决：fetch dev 分支失败 (issue #${issueNumber})`,
+        details: detail,
+      })
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: `拉取 ${devBranch} 分支失败：${detail}`,
+        dismissOnTimer: 6000,
+      })
+      return
+    }
+
+    // 3. merge dev — 退出码非零是预期（冲突），不当失败处理，working tree 已落地
+    const mergeResult = await runGit(['merge', `origin/${devBranch}`])
+    logger.add({
+      level: 'info',
+      source: 'panel',
+      message: `冲突解决：已在 ${featureBranch} 上 merge origin/${devBranch}${mergeResult.ok ? '（无冲突？）' : '（冲突已落地）'} (issue #${issueNumber})`,
+      details: mergeResult.stderr.trim() || mergeResult.stdout.trim(),
+    })
+
+    // 4. 启临时 cc 会话（不进 state json、不进任何 map）
+    const promptRaw = `当前 git 仓库正在 merge 一个分支但出现了冲突。你的任务：
+
+1. 跑 \`git status\` 查看冲突文件
+2. 逐个解决冲突
+3. \`git add\` 已解决的文件
+4. \`git commit\`（保留默认 merge commit message 即可）
+5. \`git push origin ${featureBranch}\`
+
+注意：
+- 严禁合并 PR（用户会手动在 kanban 拖到"完成"列触发合并）
+- 不要 push 到 ${devBranch}
+- 解决完后告诉用户「冲突已解决，PR #${prIndex} 已更新，请再拖一次工单到完成列」`
+
+    // 单引号 shell 转义：把每个 ' 转成 '\''
+    const prompt = promptRaw.replace(/'/g, '\'\\\'\'')
+
+    let terminal: Terminal
+    try {
+      terminal = window.createTerminal({
+        name: `issue-${issueNumber}-冲突解决`,
+        cwd: workspaceRoot,
+        location: this.resolveTerminalLocation(false),
+      })
+    }
+    catch (err) {
+      const detail = err instanceof Error ? err.message : String(err)
+      logger.add({
+        level: 'error',
+        source: 'panel',
+        message: `冲突解决：创建终端失败 (issue #${issueNumber})`,
+        details: detail,
+      })
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: `创建冲突解决终端失败：${detail}`,
+        dismissOnTimer: 6000,
+      })
+      return
+    }
+    terminal.show(false)
+    const cmd = `claude --dangerously-skip-permissions '${prompt}'`
+    terminal.sendText(cmd)
+
+    logger.add({
+      level: 'info',
+      source: 'panel',
+      message: `冲突解决：cc 会话已启动 (issue #${issueNumber}, PR #${prIndex}, branch ${featureBranch})`,
+    })
+    this.postMessage({
+      type: 'toast/show',
+      id: makeNonce(),
+      level: 'info',
+      message: `PR #${prIndex} 冲突，已在工作区拉取并 merge，cc 会话正在解决冲突`,
+      dismissOnTimer: 8000,
     })
   }
 
