@@ -1735,14 +1735,15 @@ export class KanbanWebviewPanel {
           message: `合并 PR #${prIndex} 失败 (issue #${issueNumber})${isConflict ? ' [冲突]' : ''}`,
           details: message,
         })
-        if (isConflict && featureBranch) {
-          // 走冲突解决分支：在主 workspace 拉 feature → merge dev 制造冲突落地，
+        if (isConflict && featureBranch && worktreePath) {
+          // 走冲突解决分支：直接在实施 worktree 里 merge dev 制造冲突落地，
           // 再开一个临时 cc 会话让 cc 解决。fire-and-forget，不进任何 map / state JSON。
           await this.startConflictResolution({
             issueNumber,
             prIndex,
             workspaceRoot,
             featureBranch,
+            worktreePath,
           })
         }
         else {
@@ -1751,7 +1752,7 @@ export class KanbanWebviewPanel {
             id: makeNonce(),
             level: 'error',
             message: isConflict
-              ? `合并 PR #${prIndex} 失败 [冲突]：state JSON 无 branch 字段，无法自动解决`
+              ? `合并 PR #${prIndex} 失败 [冲突]：state JSON 缺少 branch 或 worktreePath 字段，无法自动解决`
               : `合并 PR #${prIndex} 失败: ${message}`,
             dismissOnTimer: 6000,
           })
@@ -1932,16 +1933,40 @@ export class KanbanWebviewPanel {
     prIndex: number
     workspaceRoot: string
     featureBranch: string
+    worktreePath: string
   }): Promise<void> {
-    const { issueNumber, prIndex, workspaceRoot, featureBranch } = opts
+    const { issueNumber, prIndex, workspaceRoot, featureBranch, worktreePath } = opts
     const settings = getSettings(this.context)
     const devBranch = settings.devBranch || 'main'
+
+    // worktreePath 在 state JSON 里通常是 workspace-relative；解析为绝对路径。
+    const worktreeAbs = path.isAbsolute(worktreePath)
+      ? worktreePath
+      : path.join(workspaceRoot, worktreePath)
+
+    // worktree 是实施阶段建好的，按理一直存在；被清理过算异常，拒绝继续。
+    if (!fs.existsSync(worktreeAbs)) {
+      logger.add({
+        level: 'error',
+        source: 'panel',
+        message: `冲突解决：worktree 路径不存在 (issue #${issueNumber})`,
+        details: worktreeAbs,
+      })
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: `worktree 路径不存在 (cleaned up?)：${worktreeAbs}。请重新进入实施流程。`,
+        dismissOnTimer: 8000,
+      })
+      return
+    }
 
     const runGit = (args: string[], timeoutMs = 30_000): Promise<{ ok: boolean, stdout: string, stderr: string }> => {
       return new Promise((resolve) => {
         execFile(
           'git',
-          ['-C', workspaceRoot, ...args],
+          ['-C', worktreeAbs, ...args],
           { timeout: timeoutMs, encoding: 'utf8' },
           (err, stdout, stderr) => {
             if (err) {
@@ -1954,7 +1979,7 @@ export class KanbanWebviewPanel {
       })
     }
 
-    // 1. working tree 干净检查
+    // 1. working tree 干净检查 —— worktree 里通常 cc 实施完已 commit，理应干净。
     const statusResult = await runGit(['status', '--porcelain'], 10_000)
     if (!statusResult.ok) {
       const detail = statusResult.stderr.trim() || 'git status 执行失败'
@@ -1984,47 +2009,8 @@ export class KanbanWebviewPanel {
       return
     }
 
-    // 2. fetch + checkout feature → fetch dev
-    const fetchFeature = await runGit(['fetch', 'origin', `${featureBranch}:${featureBranch}`])
-    if (!fetchFeature.ok) {
-      // 已经在本地存在时 -u 形式可能拒绝；改用普通 fetch + checkout origin/<feature>
-      const fetchPlain = await runGit(['fetch', 'origin', featureBranch])
-      if (!fetchPlain.ok) {
-        const detail = (fetchPlain.stderr || fetchFeature.stderr).trim() || 'git fetch 失败'
-        logger.add({
-          level: 'error',
-          source: 'panel',
-          message: `冲突解决：fetch feature 分支失败 (issue #${issueNumber})`,
-          details: detail,
-        })
-        this.postMessage({
-          type: 'toast/show',
-          id: makeNonce(),
-          level: 'error',
-          message: `拉取 feature 分支失败：${detail}`,
-          dismissOnTimer: 6000,
-        })
-        return
-      }
-    }
-    const checkoutFeature = await runGit(['checkout', featureBranch])
-    if (!checkoutFeature.ok) {
-      const detail = checkoutFeature.stderr.trim() || 'git checkout 失败'
-      logger.add({
-        level: 'error',
-        source: 'panel',
-        message: `冲突解决：checkout feature 分支失败 (issue #${issueNumber})`,
-        details: detail,
-      })
-      this.postMessage({
-        type: 'toast/show',
-        id: makeNonce(),
-        level: 'error',
-        message: `切换到分支 ${featureBranch} 失败：${detail}`,
-        dismissOnTimer: 6000,
-      })
-      return
-    }
+    // 2. 直接在 worktree 里 fetch dev —— worktree 已经 checkout 在 feature 分支上，
+    //    不需要 fetch feature / checkout feature（避免与实施 worktree 同分支占用冲突）。
     const fetchDev = await runGit(['fetch', 'origin', devBranch])
     if (!fetchDev.ok) {
       const detail = fetchDev.stderr.trim() || 'git fetch dev 失败'
@@ -2053,14 +2039,14 @@ export class KanbanWebviewPanel {
       details: mergeResult.stderr.trim() || mergeResult.stdout.trim(),
     })
 
-    // 4. 启临时 cc 会话（不进 state json、不进任何 map）
-    const promptRaw = `当前 git 仓库正在 merge 一个分支但出现了冲突。你的任务：
+    // 4. 启临时 cc 会话（不进 state json、不进任何 map），cwd 设为 worktree。
+    const promptRaw = `当前 git 仓库正在 merge 一个分支但出现了冲突。你的工作目录已经在 worktree 内、分支已经是 ${featureBranch}。你的任务：
 
 1. 跑 \`git status\` 查看冲突文件
 2. 逐个解决冲突
 3. \`git add\` 已解决的文件
 4. \`git commit\`（保留默认 merge commit message 即可）
-5. \`git push origin ${featureBranch}\`
+5. \`git push\`（当前目录已在 worktree 中、分支已经是 ${featureBranch}，直接 push 即可）
 
 注意：
 - 严禁合并 PR（用户会手动在 kanban 拖到"完成"列触发合并）
@@ -2074,7 +2060,7 @@ export class KanbanWebviewPanel {
     try {
       terminal = window.createTerminal({
         name: `issue-${issueNumber}-冲突解决`,
-        cwd: workspaceRoot,
+        cwd: worktreeAbs,
         location: this.resolveTerminalLocation(false),
       })
     }
@@ -2102,13 +2088,13 @@ export class KanbanWebviewPanel {
     logger.add({
       level: 'info',
       source: 'panel',
-      message: `冲突解决：cc 会话已启动 (issue #${issueNumber}, PR #${prIndex}, branch ${featureBranch})`,
+      message: `冲突解决：cc 会话已启动 (issue #${issueNumber}, PR #${prIndex}, branch ${featureBranch}, cwd ${worktreeAbs})`,
     })
     this.postMessage({
       type: 'toast/show',
       id: makeNonce(),
       level: 'info',
-      message: `PR #${prIndex} 冲突，已在工作区拉取并 merge，cc 会话正在解决冲突`,
+      message: `PR #${prIndex} 冲突，已在 worktree 内 merge，cc 会话正在解决冲突`,
       dismissOnTimer: 8000,
     })
   }
