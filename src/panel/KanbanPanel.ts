@@ -253,6 +253,30 @@ export class KanbanWebviewPanel {
           return
         this.handleActiveTerminalChanged(terminal)
       }),
+      // 补充监听 tab 切换事件：当 column 2 只有一个 terminal tab 时，
+      // 它始终是 active terminal，`onDidChangeActiveTerminal` 不会触发；
+      // 但用户点击该 tab 仍会让它成为 active tab，`onDidChangeTabs` 会以
+      // `changed` + `isActive=true` 的形式投递事件。两者并存时
+      // `handleActiveTerminalChanged` 内的 `lastReverseSelectAt` 时间窗
+      // 已能去重，不会回环放大。
+      window.tabGroups.onDidChangeTabs((e) => {
+        for (const tab of e.changed) {
+          if (!tab.isActive)
+            continue
+          if (!(tab.input instanceof TabInputTerminal))
+            continue
+          // TabInputTerminal 只有构造器、无任何字段，只能用 tab.label
+          // 反查 `window.terminals` 里的实例。终端 name 常被 shell 的
+          // OSC title 序列改写（追加 git branch 等后缀），所以双向 startsWith
+          // 兜底，参考 `injectIntoImplTerminal` 里的命名匹配策略。
+          const label = tab.label
+          const term = window.terminals.find(
+            t => label.startsWith(t.name) || t.name.startsWith(label),
+          )
+          if (term)
+            this.handleActiveTerminalChanged(term)
+        }
+      }),
     )
 
     // Start observing the workspace repo so we can hide the "提交代码"
