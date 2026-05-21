@@ -1,4 +1,4 @@
-/goal {userRequest}
+接下来我要实现下面这样的功能: {userRequest}
 
 你的任务：用 spx CLI 创建一个 Gitea 工单。spx 用法参考 `using-spx-cli` skill。
 
@@ -39,13 +39,3 @@ spx 自动找到对应行替换或追加，保留所有其他 marker。**不要�
 ## 严禁擅自继续
 
 成功创建工单后**立即停下**汇报：输出工单号 + html_url 即可。
-
-绝对不要：
-
-- 进入实施流程
-- git checkout 任何分支 / 创建 worktree
-- 修改任何代码文件
-- 创建 PR / 推任何分支
-- 调用 spx 之外的任何 gitea 写操作
-
-等用户明确说"实施 #N"或类似指示再继续。这一条优先级高于上面所有隐含工作流暗示。
