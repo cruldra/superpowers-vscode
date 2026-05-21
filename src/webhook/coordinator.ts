@@ -550,6 +550,14 @@ class WebhookCoordinator {
               link: { label: '查看', url: event.htmlUrl },
               dismissOnTimer: 8000,
             })
+            // L462 的 linkPendingTerminalToIssue 也会推 brainstormTabOpen，
+            // 但那时 #N 还不在前端 issues 列表里、patch 会被丢弃；
+            // issue/append 之后再补发一次，让 X 关闭按钮立即出现。
+            this.activePanel.postMessage({
+              type: 'issue/patch',
+              issueNumber: event.issueNumber,
+              patch: { brainstormTabOpen: true },
+            })
           }
         }
       }
