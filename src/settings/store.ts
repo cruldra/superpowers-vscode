@@ -27,6 +27,15 @@ export const DEFAULT_BRAINSTORM_PROMPT = `/goal 我现在有这样一个需求 {
 
 修改 body 时必须保留所有 <!-- spx:* --> 注释（包括 nonce）；只增加或替换自己负责的那一行。
 
+**严禁擅自继续**：成功创建工单后，**立即停下**汇报给用户，输出工单号 + html_url 即可。绝对不要：
+- 自动进入实施流程
+- git checkout feature 分支 / 创建 worktree
+- 修改任何代码文件
+- 创建 PR / 推任何分支
+- 调用 spx 之外的其他 gitea 写操作
+
+等用户明确说"实施 #N"或类似指示再继续。这一条优先级高于上面任何隐含工作流暗示。
+
 如需操作 Gitea 工单或 PR（创建工单 / 更新 spec/plan marker / 发 PR 评论），请用 spx CLI（参考 using-spx-cli skill）。`
 
 export const DEFAULT_IMPLEMENT_PLAN_PROMPT
