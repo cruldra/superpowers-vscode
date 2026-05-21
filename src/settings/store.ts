@@ -12,36 +12,37 @@
 
 import type { ExtensionContext } from 'vscode'
 
-export const DEFAULT_BRAINSTORM_PROMPT = `/goal 我现在有这样一个需求 {userRequest}，你用 tea 命令创建 gitea 工单。
+export const DEFAULT_BRAINSTORM_PROMPT = `请用 using-gitea-issue skill 帮我创建一个 Gitea 工单。
 
-**工单格式**：先检查当前仓库 \`.gitea/ISSUE_TEMPLATE/\` 目录是否有模板文件（\`.md\` 或 \`.yaml\`）；有就**严格遵循模板的结构**（标题前缀、章节标题、必填字段）来填写 body，模板里要求填的部分都填上、不要留空；没有模板就用普通 markdown 自由写。
+用户的初始想法：
+{userRequest}
 
-工单 body 末尾必须严格包含这一行：<!-- spx:nonce={nonce} -->
-具体需求细节稍后再讨论。
+**重要**：创建工单时必须把以下 nonce 标记加进 body，否则插件无法把这个 cc 会话关联到新工单：
 
-**重要持续约定（本会话有效）**：今后每当你创建或修改：
-- spec 文件（路径形如 docs/superpowers/specs/*.md）→ 立即用 tea 命令把工单 body 末尾的 <!-- spx:spec=路径 --> 注释更新成最新路径（没有就追加，已有就替换那一行）
-- plan 文件（路径形如 docs/superpowers/plans/*.md）→ 同样规则更新 <!-- spx:plan=路径 -->
+<!-- spx:nonce={nonce} -->
 
-**严禁**预先在 body 里写 <!-- spx:spec=占位 --> 或 <!-- spx:plan=占位 -->（包括 \`...\` 之类占位符）。只有当真实文件（路径包含 \`/\` 且以 \`.md\` 结尾）已经存在/被你创建时才追加对应的 marker 行，否则就不要写这两行。
-
-修改 body 时必须保留所有 <!-- spx:* --> 注释（包括 nonce）；只增加或替换自己负责的那一行。`
+工作流细节（spec/plan 路径规则、CLI 用法、严禁项）参考 skill。`
 
 export const DEFAULT_IMPLEMENT_PLAN_PROMPT
-  = `/goal 使用子代理全程绿灯实施 @{planFile}，发起 PR 时务必在 PR body 中包含 "Closes #{issueNumber}"。
+  = `请用 using-gitea-issue skill 实施工单 #{issueNumber}。
 
-**严禁合并 PR**：你的职责只到发起 PR 为止，后续审查反馈到了请继续修复并 push，永远不要执行 \`tea pulls merge\` 或任何合并操作。合并由用户在看板上拖工单到"完成"列时由插件代为执行。`
+计划文件：{planFile}
 
-export const DEFAULT_REVIEW_PROMPT = `/review 先切换到当前目录，然后用 tea 拿到这个仓库的 #{prNumber} PR，再对其进行审查
+注意：当前 cwd 应该已经在为这个工单专属的 git worktree 中。先 \`pwd\` 确认；如果不是 worktree 路径，停下来告诉用户，不要继续。
 
-审查完毕后必须用 tea 命令把审查意见 post 成 PR 评论（不是 reply，是 issue comment）。评论 body 严格使用以下格式：
+工作流细节（按 plan 分阶段 commit、创建 PR、严禁合并 PR、严禁 push main/dev）参考 skill。`
 
-<!-- spx:review=1 -->
-<审查意见正文，markdown 格式>
+export const DEFAULT_REVIEW_PROMPT = `/review 先切换到当前目录，然后用 tea 拿到这个仓库的 #{prNumber} PR，再对其进行审查。
 
-第一行的 \`<!-- spx:review=1 -->\` 标识不能省略也不能改，否则后续流程识别不到这条评论。
+审查完毕后必须用 spx CLI 把审查意见 post 成 PR 评论（spx 会自动在 body 前面加 <!-- spx:review=1 --> 标识，**不要**自己手写这一行）：
 
-**注意**：审查意见里不要建议"合并 PR"或"merge"，也不要执行 \`tea pulls merge\`。合并的决定权完全在用户手上（用户会拖工单到"完成"列触发合并），你只需指出问题或确认通过即可。`
+把审查正文（markdown 格式）写到 /tmp/review-{prNumber}.md，然后执行：
+
+\`\`\`
+spx pr review-comment --pr {prNumber} --body-file /tmp/review-{prNumber}.md
+\`\`\`
+
+**注意**：审查意见里不要建议"合并 PR"或"merge"，也不要自己执行任何合并 / push 到 main 的操作。合并的决定权完全在用户手上（用户会拖工单到"完成"列触发合并）。`
 
 export const DEFAULT_WEBHOOK_PORT = 17421
 
