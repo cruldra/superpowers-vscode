@@ -34,6 +34,7 @@ export function App() {
     openPr,
     openWorktree,
     deleteWorktree,
+    deleteIssue,
     closeSessionTab,
     changeColumn,
     setDependency,
@@ -300,6 +301,7 @@ export function App() {
                 onOpenPr={openPr}
                 onOpenWorktree={openWorktree}
                 onDeleteWorktree={deleteWorktree}
+                onDeleteIssue={deleteIssue}
                 onCloseSessionTab={closeSessionTab}
                 onUpdateAutoReview={updateIssueAutoReview}
                 onOpenLogs={() => setShowLogs(true)}

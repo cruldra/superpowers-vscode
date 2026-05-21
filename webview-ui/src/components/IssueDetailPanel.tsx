@@ -27,6 +27,9 @@ interface IssueDetailPanelProps {
   onOpenWorktree: (path: string) => void
   /** Delete the worktree (`git worktree remove`) and clear it from state. */
   onDeleteWorktree: (issueNumber: number, path: string) => void
+  /** 硬删整个工单 + 关联资源（worktree / PR / feature branch / cc tabs）。
+   * 顶部垃圾桶按钮触发，扩展端做 modal confirm，可选。 */
+  onDeleteIssue?: (issueNumber: number) => void
   /** Close the matching session terminal tab. The extension watches
    * onDidCloseTerminal and clears the corresponding `*TabOpen` flag, which
    * makes the X button vanish on its own. */
@@ -57,6 +60,7 @@ export function IssueDetailPanel({
   onOpenPr,
   onOpenWorktree,
   onDeleteWorktree,
+  onDeleteIssue,
   onCloseSessionTab,
   onUpdateAutoReview,
   onOpenLogs,
@@ -328,6 +332,15 @@ export function IssueDetailPanel({
         >
           <ExternalLink className="size-3.5" />
           在 Gitea 打开
+        </button>
+        <button
+          type="button"
+          onClick={() => issue && onDeleteIssue?.(issue.number)}
+          title="删除工单（不可撤销）"
+          aria-label="删除工单"
+          className="inline-flex shrink-0 items-center justify-center rounded border border-[var(--vscode-panel-border)] p-1 text-xs text-[var(--vscode-foreground)] hover:border-red-500/60 hover:bg-red-500/10 hover:text-red-500"
+        >
+          <Trash2 className="size-3.5" />
         </button>
       </div>
 

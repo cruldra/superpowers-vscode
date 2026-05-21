@@ -27,6 +27,8 @@ import { createWorktree } from '../git/worktree'
 import {
   addDependency,
   closeIssue,
+  deleteBranch,
+  deleteIssue,
   getPullRequest,
   GiteaApiError,
   listIssueComments,
@@ -388,6 +390,10 @@ export class KanbanWebviewPanel {
     }
     if (msg.type === 'env-lock/toggle') {
       void this.handleEnvLockToggle()
+      return
+    }
+    if (msg.type === 'issue/delete') {
+      void this.handleDeleteIssue(msg.issueNumber)
     }
   }
 
@@ -1467,6 +1473,222 @@ export class KanbanWebviewPanel {
       },
     })
     void window.showInformationMessage(`已删除 worktree #${issueNumber}`)
+  }
+
+
+  /**
+   * 硬删 Gitea 工单 + 关联资源（worktree / PR / feature branch / cc session
+   * tabs）。每步独立 try/catch，任一步失败立即停下并 toast 报错，让用户手动
+   * 处理。前端在最后一步收到 `issue/remove` 后从 issues 数组移除该工单。
+   */
+  private async handleDeleteIssue(issueNumber: number): Promise<void> {
+    // 1. modal confirm — 用户没点"删除"就 abort
+    const choice = await window.showWarningMessage(
+      `确定删除工单 #${issueNumber}？此操作不可撤销，将清理 worktree / 关闭 PR / 删除 feature branch / 删除 issue。`,
+      { modal: true },
+      '删除',
+    )
+    if (choice !== '删除')
+      return
+
+    // 2. workspace / repo / token 前置
+    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    if (!workspaceRoot) {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: '请先打开一个工作区文件夹',
+        dismissOnTimer: 5000,
+      })
+      return
+    }
+    const remote = await detectRepo(workspaceRoot)
+    if (!remote) {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: '当前工作区没有 Gitea 远程仓库',
+        dismissOnTimer: 5000,
+      })
+      return
+    }
+    const token = await getToken(this.context, remote.host)
+    if (!token) {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: '请先完成 Gitea 配置',
+        dismissOnTimer: 5000,
+      })
+      return
+    }
+
+    // 3. 读 state JSON 拿 pr / branch / worktreePath
+    let stateObj: Record<string, unknown> = {}
+    try {
+      stateObj = await readStateJsonComment({
+        host: remote.host,
+        owner: remote.owner,
+        repo: remote.repo,
+        token,
+        issueNumber,
+      })
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: `读取工单 #${issueNumber} 状态失败: ${message}`,
+        dismissOnTimer: 6000,
+      })
+      return
+    }
+    const prStr = typeof stateObj.pr === 'string' ? stateObj.pr : ''
+    const branch = typeof stateObj.branch === 'string' ? stateObj.branch : ''
+    const worktreePath = typeof stateObj.worktreePath === 'string' ? stateObj.worktreePath : ''
+
+    // 4. 关 cc/codex tab：扫 terminalOrigin 找该工单的所有 terminal 全部 dispose
+    for (const [terminal, origin] of this.terminalOrigin) {
+      if (origin.issueNumber === issueNumber) {
+        try {
+          terminal.dispose()
+        }
+        catch {
+          // dispose 失败也无所谓，VS Code 自己会清掉关闭事件
+        }
+      }
+    }
+
+    // 5. 删 worktree（如有）— git worktree remove --force，失败立即停
+    if (worktreePath) {
+      const absWorktree = path.isAbsolute(worktreePath)
+        ? worktreePath
+        : path.join(workspaceRoot, worktreePath)
+      if (fs.existsSync(absWorktree)) {
+        try {
+          await new Promise<void>((resolve, reject) => {
+            execFile(
+              'git',
+              ['-C', workspaceRoot, 'worktree', 'remove', '--force', absWorktree],
+              { timeout: 30_000 },
+              (err, _stdout, stderr) => {
+                if (err) {
+                  const detail = (stderr ?? '').trim() || err.message
+                  reject(new Error(detail))
+                  return
+                }
+                resolve()
+              },
+            )
+          })
+        }
+        catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          this.postMessage({
+            type: 'toast/show',
+            id: makeNonce(),
+            level: 'error',
+            message: `删除 worktree 失败 #${issueNumber}: ${message}`,
+            dismissOnTimer: 6000,
+          })
+          return
+        }
+      }
+    }
+
+    // 6. 关 PR（gitea 把 PR 当 issue subtype 处理，PATCH /issues/{prNumber} 即可）
+    if (prStr) {
+      const prIndex = Number.parseInt(prStr, 10)
+      if (Number.isFinite(prIndex)) {
+        try {
+          await closeIssue({
+            host: remote.host,
+            token,
+            owner: remote.owner,
+            repo: remote.repo,
+            issueNumber: prIndex,
+          })
+        }
+        catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          this.postMessage({
+            type: 'toast/show',
+            id: makeNonce(),
+            level: 'error',
+            message: `关闭 PR #${prIndex} 失败 (issue #${issueNumber}): ${message}`,
+            dismissOnTimer: 6000,
+          })
+          return
+        }
+      }
+    }
+
+    // 7. 删 feature branch（如有）
+    if (branch) {
+      try {
+        await deleteBranch({
+          host: remote.host,
+          token,
+          owner: remote.owner,
+          repo: remote.repo,
+          branch,
+        })
+      }
+      catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        this.postMessage({
+          type: 'toast/show',
+          id: makeNonce(),
+          level: 'error',
+          message: `删除分支 ${branch} 失败 (issue #${issueNumber}): ${message}`,
+          dismissOnTimer: 6000,
+        })
+        return
+      }
+    }
+
+    // 8. 硬删 issue 本身
+    try {
+      await deleteIssue({
+        host: remote.host,
+        token,
+        owner: remote.owner,
+        repo: remote.repo,
+        issueNumber,
+      })
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: `删除工单 #${issueNumber} 失败: ${message}`,
+        dismissOnTimer: 6000,
+      })
+      return
+    }
+
+    logger.add({
+      level: 'info',
+      source: 'panel',
+      message: `已硬删工单 #${issueNumber}（含 worktree / PR / branch / tab）`,
+    })
+
+    // 9. 前端推 remove + success toast
+    this.postMessage({ type: 'issue/remove', issueNumber })
+    this.postMessage({
+      type: 'toast/show',
+      id: makeNonce(),
+      level: 'success',
+      message: `工单 #${issueNumber} 已删除`,
+      dismissOnTimer: 4000,
+    })
   }
 
   /**

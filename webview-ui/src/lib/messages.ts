@@ -73,6 +73,7 @@ export type ExtensionToWebview =
     reason?: string
   }
   | { type: 'env-lock/status', locked: boolean, fileCount: number, failedCount?: number }
+  | { type: 'issue/remove', issueNumber: number }
 
 export type WebviewToExtension =
   | { type: 'issues/refresh' }
@@ -112,3 +113,4 @@ export type WebviewToExtension =
   | { type: 'branch-sync/run' }
   | { type: 'env-lock/check' }
   | { type: 'env-lock/toggle' }
+  | { type: 'issue/delete', issueNumber: number }

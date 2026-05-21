@@ -84,6 +84,10 @@ export interface UseIssuesResult {
   openPr: (pr: string) => void
   openWorktree: (path: string) => void
   deleteWorktree: (issueNumber: number, path: string) => void
+  /** 硬删 Gitea 工单及关联资源（worktree / PR / feature branch / cc tabs）。
+   * 用户在详情面板顶部点垃圾桶按钮触发。扩展端做 modal confirm + 串行清理，
+   * 全部成功后 push `issue/remove`，webview 将该 issue 从 issues 数组移除。 */
+  deleteIssue: (issueNumber: number) => void
   /** Dispose the matching session terminal tab. Extension reacts via
    * onDidCloseTerminal and clears `*TabOpen` so the X button disappears. */
   closeSessionTab: (issueNumber: number, kind: 'brainstorm' | 'implement' | 'review') => void
@@ -260,6 +264,10 @@ export function useIssues(): UseIssuesResult {
     postMessage({ type: 'worktree/delete', issueNumber, path })
   }, [])
 
+  const deleteIssue = useCallback((issueNumber: number): void => {
+    postMessage({ type: 'issue/delete', issueNumber })
+  }, [])
+
   const closeSessionTab = useCallback(
     (issueNumber: number, kind: 'brainstorm' | 'implement' | 'review'): void => {
       postMessage({ type: 'session/close-tab', issueNumber, kind })
@@ -357,6 +365,26 @@ export function useIssues(): UseIssuesResult {
                 i.number === msg.issueNumber ? { ...i, ...msg.patch } : i,
               ),
             }
+          })
+          break
+        case 'issue/remove':
+          // 工单被硬删 — 从 issues 数组移除。如果它是当前选中的，挑下一张
+          // 同列的卡片（按 number 降序近邻）；同列没有则交给 App.tsx 的
+          // 现有 effect（selectedId 失效 → setSelectedId(null)）兜底。
+          setState((prev) => {
+            if (prev.status !== 'ready')
+              return prev
+            const removed = prev.issues.find(i => i.number === msg.issueNumber)
+            const remaining = prev.issues.filter(i => i.number !== msg.issueNumber)
+            if (removed) {
+              const sameCol = remaining
+                .filter(i => i.column === removed.column)
+                .sort((a, b) => b.number - a.number)
+              const next = sameCol[0]
+              if (next)
+                setPendingSelectId(next.id)
+            }
+            return { status: 'ready', issues: remaining }
           })
           break
         case 'issue/append':
@@ -495,5 +523,5 @@ export function useIssues(): UseIssuesResult {
     return cleanup
   }, [])
 
-  return { state, settings, globalAutoReview, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, focusSession, openFile, implement, openPr, openWorktree, deleteWorktree, closeSessionTab, changeColumn, setDependency, clearDependency, updateIssueAutoReview, logs, fetchLogs, clearLogs, pendingSelectId, clearPendingSelect, commitRunning, runCommit, hasChanges, branchSyncBehind, branchSyncRunning, branchSyncDisabled, branchSyncTitle, runBranchSync, envLocked, envFileCount, envLockRunning, envLockTitle, toggleEnvLock }
+  return { state, settings, globalAutoReview, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, focusSession, openFile, implement, openPr, openWorktree, deleteWorktree, deleteIssue, closeSessionTab, changeColumn, setDependency, clearDependency, updateIssueAutoReview, logs, fetchLogs, clearLogs, pendingSelectId, clearPendingSelect, commitRunning, runCommit, hasChanges, branchSyncBehind, branchSyncRunning, branchSyncDisabled, branchSyncTitle, runBranchSync, envLocked, envFileCount, envLockRunning, envLockTitle, toggleEnvLock }
 }

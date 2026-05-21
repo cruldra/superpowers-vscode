@@ -363,6 +363,36 @@ export async function closeIssue(opts: {
   await ensureOk(res)
 }
 
+export async function deleteIssue(opts: {
+  host: string
+  token: string
+  owner: string
+  repo: string
+  issueNumber: number
+}): Promise<void> {
+  const url = `${baseUrl(opts.host)}/repos/${opts.owner}/${opts.repo}/issues/${opts.issueNumber}`
+  const res = await fetch(url, {
+    method: 'DELETE',
+    headers: authHeaders(opts.token),
+  })
+  await ensureOk(res)
+}
+
+export async function deleteBranch(opts: {
+  host: string
+  token: string
+  owner: string
+  repo: string
+  branch: string
+}): Promise<void> {
+  const url = `${baseUrl(opts.host)}/repos/${opts.owner}/${opts.repo}/branches/${encodeURIComponent(opts.branch)}`
+  const res = await fetch(url, {
+    method: 'DELETE',
+    headers: authHeaders(opts.token),
+  })
+  await ensureOk(res)
+}
+
 export async function removeDependency(opts: {
   host: string
   token: string
