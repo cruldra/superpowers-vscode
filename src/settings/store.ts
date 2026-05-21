@@ -10,53 +10,47 @@
  * a field.
  */
 
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import type { ExtensionContext } from 'vscode'
 
-export const DEFAULT_BRAINSTORM_PROMPT = `/goal 我现在有这样一个需求 {userRequest}，你用 tea 命令创建 gitea 工单。
+/**
+ * Fallback prompt strings used when the on-disk markdown can't be read.
+ * The full editable versions live in `prompts/*.md` at the extension root;
+ * users can tweak them without rebuilding. These short fallbacks just keep
+ * the extension usable if the file is missing/corrupt.
+ */
+const FALLBACK_BRAINSTORM_PROMPT = `/goal 我现在有这样一个需求 {userRequest}，你用 spx 命令创建 gitea 工单。工单 body 末尾必须包含 <!-- spx:nonce={nonce} -->。创建完工单立即停下汇报，不要擅自实施。`
 
-**工单格式**：先检查当前仓库 \`.gitea/ISSUE_TEMPLATE/\` 目录是否有模板文件（\`.md\` 或 \`.yaml\`）；有就**严格遵循模板的结构**（标题前缀、章节标题、必填字段）来填写 body，模板里要求填的部分都填上、不要留空；没有模板就用普通 markdown 自由写。
+const FALLBACK_IMPLEMENT_PLAN_PROMPT = `/goal 使用子代理全程绿灯实施 @{planFile}，发起 PR 时在 body 中包含 "Closes #{issueNumber}"。严禁合并 PR。`
 
-工单 body 末尾必须严格包含这一行：<!-- spx:nonce={nonce} -->
-具体需求细节稍后再讨论。
+const FALLBACK_REVIEW_PROMPT = `/review 用 tea 拿到 #{prNumber} PR 审查。审查意见用 spx pr review-comment 发评论，body 第一行写 <!-- spx:review=1 -->。`
 
-**重要持续约定（本会话有效）**：今后每当你创建或修改：
-- spec 文件（路径形如 docs/superpowers/specs/*.md）→ 立即用 tea 命令把工单 body 末尾的 <!-- spx:spec=路径 --> 注释更新成最新路径（没有就追加，已有就替换那一行）
-- plan 文件（路径形如 docs/superpowers/plans/*.md）→ 同样规则更新 <!-- spx:plan=路径 -->
+type PromptName = 'brainstorm' | 'implement-plan' | 'review'
 
-**严禁**预先在 body 里写 <!-- spx:spec=占位 --> 或 <!-- spx:plan=占位 -->（包括 \`...\` 之类占位符）。只有当真实文件（路径包含 \`/\` 且以 \`.md\` 结尾）已经存在/被你创建时才追加对应的 marker 行，否则就不要写这两行。
-
-修改 body 时必须保留所有 <!-- spx:* --> 注释（包括 nonce）；只增加或替换自己负责的那一行。
-
-**严禁擅自继续**：成功创建工单后，**立即停下**汇报给用户，输出工单号 + html_url 即可。绝对不要：
-- 自动进入实施流程
-- git checkout feature 分支 / 创建 worktree
-- 修改任何代码文件
-- 创建 PR / 推任何分支
-- 调用 spx 之外的其他 gitea 写操作
-
-等用户明确说"实施 #N"或类似指示再继续。这一条优先级高于上面任何隐含工作流暗示。
-
-如需操作 Gitea 工单或 PR（创建工单 / 更新 spec/plan marker / 发 PR 评论），请用 spx CLI（参考 using-spx-cli skill）。`
-
-export const DEFAULT_IMPLEMENT_PLAN_PROMPT
-  = `/goal 使用子代理全程绿灯实施 @{planFile}，发起 PR 时务必在 PR body 中包含 "Closes #{issueNumber}"。
-
-**严禁合并 PR**：你的职责只到发起 PR 为止，后续审查反馈到了请继续修复并 push，永远不要执行 \`tea pulls merge\` 或任何合并操作。合并由用户在看板上拖工单到"完成"列时由插件代为执行。
-
-如需操作 Gitea 工单或 PR（创建工单 / 更新 spec/plan marker / 发 PR 评论），请用 spx CLI（参考 using-spx-cli skill）。`
-
-export const DEFAULT_REVIEW_PROMPT = `/review 先切换到当前目录，然后用 tea 拿到这个仓库的 #{prNumber} PR，再对其进行审查
-
-审查完毕后必须用 tea 命令把审查意见 post 成 PR 评论（不是 reply，是 issue comment）。评论 body 严格使用以下格式：
-
-<!-- spx:review=1 -->
-<审查意见正文，markdown 格式>
-
-第一行的 \`<!-- spx:review=1 -->\` 标识不能省略也不能改，否则后续流程识别不到这条评论。
-
-**注意**：审查意见里不要建议"合并 PR"或"merge"，也不要执行 \`tea pulls merge\`。合并的决定权完全在用户手上（用户会拖工单到"完成"列触发合并），你只需指出问题或确认通过即可。
-
-如需操作 Gitea 工单或 PR（创建工单 / 更新 spec/plan marker / 发 PR 评论），请用 spx CLI（参考 using-spx-cli skill）。`
+/**
+ * Read a default prompt template from `${extensionPath}/prompts/${name}.md`.
+ *
+ * This is called every time `getSettings` runs, so edits to the markdown
+ * file take effect on the next cc/codex tab launch without reloading the
+ * window. If the file is missing or unreadable we fall back to a short
+ * inline string so the extension stays functional.
+ */
+export function readDefaultPrompt(extensionPath: string, name: PromptName): string {
+  const filePath = path.join(extensionPath, 'prompts', `${name}.md`)
+  try {
+    return readFileSync(filePath, 'utf-8')
+  }
+  catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn(`[spx] 读 ${filePath} 失败，使用内联 fallback:`, err)
+    switch (name) {
+      case 'brainstorm': return FALLBACK_BRAINSTORM_PROMPT
+      case 'implement-plan': return FALLBACK_IMPLEMENT_PLAN_PROMPT
+      case 'review': return FALLBACK_REVIEW_PROMPT
+    }
+  }
+}
 
 export const DEFAULT_WEBHOOK_PORT = 17421
 
@@ -87,13 +81,13 @@ export interface Settings {
 
 export const SETTINGS_KEY = 'superpowers.settings'
 
-function defaults(): Settings {
+function defaults(ctx: ExtensionContext): Settings {
   return {
     webhookPort: DEFAULT_WEBHOOK_PORT,
-    brainstormPrompt: DEFAULT_BRAINSTORM_PROMPT,
-    implementPlanPrompt: DEFAULT_IMPLEMENT_PLAN_PROMPT,
+    brainstormPrompt: readDefaultPrompt(ctx.extensionPath, 'brainstorm'),
+    implementPlanPrompt: readDefaultPrompt(ctx.extensionPath, 'implement-plan'),
     autoReview: true,
-    reviewPrompt: DEFAULT_REVIEW_PROMPT,
+    reviewPrompt: readDefaultPrompt(ctx.extensionPath, 'review'),
     devBranch: 'main',
     autoBuildBranch: '',
   }
@@ -101,7 +95,7 @@ function defaults(): Settings {
 
 export function getSettings(ctx: ExtensionContext): Settings {
   const stored = ctx.globalState.get<Partial<Settings>>(SETTINGS_KEY) ?? {}
-  const base = defaults()
+  const base = defaults(ctx)
 
   const webhookPort = typeof stored.webhookPort === 'number' && Number.isInteger(stored.webhookPort)
     && stored.webhookPort >= 1 && stored.webhookPort <= 65535
