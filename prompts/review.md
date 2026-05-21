@@ -8,9 +8,6 @@
 
 ```
 opencli spx pr review-comment --pr {prNumber} --body-file /tmp/review-{prNumber}.md
-```
-
-spx 自动在评论 body 最前面加 `<!-- spx:review=1 -->` 标识让插件识别。**不要自己手写这一行**。
 
 ## 严禁
 
@@ -18,4 +15,4 @@ spx 自动在评论 body 最前面加 `<!-- spx:review=1 -->` 标识让插件识
 - 不要执行 `tea pulls merge` 或任何合并命令
 - 不要 push 到 main / dev 分支
 
-合并权完全在用户手上——用户拖工单到"完成"列触发合并。你的工作只是指出问题或确认通过。
+合并权完全在用户手上,你的工作只是指出问题或确认通过。
