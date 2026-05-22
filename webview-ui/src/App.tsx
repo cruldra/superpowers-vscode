@@ -36,6 +36,7 @@ export function App() {
     deleteWorktree,
     deleteIssue,
     closeSessionTab,
+    startBrainstormSession,
     changeColumn,
     setDependency,
     clearDependency,
@@ -303,6 +304,7 @@ export function App() {
                 onDeleteWorktree={deleteWorktree}
                 onDeleteIssue={deleteIssue}
                 onCloseSessionTab={closeSessionTab}
+                onStartBrainstormSession={startBrainstormSession}
                 onUpdateAutoReview={updateIssueAutoReview}
                 onOpenLogs={() => setShowLogs(true)}
               />

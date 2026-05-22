@@ -274,25 +274,36 @@ function PropertyRow({
         )
 
       case 'action': {
-        if (value == null || value === '') {
-          return <span className="px-2 py-1.5 text-xs opacity-50">—</span>
-        }
         const hasSecondaryAction = propDef.secondaryActionIcon != null
         const secondaryDisabledAction = !!propDef.secondaryDisabled
+        const hasValue = value != null && value !== ''
+        // Empty-value branch: still render the secondary button when defined
+        // (e.g. "Play" to start a brainstorm session for an issue that has
+        // no sessionId yet). Without secondary action, fall back to the
+        // placeholder dash.
+        if (!hasValue && !hasSecondaryAction) {
+          return <span className="px-2 py-1.5 text-xs opacity-50">—</span>
+        }
         return (
           <div className="flex w-full items-center">
-            <button
-              type="button"
-              data-property-action="primary"
-              onClick={() => propDef.onAction?.(value)}
-              disabled={ro}
-              className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 text-left text-xs text-[var(--vscode-textLink-foreground)] hover:text-[var(--vscode-textLink-activeForeground)] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {propDef.actionIcon}
-              <span className="truncate font-mono underline-offset-2 hover:underline">
-                {String(value)}
-              </span>
-            </button>
+            {hasValue
+              ? (
+                  <button
+                    type="button"
+                    data-property-action="primary"
+                    onClick={() => propDef.onAction?.(value)}
+                    disabled={ro}
+                    className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5 text-left text-xs text-[var(--vscode-textLink-foreground)] hover:text-[var(--vscode-textLink-activeForeground)] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {propDef.actionIcon}
+                    <span className="truncate font-mono underline-offset-2 hover:underline">
+                      {String(value)}
+                    </span>
+                  </button>
+                )
+              : (
+                  <span className="min-w-0 flex-1 truncate px-2 py-1.5 text-xs opacity-50">—</span>
+                )}
             {hasSecondaryAction && (
               <button
                 type="button"

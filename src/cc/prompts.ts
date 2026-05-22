@@ -29,6 +29,11 @@ export function getBrainstormPrompt(
   return out
 }
 
+export function getBrainstormContinuePrompt(ctx: ExtensionContext, vars: { issueNumber: number }): string {
+  const tpl = getSettings(ctx).brainstormContinuePrompt
+  return tpl.split('{issueNumber}').join(String(vars.issueNumber))
+}
+
 export function getImplementPlanPrompt(ctx: ExtensionContext, vars: { planFile: string, issueNumber: number }): string {
   const tpl = getSettings(ctx).implementPlanPrompt
   return tpl

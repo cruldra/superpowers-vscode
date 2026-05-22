@@ -91,6 +91,11 @@ export interface UseIssuesResult {
   /** Dispose the matching session terminal tab. Extension reacts via
    * onDidCloseTerminal and clears `*TabOpen` so the X button disappears. */
   closeSessionTab: (issueNumber: number, kind: 'brainstorm' | 'implement' | 'review') => void
+  /** Spawn a fresh "规划" cc tab for an existing issue whose sessionId is
+   * still empty. The extension picks up profilePath from the issue's state
+   * JSON, watches `~/.claude/projects/<encoded-workspaceRoot>` for the new
+   * session jsonl, then writes the id back as `sessionId`. */
+  startBrainstormSession: (issueNumber: number) => void
   changeColumn: (issueNumber: number, toColumn: IssueColumn) => void
   setDependency: (issueNumber: number, prerequisiteNumber: number) => void
   clearDependency: (issueNumber: number, prerequisiteNumber: number) => void
@@ -274,6 +279,10 @@ export function useIssues(): UseIssuesResult {
     },
     [],
   )
+
+  const startBrainstormSession = useCallback((issueNumber: number): void => {
+    postMessage({ type: 'brainstorm/start', issueNumber })
+  }, [])
 
   const changeColumn = useCallback((issueNumber: number, toColumn: IssueColumn): void => {
     postMessage({ type: 'column/change', issueNumber, toColumn })
@@ -523,5 +532,5 @@ export function useIssues(): UseIssuesResult {
     return cleanup
   }, [])
 
-  return { state, settings, globalAutoReview, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, focusSession, openFile, implement, openPr, openWorktree, deleteWorktree, deleteIssue, closeSessionTab, changeColumn, setDependency, clearDependency, updateIssueAutoReview, logs, fetchLogs, clearLogs, pendingSelectId, clearPendingSelect, commitRunning, runCommit, hasChanges, branchSyncBehind, branchSyncRunning, branchSyncDisabled, branchSyncTitle, runBranchSync, envLocked, envFileCount, envLockRunning, envLockTitle, toggleEnvLock }
+  return { state, settings, globalAutoReview, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, focusSession, openFile, implement, openPr, openWorktree, deleteWorktree, deleteIssue, closeSessionTab, startBrainstormSession, changeColumn, setDependency, clearDependency, updateIssueAutoReview, logs, fetchLogs, clearLogs, pendingSelectId, clearPendingSelect, commitRunning, runCommit, hasChanges, branchSyncBehind, branchSyncRunning, branchSyncDisabled, branchSyncTitle, runBranchSync, envLocked, envFileCount, envLockRunning, envLockTitle, toggleEnvLock }
 }

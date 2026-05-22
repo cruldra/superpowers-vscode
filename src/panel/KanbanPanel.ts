@@ -16,7 +16,7 @@ import * as path from 'node:path'
 import { commands, env, extensions, TabInputTerminal, ThemeColor, Uri, ViewColumn, window, workspace } from 'vscode'
 import { deleteToken, getToken, setToken } from '../auth/secrets'
 import { listClaudeProfiles } from '../cc/profiles'
-import { getBrainstormPrompt, getImplementPlanPrompt } from '../cc/prompts'
+import { getBrainstormContinuePrompt, getBrainstormPrompt, getImplementPlanPrompt } from '../cc/prompts'
 import { watchForNewCodexSession } from '../cc/codexSessionWatcher'
 import { projectsDirFor, watchForNewSession } from '../cc/sessionWatcher'
 import { spawnClaude } from '../cc/spawnClaude'
@@ -418,6 +418,10 @@ export class KanbanWebviewPanel {
     }
     if (msg.type === 'issue/delete') {
       void this.handleDeleteIssue(msg.issueNumber)
+      return
+    }
+    if (msg.type === 'brainstorm/start') {
+      void this.handleStartBrainstormSession(msg.issueNumber)
     }
   }
 
@@ -1377,6 +1381,169 @@ export class KanbanWebviewPanel {
     })
 
     void window.showInformationMessage(`已开始实施 #${issueNumber}`)
+  }
+
+  /**
+   * Start a fresh "规划" (brainstorm continuation) cc tab for an existing
+   * issue whose body has no sessionId yet. Used when the issue was created
+   * outside the panel (e.g. user ran spx from another cc session, body
+   * lacks the nonce marker so the webhook took the "external" branch and
+   * didn't link a terminal). Click the Play button next to the empty
+   * "头脑风暴会话 id" row to spawn a new cc session anchored to this issue.
+   *
+   * Differs from `handleImplement`:
+   *   - No worktree / no feature branch (this is discussion, not coding).
+   *   - cwd = workspaceRoot (not a worktree).
+   *   - Watches the workspace-root `~/.claude/projects/...` dir for the new
+   *     session jsonl and writes the captured id back as `sessionId`
+   *     (not `implementSessionId`).
+   */
+  private async handleStartBrainstormSession(issueNumber: number): Promise<void> {
+    const terminalName = `issue-${issueNumber}-规划`
+    const existing = this.findExistingTerminal(terminalName)
+    if (existing) {
+      this.trackSessionTerminal(existing, issueNumber, 'brainstorm')
+      existing.show(false)
+      logger.add({
+        level: 'info',
+        source: 'brainstorm',
+        message: `复用已有规划终端 #${issueNumber}，跳过 cc 启动`,
+      })
+      return
+    }
+
+    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    if (!workspaceRoot) {
+      void window.showErrorMessage('请先打开一个工作区文件夹')
+      return
+    }
+    const remote = await detectRepo(workspaceRoot)
+    if (!remote) {
+      void window.showErrorMessage('当前工作区没有 Gitea 远程仓库')
+      return
+    }
+    const token = await getToken(this.context, remote.host)
+    if (!token) {
+      void window.showErrorMessage('请先完成 Gitea 配置')
+      return
+    }
+
+    // Pull profilePath from the issue's state JSON so the new cc session
+    // reuses whatever profile the user set when the issue was first created.
+    // Tolerated: missing/unparseable comment falls back to DEFAULT_PROFILE_PATH.
+    let profilePath: string | undefined
+    try {
+      const stateObj = await readStateJsonComment({
+        host: remote.host,
+        owner: remote.owner,
+        repo: remote.repo,
+        token,
+        issueNumber,
+      })
+      if (stateObj && typeof stateObj.profilePath === 'string' && stateObj.profilePath.length > 0)
+        profilePath = stateObj.profilePath
+    }
+    catch (err) {
+      logger.add({
+        level: 'warn',
+        source: 'brainstorm',
+        message: `读取 #${issueNumber} state JSON 失败，使用默认 profile`,
+        details: err instanceof Error ? err.message : String(err),
+      })
+    }
+
+    const effectiveProfilePath
+      = profilePath && profilePath.trim() !== '' ? profilePath : DEFAULT_PROFILE_PATH
+    if (effectiveProfilePath.includes('\'')) {
+      void window.showErrorMessage(
+        `启动规划失败：profilePath 含单引号，拒绝执行 (${effectiveProfilePath})`,
+      )
+      return
+    }
+
+    const prompt = getBrainstormContinuePrompt(this.context, { issueNumber })
+    if (prompt.includes('\'')) {
+      void window.showErrorMessage('启动规划失败：prompt 含单引号，拒绝执行')
+      return
+    }
+
+    // Ensure the projects dir exists so the watcher can't miss the create
+    // event. Workspace root (no worktree here).
+    const projDir = projectsDirFor(workspaceRoot)
+    try {
+      await fsp.mkdir(projDir, { recursive: true })
+    }
+    catch (err) {
+      console.warn('[superpowers] failed to mkdir claude projects dir:', err)
+    }
+
+    // Kick off the watcher before spawning the terminal so we don't race.
+    const watchPromise = watchForNewSession({ projectsDir: projDir, timeoutMs: 120_000 })
+
+    const { themeColor, iconUri } = await this.resolveIssueIcon(issueNumber)
+    const terminal = window.createTerminal({
+      name: terminalName,
+      cwd: workspaceRoot,
+      location: this.resolveTerminalLocation(false),
+      iconPath: iconUri,
+      color: themeColor,
+    })
+    this.trackSessionTerminal(terminal, issueNumber, 'brainstorm')
+    terminal.show(false)
+    logger.add({
+      level: 'info',
+      source: 'terminal',
+      message: `已创建终端 "${terminal.name}"`,
+    })
+
+    const cmd = `claude --dangerously-skip-permissions --settings '${effectiveProfilePath}' '${prompt}'`
+    terminal.sendText(cmd)
+    logger.add({
+      level: 'info',
+      source: 'brainstorm',
+      message: `已发送规划 prompt 到终端 #${issueNumber}`,
+    })
+
+    // Fire-and-forget: when the session jsonl materializes, persist the id
+    // as the issue's brainstorm `sessionId` so the X / Play button toggles
+    // and the user can later resume via the existing UI.
+    watchPromise.then(async (sid) => {
+      if (!sid) {
+        logger.add({
+          level: 'warn',
+          source: 'brainstorm',
+          message: '规划会话监听超时 (120s)',
+        })
+        return
+      }
+      logger.add({
+        level: 'info',
+        source: 'brainstorm',
+        message: `已捕获规划会话 ${sid}`,
+      })
+      try {
+        await mergeStateJsonComment({
+          host: remote.host,
+          owner: remote.owner,
+          repo: remote.repo,
+          token,
+          issueNumber,
+          extra: { sessionId: sid },
+        })
+        this.postMessage({
+          type: 'issue/patch',
+          issueNumber,
+          patch: { sessionId: sid },
+        })
+      }
+      catch (err) {
+        console.warn('[superpowers] failed to persist brainstorm sessionId:', err)
+      }
+    }).catch((err) => {
+      console.warn('[superpowers] brainstorm session watch failed:', err)
+    })
+
+    void window.showInformationMessage(`已启动 #${issueNumber} 规划会话`)
   }
 
   /**

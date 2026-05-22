@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { useMemo } from 'react'
 import { ExternalLink, Play, Terminal, Trash2, X } from 'lucide-react'
 import type { Issue, IssueColumn } from '../types'
@@ -34,6 +35,10 @@ interface IssueDetailPanelProps {
    * onDidCloseTerminal and clears the corresponding `*TabOpen` flag, which
    * makes the X button vanish on its own. */
   onCloseSessionTab: (issueNumber: number, kind: 'brainstorm' | 'implement' | 'review') => void
+  /** Spawn a fresh "规划" cc tab for an issue whose sessionId is still empty
+   * (created out-of-band via spx without webhook linking). Bound to the Play
+   * button next to the "头脑风暴会话 id" row. */
+  onStartBrainstormSession: (issueNumber: number) => void
   /** Persist a per-issue `autoReview` override into the state JSON. */
   onUpdateAutoReview: (issueNumber: number, value: boolean) => void
   /** Open the in-webview log modal. */
@@ -62,6 +67,7 @@ export function IssueDetailPanel({
   onDeleteWorktree,
   onDeleteIssue,
   onCloseSessionTab,
+  onStartBrainstormSession,
   onUpdateAutoReview,
   onOpenLogs,
 }: IssueDetailPanelProps) {
@@ -102,28 +108,50 @@ export function IssueDetailPanel({
               value: c,
             })),
           },
-          {
-            key: 'sessionId',
-            label: '头脑风暴会话id',
-            type: 'action',
-            description: '点击在新终端运行 claude --resume <id> 恢复对话',
-            actionIcon: <Terminal className="size-3.5" />,
-            onAction: (v) => {
-              if (typeof v === 'string' && v.length > 0)
-                onResumeSession(v, issue?.profilePath, undefined, issue?.number)
-            },
-            // 仅当 extension 端登记了该工单的头脑风暴 tab 正在打开时才显示 X
-            // 关闭按钮——状态由 extension 在创建/复用终端时推 brainstormTabOpen=true、
-            // onDidCloseTerminal 时推 false 来维护。
-            secondaryActionIcon: issue?.brainstormTabOpen
-              ? <X className="size-3.5" />
-              : undefined,
-            secondaryActionTitle: '关闭头脑风暴 tab',
-            onSecondaryAction: () => {
-              if (issue)
-                onCloseSessionTab(issue.number, 'brainstorm')
-            },
-          },
+          (() => {
+            // 头脑风暴会话 id 行有三种状态：
+            //  1. sessionId 已存在 + brainstormTabOpen=true → 显示 id + X 关闭 tab
+            //  2. sessionId 已存在 + brainstormTabOpen=false → 显示 id（无右侧按钮）
+            //  3. sessionId 为空 + column !== 'done' → 显示 Play 按钮（启动一个新规划 cc tab）
+            //  4. sessionId 为空 + column === 'done' → 占位 —，不显示按钮
+            const hasSession = !!(issue?.sessionId && issue.sessionId.length > 0)
+            const canStart = !hasSession && issue?.column !== 'done'
+            let secondaryActionIcon: ReactNode | undefined
+            let secondaryActionTitle: string | undefined
+            let onSecondaryAction: (() => void) | undefined
+            if (hasSession && issue?.brainstormTabOpen) {
+              secondaryActionIcon = <X className="size-3.5" />
+              secondaryActionTitle = '关闭头脑风暴 tab'
+              onSecondaryAction = () => {
+                if (issue)
+                  onCloseSessionTab(issue.number, 'brainstorm')
+              }
+            }
+            else if (canStart) {
+              secondaryActionIcon = <Play className="size-3.5" />
+              secondaryActionTitle = '启动头脑风暴会话'
+              onSecondaryAction = () => {
+                if (issue)
+                  onStartBrainstormSession(issue.number)
+              }
+            }
+            return {
+              key: 'sessionId',
+              label: '头脑风暴会话id',
+              type: 'action' as const,
+              description: hasSession
+                ? '点击在新终端运行 claude --resume <id> 恢复对话'
+                : '工单尚未关联 cc 会话；点击右侧 ▶ 启动一个新的规划 cc tab',
+              actionIcon: <Terminal className="size-3.5" />,
+              onAction: (v: unknown) => {
+                if (typeof v === 'string' && v.length > 0)
+                  onResumeSession(v, issue?.profilePath, undefined, issue?.number)
+              },
+              secondaryActionIcon,
+              secondaryActionTitle,
+              onSecondaryAction,
+            }
+          })(),
           // 实施会话即使 worktree 已被清掉也保留可点击的 resume 入口：
           // extension 端 handleResumeSession 会在 worktree 路径不存在时退回
           // 工作区根目录，并通过 toast 告知用户；description 在两种状态下
@@ -273,7 +301,7 @@ export function IssueDetailPanel({
         ],
       },
     ],
-    [onResumeSession, onResumeReviewSession, onOpenFile, onImplement, onOpenPr, onOpenWorktree, onDeleteWorktree, onCloseSessionTab, onOpenLogs, issue, locked, lockTitle, globalAutoReview],
+    [onResumeSession, onResumeReviewSession, onOpenFile, onImplement, onOpenPr, onOpenWorktree, onDeleteWorktree, onCloseSessionTab, onStartBrainstormSession, onOpenLogs, issue, locked, lockTitle, globalAutoReview],
   )
 
   if (!issue) {
