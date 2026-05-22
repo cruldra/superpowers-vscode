@@ -633,7 +633,7 @@ export class KanbanWebviewPanel {
         dismissOnTimer: 5000,
       })
     }
-    const cmd = `claude --dangerously-skip-permissions --settings '${effectiveProfilePath}' --resume ${sessionId}`
+    const cmd = `claude --dangerously-skip-permissions --settings '${effectiveProfilePath}' --system-prompt="$(serena prompts print-cc-system-prompt-override)" --resume ${sessionId}`
     terminal.sendText(cmd)
   }
 
@@ -1349,7 +1349,7 @@ export class KanbanWebviewPanel {
       source: 'terminal',
       message: `已创建终端 "${terminal.name}"`,
     })
-    const cmd = `claude --dangerously-skip-permissions --settings '${effectiveProfilePath}' '${prompt}'`
+    const cmd = `claude --dangerously-skip-permissions --settings '${effectiveProfilePath}' --system-prompt="$(serena prompts print-cc-system-prompt-override)" '${prompt}'`
     terminal.sendText(cmd)
     logger.add({
       level: 'info',
@@ -1512,7 +1512,7 @@ export class KanbanWebviewPanel {
       message: `已创建终端 "${terminal.name}"`,
     })
 
-    const cmd = `claude --dangerously-skip-permissions --settings '${effectiveProfilePath}' '${prompt}'`
+    const cmd = `claude --dangerously-skip-permissions --settings '${effectiveProfilePath}' --system-prompt="$(serena prompts print-cc-system-prompt-override)" '${prompt}'`
     terminal.sendText(cmd)
     logger.add({
       level: 'info',
@@ -2545,7 +2545,7 @@ export class KanbanWebviewPanel {
       })
       return
     }
-    const cmd = `claude --dangerously-skip-permissions --settings '${effectiveProfilePath}' '${prompt}'`
+    const cmd = `claude --dangerously-skip-permissions --settings '${effectiveProfilePath}' --system-prompt="$(serena prompts print-cc-system-prompt-override)" '${prompt}'`
     terminal.sendText(cmd)
 
     logger.add({
@@ -3445,7 +3445,7 @@ export class KanbanWebviewPanel {
       createdAt: Date.now(),
     })
 
-    const cmd = `claude --dangerously-skip-permissions --settings '${effectiveProfilePath}' '${prompt}'`
+    const cmd = `claude --dangerously-skip-permissions --settings '${effectiveProfilePath}' --system-prompt="$(serena prompts print-cc-system-prompt-override)" '${prompt}'`
     terminal.sendText(cmd)
     logger.add({
       level: 'info',
