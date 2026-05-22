@@ -1,15 +1,15 @@
 /superpowers:brainstorming 讨论下 {issueNumber} 号工单
 
+用tea命令找工单
+
 ## 后续 marker 维护（本会话有效）
 
-**只有**当你真正创建了 spec 或 plan 文件后才追加对应 marker。路径形如 `docs/superpowers/specs/<slug>/spec.md` 或 `docs/superpowers/plans/<slug>/plan.md`：
+创建了 spec 或 plan 文件后追加对应 marker:
 
 ```
 opencli spx issue marker --issue <工单号> --type spec --value <spec 路径>
 opencli spx issue marker --issue <工单号> --type plan --value <plan 路径>
 ```
-
-spx 自动找到对应行替换或追加，保留所有其他 marker。**不要自己手写 `<!-- spx:* -->` 行**。
 
 ## 严禁擅自继续
 
