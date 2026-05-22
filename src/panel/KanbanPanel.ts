@@ -195,6 +195,14 @@ export class KanbanWebviewPanel {
   private lastReverseSelectAt = 0
   private lastReverseSelectIssueNumber = -1
 
+  /**
+   * 上一次被 `handleActiveTerminalChanged` 处理的 terminal 引用。同一 terminal
+   * 短时间内重复触发（OSC title 改写、shell prompt 重绘等导致的 onDidChangeTabs
+   * 误触）直接 noop，避免 webview 反复 setPendingSelectId 造成 UI 闪烁。
+   * `onDidCloseTerminal` 中清掉该 ref。
+   */
+  private lastActiveTerminalRef: Terminal | undefined
+
   private constructor(private readonly context: ExtensionContext, panel: WebviewPanel) {
     this.panel = panel
 
@@ -246,6 +254,8 @@ export class KanbanWebviewPanel {
         }
         // 反查 terminalOrigin 给详情面板推 *TabOpen: false，让关闭按钮消失。
         this.untrackClosedTerminal(closed)
+        if (closed === this.lastActiveTerminalRef)
+          this.lastActiveTerminalRef = undefined
       }),
       // 用户在 column 2 切换终端 tab 时，反向选中看板上对应的工单卡片。
       window.onDidChangeActiveTerminal((terminal) => {
@@ -1007,6 +1017,12 @@ export class KanbanWebviewPanel {
    * 是新建工单流程的占位 tab，没有 issue number，跳过。
    */
   private handleActiveTerminalChanged(terminal: Terminal): void {
+    // Dedupe by reference: OSC title rewrites / shell prompt updates fire
+    // onDidChangeTabs repeatedly for the same terminal. Skip if it's the
+    // same reference we just handled.
+    if (terminal === this.lastActiveTerminalRef)
+      return
+    this.lastActiveTerminalRef = terminal
     // Primary: `issue-${N}-(规划|实施|审查)` — the steady-state naming.
     const m = terminal.name.match(/^issue-(\d+)-(规划|实施|审查)/)
     if (m) {
