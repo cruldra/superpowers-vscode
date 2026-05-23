@@ -127,14 +127,15 @@ export async function spawnClaude(opts: {
   timeoutMs?: number
   images?: ClaudeImage[]
   profilePath?: string
+  bare?: boolean
 }): Promise<ClaudeResult> {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const hasImages = !!opts.images && opts.images.length > 0
 
   if (!hasImages) {
-    return spawnClaudeText(opts.prompt, opts.cwd, timeoutMs, opts.profilePath)
+    return spawnClaudeText(opts.prompt, opts.cwd, timeoutMs, opts.profilePath, opts.bare)
   }
-  return spawnClaudeStreamed(opts.prompt, opts.cwd, timeoutMs, opts.images!, opts.profilePath)
+  return spawnClaudeStreamed(opts.prompt, opts.cwd, timeoutMs, opts.images!, opts.profilePath, opts.bare)
 }
 
 function spawnClaudeText(
@@ -142,8 +143,10 @@ function spawnClaudeText(
   cwd: string,
   timeoutMs: number,
   profilePath?: string,
+  bare?: boolean,
 ): Promise<ClaudeResult> {
   const args = [
+    ...(bare ? ['--bare'] : []),
     '--dangerously-skip-permissions',
     ...(profilePath ? ['--settings', profilePath] : []),
     '-p',
@@ -212,12 +215,14 @@ function spawnClaudeStreamed(
   timeoutMs: number,
   images: ClaudeImage[],
   profilePath?: string,
+  bare?: boolean,
 ): Promise<ClaudeResult> {
   // Local Claude Code v2.1.143 enforces that --input-format=stream-json must
   // be paired with --output-format=stream-json (the friendlier `--output-format
   // json` is rejected). The output is NDJSON; extractClaudePayload walks lines
   // from the end to find the final result-shaped object.
   const args = [
+    ...(bare ? ['--bare'] : []),
     '--dangerously-skip-permissions',
     ...(profilePath ? ['--settings', profilePath] : []),
     '-p',

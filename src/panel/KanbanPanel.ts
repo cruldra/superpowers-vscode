@@ -3546,6 +3546,7 @@ export class KanbanWebviewPanel {
         cwd: workspaceRoot,
         profilePath: deepseek.path,
         timeoutMs: 30 * 60 * 1000,
+        bare: true,
       })
       this.postMessage({
         type: 'toast/show',
