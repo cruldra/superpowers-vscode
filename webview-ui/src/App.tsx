@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { IssueDetailPanel } from './components/IssueDetailPanel'
+import { BottomTabs } from './components/BottomTabs'
 import { KanbanBoard } from './components/KanbanBoard'
 import { LogModal } from './components/LogModal'
 import type { PastedImage } from './components/NewIssueModal'
@@ -8,6 +8,7 @@ import { PanelHeader } from './components/PanelHeader'
 import { SettingsModal } from './components/SettingsModal'
 import { ToastStack } from './components/ToastStack'
 import { useIssues } from './hooks/useIssues'
+import { useProfiles } from './hooks/useProfiles'
 import type { Issue } from './types'
 import { COLUMN_ORDER } from './types'
 
@@ -59,6 +60,7 @@ export function App() {
     envLockTitle,
     toggleEnvLock,
   } = useIssues()
+  const { profiles: profileData, saveProfiles, openProfileValue } = useProfiles()
   const [showNewIssueModal, setShowNewIssueModal] = useState(false)
   const [showLogs, setShowLogs] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -290,7 +292,7 @@ export function App() {
               />
             </div>
             <div className="h-[40vh] shrink-0">
-              <IssueDetailPanel
+              <BottomTabs
                 issue={selectedIssue}
                 allIssues={state.issues}
                 globalAutoReview={globalAutoReview}
@@ -307,6 +309,9 @@ export function App() {
                 onStartBrainstormSession={startBrainstormSession}
                 onUpdateAutoReview={updateIssueAutoReview}
                 onOpenLogs={() => setShowLogs(true)}
+                profileData={profileData}
+                onProfileSave={saveProfiles}
+                onProfileOpen={openProfileValue}
               />
             </div>
           </div>

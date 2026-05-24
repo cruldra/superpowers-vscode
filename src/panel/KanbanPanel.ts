@@ -40,6 +40,7 @@ import {
 import { isValidSpxFilePath, loadIssues } from '../gitea/issueLoader'
 import { mergeStateJsonComment, readStateJsonComment } from '../gitea/stateJson'
 import { logger } from '../logging/logger'
+import { readProfiles, writeProfiles, type ProfilesData } from '../profiles/store'
 import { getSettings, saveSettings } from '../settings/store'
 import { webhookCoordinator } from '../webhook/coordinator'
 import { PALETTE, pickRandomIssueColor, resolveIssueColor, themeColorIdToIconUri } from './issueColor'
@@ -438,6 +439,18 @@ export class KanbanWebviewPanel {
     }
     if (msg.type === 'brainstorm/start') {
       void this.handleStartBrainstormSession(msg.issueNumber)
+      return
+    }
+    if (msg.type === 'profiles/get') {
+      void this.handleProfilesGet()
+      return
+    }
+    if (msg.type === 'profiles/save') {
+      void this.handleProfilesSave(msg.data)
+      return
+    }
+    if (msg.type === 'profiles/open') {
+      void this.handleProfilesOpen(msg.value)
     }
   }
 
@@ -1714,6 +1727,187 @@ export class KanbanWebviewPanel {
     })
 
     void window.showInformationMessage(`已启动 #${issueNumber} 规划会话`)
+  }
+
+  /**
+   * 工作区 profile 表读取入口：webview mount 时 / 切换到 Profile tab 时拉数据。
+   * 文件不存在直接返回默认结构 `{ profiles: ['dev', 'prod'], rows: [] }`，
+   * 不会物理创建文件。
+   */
+  private async handleProfilesGet(): Promise<void> {
+    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    if (!workspaceRoot) {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: '请先打开一个工作区文件夹',
+        dismissOnTimer: 5000,
+      })
+      return
+    }
+    try {
+      const data = await readProfiles(workspaceRoot)
+      this.postMessage({ type: 'profiles/show', data })
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: `读取 profiles.json 失败: ${message}`,
+        dismissOnTimer: 6000,
+      })
+    }
+  }
+
+  /**
+   * 工作区 profile 表写入入口。webview 已经 optimistic 更新，
+   * 成功不回消息；失败弹 toast。
+   */
+  private async handleProfilesSave(data: ProfilesData): Promise<void> {
+    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    if (!workspaceRoot) {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: '请先打开一个工作区文件夹',
+        dismissOnTimer: 5000,
+      })
+      return
+    }
+    try {
+      await writeProfiles(workspaceRoot, data)
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: `写入 profiles.json 失败: ${message}`,
+        dismissOnTimer: 6000,
+      })
+    }
+  }
+
+  /**
+   * 智能打开 profile 单元格里的 value。
+   *
+   * - http(s):// / git@host:owner/repo → 外部浏览器（git@ 先转 https）
+   * - 其他 → 当作路径处理，`~` 展开为 home，相对路径以 workspaceRoot 为基
+   *   - 是目录 → revealFileInOS
+   *   - 是文件 → vscode.open
+   *   - 不存在 → toast 报错
+   */
+  private async handleProfilesOpen(value: string): Promise<void> {
+    const trimmed = value.trim()
+    if (!trimmed) {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: '无法打开：值为空',
+        dismissOnTimer: 5000,
+      })
+      return
+    }
+
+    // URL 分支：http(s) 直开；git@ 先转 https
+    if (/^(?:https?:\/\/|git@)/i.test(trimmed)) {
+      let url = trimmed
+      const gitSshMatch = /^git@([^:]+):(.+?)(?:\.git)?$/i.exec(trimmed)
+      if (gitSshMatch) {
+        const host = gitSshMatch[1]
+        const repoPath = gitSshMatch[2].replace(/\.git$/i, '')
+        url = `https://${host}/${repoPath}`
+      }
+      else if (/^https?:\/\//i.test(trimmed)) {
+        url = trimmed.replace(/\.git$/i, '')
+      }
+      try {
+        await env.openExternal(Uri.parse(url))
+      }
+      catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        this.postMessage({
+          type: 'toast/show',
+          id: makeNonce(),
+          level: 'error',
+          message: `打开链接失败: ${message}`,
+          dismissOnTimer: 6000,
+        })
+      }
+      return
+    }
+
+    // 路径分支：~ 展开、相对路径补 workspaceRoot
+    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    let abs: string
+    if (trimmed.startsWith('~')) {
+      abs = path.join(os.homedir(), trimmed.slice(1))
+    }
+    else if (path.isAbsolute(trimmed)) {
+      abs = trimmed
+    }
+    else {
+      if (!workspaceRoot) {
+        this.postMessage({
+          type: 'toast/show',
+          id: makeNonce(),
+          level: 'error',
+          message: '无法解析相对路径：未打开工作区',
+          dismissOnTimer: 5000,
+        })
+        return
+      }
+      abs = path.join(workspaceRoot, trimmed)
+    }
+
+    let stat: fs.Stats
+    try {
+      stat = fs.statSync(abs)
+    }
+    catch {
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: `无法打开：路径不存在 / 不是 URL（${abs}）`,
+        dismissOnTimer: 6000,
+      })
+      return
+    }
+
+    try {
+      if (stat.isDirectory()) {
+        await commands.executeCommand('revealFileInOS', Uri.file(abs))
+      }
+      else if (stat.isFile()) {
+        await commands.executeCommand('vscode.open', Uri.file(abs))
+      }
+      else {
+        this.postMessage({
+          type: 'toast/show',
+          id: makeNonce(),
+          level: 'error',
+          message: `无法打开：既不是文件也不是目录（${abs}）`,
+          dismissOnTimer: 6000,
+        })
+      }
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      this.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'error',
+        message: `打开失败: ${message}`,
+        dismissOnTimer: 6000,
+      })
+    }
   }
 
   /**
