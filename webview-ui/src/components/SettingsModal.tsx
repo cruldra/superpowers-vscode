@@ -11,7 +11,7 @@ import type { ReactElement } from 'react'
 import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 
-type GroupKey = 'auth' | 'network' | 'prompts'
+type GroupKey = 'auth' | 'network' | 'prompts' | 'hooks'
 
 interface SubmitValues {
   host: string
@@ -23,6 +23,8 @@ interface SubmitValues {
   reviewPrompt: string
   devBranch: string
   autoBuildBranch: string
+  worktreePostCreateScript: string
+  worktreePreRemoveScript: string
 }
 
 export interface SettingsModalProps {
@@ -38,6 +40,8 @@ export interface SettingsModalProps {
   initialReviewPrompt: string
   initialDevBranch: string
   initialAutoBuildBranch: string
+  initialWorktreePostCreateScript: string
+  initialWorktreePreRemoveScript: string
   onSubmit: (values: SubmitValues) => void
   onCancel?: () => void
 }
@@ -70,6 +74,7 @@ const GROUPS: Array<{ key: GroupKey, label: string }> = [
   { key: 'auth', label: '认证' },
   { key: 'network', label: '网络' },
   { key: 'prompts', label: '提示词' },
+  { key: 'hooks', label: '钩子' },
 ]
 
 type ErrorKey = 'host' | 'token' | 'webhookPort'
@@ -95,6 +100,8 @@ export function SettingsModal({
   initialReviewPrompt,
   initialDevBranch,
   initialAutoBuildBranch,
+  initialWorktreePostCreateScript,
+  initialWorktreePreRemoveScript,
   onSubmit,
   onCancel,
 }: SettingsModalProps): ReactElement | null {
@@ -108,6 +115,8 @@ export function SettingsModal({
   const [reviewPrompt, setReviewPrompt] = useState(initialReviewPrompt)
   const [devBranch, setDevBranch] = useState(initialDevBranch)
   const [autoBuildBranch, setAutoBuildBranch] = useState(initialAutoBuildBranch)
+  const [worktreePostCreateScript, setWorktreePostCreateScript] = useState(initialWorktreePostCreateScript)
+  const [worktreePreRemoveScript, setWorktreePreRemoveScript] = useState(initialWorktreePreRemoveScript)
   const [errors, setErrors] = useState<Partial<Record<ErrorKey, string>>>({})
 
   // Reset local state whenever the modal opens with fresh server values.
@@ -126,6 +135,8 @@ export function SettingsModal({
     setReviewPrompt(initialReviewPrompt)
     setDevBranch(initialDevBranch)
     setAutoBuildBranch(initialAutoBuildBranch)
+    setWorktreePostCreateScript(initialWorktreePostCreateScript)
+    setWorktreePreRemoveScript(initialWorktreePreRemoveScript)
     setErrors({})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
@@ -193,6 +204,9 @@ export function SettingsModal({
       reviewPrompt,
       devBranch: devBranch.trim(),
       autoBuildBranch: autoBuildBranch.trim(),
+      // 钩子路径保持原样 trim（前后空格无意义；空串 = 用默认 .spx/worktree-*.sh）
+      worktreePostCreateScript: worktreePostCreateScript.trim(),
+      worktreePreRemoveScript: worktreePreRemoveScript.trim(),
     })
   }
 
@@ -432,6 +446,68 @@ export function SettingsModal({
                     value={reviewPrompt}
                     onChange={e => setReviewPrompt(e.target.value)}
                     className={`${inputClass} resize-y font-mono`}
+                  />
+                </Field>
+              </>
+            )}
+
+            {activeGroup === 'hooks' && (
+              <>
+                <Field
+                  label="worktree 创建后脚本"
+                  hint={(
+                    <>
+                      工单进入"实施"后，
+                      <code>git worktree add</code>
+                      {' '}
+                      成功立刻执行。留空 = 默认
+                      {' '}
+                      <code>.spx/worktree-post-create.sh</code>
+                      ；文件不存在 = 静默跳过，不报错。
+                      <br />
+                      环境变量：
+                      <code>WORKTREE_PATH</code>
+                      、
+                      <code>WORKSPACE_ROOT</code>
+                      、
+                      <code>BRANCH</code>
+                      、
+                      <code>ISSUE_NUMBER</code>
+                      、
+                      <code>MAIN_BRANCH</code>
+                      。超时 30s。
+                    </>
+                  )}
+                >
+                  <input
+                    type="text"
+                    value={worktreePostCreateScript}
+                    onChange={e => setWorktreePostCreateScript(e.target.value)}
+                    placeholder=".spx/worktree-post-create.sh"
+                    className={inputClass}
+                  />
+                </Field>
+
+                <Field
+                  label="worktree 删除前脚本"
+                  hint={(
+                    <>
+                      工单关闭 / 手动删 worktree 时，
+                      <code>git worktree remove</code>
+                      {' '}
+                      之前执行，便于关闭 IDE / 归档日志。留空 = 默认
+                      {' '}
+                      <code>.spx/worktree-pre-remove.sh</code>
+                      。失败不阻塞删除。
+                    </>
+                  )}
+                >
+                  <input
+                    type="text"
+                    value={worktreePreRemoveScript}
+                    onChange={e => setWorktreePreRemoveScript(e.target.value)}
+                    placeholder=".spx/worktree-pre-remove.sh"
+                    className={inputClass}
                   />
                 </Field>
               </>

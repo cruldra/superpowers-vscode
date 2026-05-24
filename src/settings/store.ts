@@ -86,6 +86,25 @@ export interface Settings {
    * disabled because there's nothing to fast-forward.
    */
   autoBuildBranch: string
+  /**
+   * Path to a user-provided shell script that runs *after* the extension
+   * creates a worktree via `git worktree add`. Empty string means use the
+   * default `<workspaceRoot>/.spx/worktree-post-create.sh`. Absent file
+   * (default path or user-specified) is treated as a no-op, not an error.
+   *
+   * Hook receives env: `WORKTREE_PATH`, `WORKSPACE_ROOT`, `BRANCH`,
+   * `ISSUE_NUMBER`, `MAIN_BRANCH`.
+   */
+  worktreePostCreateScript: string
+  /**
+   * Path to a user-provided shell script that runs *before* the extension
+   * removes a worktree via `git worktree remove`. Empty string means use
+   * the default `<workspaceRoot>/.spx/worktree-pre-remove.sh`. Absent file
+   * is treated as a no-op.
+   *
+   * Same env vars as the post-create hook.
+   */
+  worktreePreRemoveScript: string
 }
 
 export const SETTINGS_KEY = 'superpowers.settings'
@@ -100,6 +119,8 @@ function defaults(ctx: ExtensionContext): Settings {
     reviewPrompt: readDefaultPrompt(ctx.extensionPath, 'review'),
     devBranch: 'main',
     autoBuildBranch: '',
+    worktreePostCreateScript: '',
+    worktreePreRemoveScript: '',
   }
 }
 
@@ -136,6 +157,16 @@ export function getSettings(ctx: ExtensionContext): Settings {
   const autoBuildBranch = typeof stored.autoBuildBranch === 'string'
     ? stored.autoBuildBranch
     : base.autoBuildBranch
+  // worktree hook script paths: '' is meaningful (= "use default
+  // .spx/worktree-*.sh"), so don't coerce. Non-string legacy values fall
+  // back to ''. The hook runner resolves '' to the default at execution
+  // time and silently skips when the file doesn't exist.
+  const worktreePostCreateScript = typeof stored.worktreePostCreateScript === 'string'
+    ? stored.worktreePostCreateScript
+    : base.worktreePostCreateScript
+  const worktreePreRemoveScript = typeof stored.worktreePreRemoveScript === 'string'
+    ? stored.worktreePreRemoveScript
+    : base.worktreePreRemoveScript
 
   return {
     webhookPort,
@@ -146,6 +177,8 @@ export function getSettings(ctx: ExtensionContext): Settings {
     reviewPrompt,
     devBranch,
     autoBuildBranch,
+    worktreePostCreateScript,
+    worktreePreRemoveScript,
   }
 }
 

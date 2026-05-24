@@ -32,6 +32,8 @@ export interface SettingsValues {
   reviewPrompt: string
   devBranch: string
   autoBuildBranch: string
+  worktreePostCreateScript: string
+  worktreePreRemoveScript: string
 }
 
 export interface SettingsOverlayState {
@@ -46,6 +48,8 @@ export interface SettingsOverlayState {
   reviewPrompt: string
   devBranch: string
   autoBuildBranch: string
+  worktreePostCreateScript: string
+  worktreePreRemoveScript: string
 }
 
 export type UseIssuesState =
@@ -200,6 +204,8 @@ export function useIssues(): UseIssuesResult {
       reviewPrompt: values.reviewPrompt,
       devBranch: values.devBranch,
       autoBuildBranch: values.autoBuildBranch,
+      worktreePostCreateScript: values.worktreePostCreateScript,
+      worktreePreRemoveScript: values.worktreePreRemoveScript,
     })
   }, [])
 
@@ -440,6 +446,8 @@ export function useIssues(): UseIssuesResult {
             reviewPrompt: msg.reviewPrompt,
             devBranch: msg.devBranch,
             autoBuildBranch: msg.autoBuildBranch,
+            worktreePostCreateScript: msg.worktreePostCreateScript,
+            worktreePreRemoveScript: msg.worktreePreRemoveScript,
           })
           break
         case 'toast/show': {

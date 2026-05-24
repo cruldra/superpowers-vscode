@@ -24,6 +24,7 @@ import { lockEnvFiles, findEnvFiles, unlockEnvFiles } from '../files/envLock'
 import { checkBranchSync, runBranchSync } from '../git/branchSync'
 import { detectRepo } from '../git/remote'
 import { createWorktree } from '../git/worktree'
+import { runPostCreateHook, runPreRemoveHook, type HookContext } from '../git/worktreeHooks'
 import {
   addDependency,
   closeIssue,
@@ -1270,6 +1271,19 @@ export class KanbanWebviewPanel {
       return
     }
 
+    // Run the post-create lifecycle hook. Fire-and-await so subsequent
+    // steps (mkdir projects dir, terminal spawn, cc launch) see whatever
+    // setup the user script performed (e.g. .env copy). Failures are
+    // logged + toasted but never block the implement flow.
+    await this.dispatchWorktreeHook('post-create', {
+      workspaceRoot,
+      worktreePath,
+      branch,
+      issueNumber,
+      mainBranch: settings.devBranch || 'main',
+      customScriptPath: settings.worktreePostCreateScript,
+    })
+
     // Ensure the claude projects subdir exists *before* spawning the
     // terminal so the watcher can't miss the create event.
     const projDir = projectsDirFor(worktreePath)
@@ -1624,6 +1638,20 @@ export class KanbanWebviewPanel {
       return
 
     const abs = path.isAbsolute(relPath) ? relPath : path.join(workspaceRoot, relPath)
+
+    // Run the pre-remove lifecycle hook so the user can tear down resources
+    // (close IDE windows, etc.) before the worktree dir vanishes. Best-effort
+    // — never blocks the removal.
+    const settingsForHook = getSettings(this.context)
+    await this.dispatchWorktreeHook('pre-remove', {
+      workspaceRoot,
+      worktreePath: abs,
+      branch: '',
+      issueNumber,
+      mainBranch: settingsForHook.devBranch || 'main',
+      customScriptPath: settingsForHook.worktreePreRemoveScript,
+    })
+
     try {
       await new Promise<void>((resolve, reject) => {
         execFile(
@@ -1680,6 +1708,64 @@ export class KanbanWebviewPanel {
       },
     })
     void window.showInformationMessage(`已删除 worktree #${issueNumber}`)
+  }
+
+
+  /**
+   * Run a user-provided shell script (post-create / pre-remove) and surface
+   * the outcome via logger + a toast. Always returns — failures of any
+   * kind never abort the calling flow, per the lifecycle-hook contract:
+   * worktree creation / removal is the source of truth, user scripts are
+   * best-effort sidecars.
+   */
+  private async dispatchWorktreeHook(
+    phase: 'post-create' | 'pre-remove',
+    ctx: HookContext,
+  ): Promise<void> {
+    const result = phase === 'post-create'
+      ? await runPostCreateHook(ctx)
+      : await runPreRemoveHook(ctx)
+
+    // 'skipped' = the script simply isn't on disk. That's the intended
+    // default state — stay silent, don't pester the user.
+    if (result.status === 'skipped')
+      return
+
+    if (result.status === 'ok') {
+      logger.add({
+        level: 'info',
+        source: 'panel',
+        message: `worktree ${phase} 钩子完成 #${ctx.issueNumber}`,
+        details: `path=${result.scriptPath}\nstdout=${result.stdout ?? ''}\nstderr=${result.stderr ?? ''}`,
+      })
+      return
+    }
+
+    // Anything else (failed / timeout / enoent) — warn-level log + a
+    // toast. ToastLevel only has 'info' | 'success' | 'error'; we use
+    // 'info' to keep it non-blocking, matching the "doesn't affect main
+    // flow" semantics. Detailed stdout/stderr stays in the log to avoid
+    // spamming the toast surface.
+    const label = phase === 'post-create' ? '创建后' : '删除前'
+    logger.add({
+      level: 'warn',
+      source: 'panel',
+      message: `worktree ${phase} 钩子失败 #${ctx.issueNumber}: ${result.status}`,
+      details: [
+        `path=${result.scriptPath ?? '(unresolved)'}`,
+        result.exitCode !== undefined ? `exitCode=${result.exitCode}` : null,
+        result.errorMessage ? `err=${result.errorMessage}` : null,
+        result.stdout ? `stdout=${result.stdout}` : null,
+        result.stderr ? `stderr=${result.stderr}` : null,
+      ].filter((line): line is string => line !== null).join('\n'),
+    })
+    this.postMessage({
+      type: 'toast/show',
+      id: makeNonce(),
+      level: 'info',
+      message: `worktree ${label}钩子失败 #${ctx.issueNumber}（不影响后续流程，详情见日志）`,
+      dismissOnTimer: 5000,
+    })
   }
 
 
@@ -1777,6 +1863,17 @@ export class KanbanWebviewPanel {
         ? worktreePath
         : path.join(workspaceRoot, worktreePath)
       if (fs.existsSync(absWorktree)) {
+        // Pre-remove hook before nuking the worktree. Best-effort —
+        // hook failure does NOT block the destructive delete.
+        const settingsForHook = getSettings(this.context)
+        await this.dispatchWorktreeHook('pre-remove', {
+          workspaceRoot,
+          worktreePath: absWorktree,
+          branch,
+          issueNumber,
+          mainBranch: settingsForHook.devBranch || 'main',
+          customScriptPath: settingsForHook.worktreePreRemoveScript,
+        })
         try {
           await new Promise<void>((resolve, reject) => {
             execFile(
@@ -2294,6 +2391,18 @@ export class KanbanWebviewPanel {
         ? worktreePath
         : path.join(workspaceRoot, worktreePath)
       if (fs.existsSync(abs)) {
+        // Pre-remove hook — same best-effort contract as the other call
+        // sites. Run before the actual remove so user scripts can still
+        // touch the worktree dir.
+        const settingsForHook = getSettings(this.context)
+        await this.dispatchWorktreeHook('pre-remove', {
+          workspaceRoot,
+          worktreePath: abs,
+          branch: featureBranch ?? '',
+          issueNumber,
+          mainBranch: settingsForHook.devBranch || 'main',
+          customScriptPath: settingsForHook.worktreePreRemoveScript,
+        })
         try {
           await new Promise<void>((resolve, reject) => {
             execFile(
@@ -3099,6 +3208,8 @@ export class KanbanWebviewPanel {
         reviewPrompt: s.reviewPrompt,
         devBranch: s.devBranch,
         autoBuildBranch: s.autoBuildBranch,
+        worktreePostCreateScript: s.worktreePostCreateScript,
+        worktreePreRemoveScript: s.worktreePreRemoveScript,
       })
       return
     }
@@ -3131,6 +3242,8 @@ export class KanbanWebviewPanel {
           reviewPrompt: s.reviewPrompt,
           devBranch: s.devBranch,
           autoBuildBranch: s.autoBuildBranch,
+          worktreePostCreateScript: s.worktreePostCreateScript,
+          worktreePreRemoveScript: s.worktreePreRemoveScript,
         })
         return
       }
@@ -3150,11 +3263,17 @@ export class KanbanWebviewPanel {
     reviewPrompt: string
     devBranch: string
     autoBuildBranch: string
+    worktreePostCreateScript: string
+    worktreePreRemoveScript: string
   }): Promise<void> {
     const trimmedHost = payload.host.trim()
     const trimmedToken = payload.token.trim()
     const trimmedDevBranch = payload.devBranch.trim()
     const trimmedAutoBuildBranch = payload.autoBuildBranch.trim()
+    // Hook script paths: keep '' meaningful (= "use default
+    // .spx/worktree-*.sh"). Just strip whitespace.
+    const trimmedPostCreate = payload.worktreePostCreateScript.trim()
+    const trimmedPreRemove = payload.worktreePreRemoveScript.trim()
     const prev = getSettings(this.context)
     // Capture the previous token *for this host* before overwriting it, so
     // we can decide below whether the kanban needs a re-fetch. (Only host
@@ -3177,6 +3296,8 @@ export class KanbanWebviewPanel {
         reviewPrompt: payload.reviewPrompt || prev.reviewPrompt,
         devBranch: trimmedDevBranch || prev.devBranch,
         autoBuildBranch: trimmedAutoBuildBranch,
+        worktreePostCreateScript: trimmedPostCreate,
+        worktreePreRemoveScript: trimmedPreRemove,
       })
       return
     }
@@ -3191,6 +3312,8 @@ export class KanbanWebviewPanel {
       // fallback at read time.
       devBranch: trimmedDevBranch,
       autoBuildBranch: trimmedAutoBuildBranch,
+      worktreePostCreateScript: trimmedPostCreate,
+      worktreePreRemoveScript: trimmedPreRemove,
     })
     if (!keepExisting)
       await setToken(this.context, trimmedHost, trimmedToken)
@@ -3251,6 +3374,8 @@ export class KanbanWebviewPanel {
       reviewPrompt: s.reviewPrompt,
       devBranch: s.devBranch,
       autoBuildBranch: s.autoBuildBranch,
+      worktreePostCreateScript: s.worktreePostCreateScript,
+      worktreePreRemoveScript: s.worktreePreRemoveScript,
     })
   }
 

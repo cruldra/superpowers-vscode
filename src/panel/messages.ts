@@ -30,6 +30,8 @@ export type ExtensionToWebview =
     reviewPrompt: string
     devBranch: string
     autoBuildBranch: string
+    worktreePostCreateScript: string
+    worktreePreRemoveScript: string
   }
   | {
     type: 'toast/show'
@@ -71,6 +73,8 @@ export type WebviewToExtension =
     reviewPrompt: string
     devBranch: string
     autoBuildBranch: string
+    worktreePostCreateScript: string
+    worktreePreRemoveScript: string
   }
   | { type: 'settings/edit-request' }
   | { type: 'issue/create', userRequest: string, images?: Array<{ mediaType: string, base64: string }>, profilePath?: string }

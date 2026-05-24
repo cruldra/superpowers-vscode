@@ -383,6 +383,8 @@ export function App() {
         initialReviewPrompt={settings?.reviewPrompt ?? ''}
         initialDevBranch={settings?.devBranch ?? 'main'}
         initialAutoBuildBranch={settings?.autoBuildBranch ?? ''}
+        initialWorktreePostCreateScript={settings?.worktreePostCreateScript ?? ''}
+        initialWorktreePreRemoveScript={settings?.worktreePreRemoveScript ?? ''}
         onSubmit={saveSettings}
         onCancel={settings?.canCancel ? dismissSettings : undefined}
       />
