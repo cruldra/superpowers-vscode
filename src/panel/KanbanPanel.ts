@@ -872,6 +872,42 @@ export class KanbanWebviewPanel {
     const existing = this.findExistingTerminal(terminalName)
     const isReuse = !!existing
 
+    // Pre-fetch the persisted reviewSessionId from issue state JSON so we
+    // can pick the right branch below. Any failure (no remote / no token /
+    // network blip) MUST NOT break the whole review trigger — fall through
+    // with existingSessionId = undefined and we'll spin up a fresh codex.
+    let existingSessionId: string | undefined
+    try {
+      const remote = await detectRepo(opts.workspaceRoot)
+      if (remote) {
+        const token = await getToken(this.context, remote.host)
+        if (token) {
+          const state = await readStateJsonComment({
+            host: remote.host,
+            token,
+            owner: remote.owner,
+            repo: remote.repo,
+            issueNumber: opts.issueNumber,
+          })
+          const sid = state?.reviewSessionId
+          if (typeof sid === 'string' && sid.length > 0)
+            existingSessionId = sid
+        }
+      }
+    }
+    catch (err) {
+      logger.add({
+        level: 'warn',
+        source: 'review',
+        message: `读取 reviewSessionId 失败，将走新建会话路径 (#${opts.issueNumber})`,
+        details: err instanceof Error ? err.message : String(err),
+      })
+    }
+
+    // Three-branch decision matrix:
+    //   tab alive  / sid present or not  -> reuse: inject "再审" into the live TUI
+    //   tab closed / sid present         -> resume: codex resume <sid> + inject "再审"
+    //   tab closed / sid absent          -> new:    spin up fresh codex review session
     if (isReuse) {
       const terminal = existing!
       this.trackSessionTerminal(terminal, opts.issueNumber, 'review')
@@ -891,6 +927,45 @@ export class KanbanWebviewPanel {
         level: 'info',
         source: 'terminal',
         message: `已发送"PR 更新了，再审一下"到复用的 #${opts.issueNumber}-审查 tab`,
+      })
+      return true
+    }
+
+    if (existingSessionId) {
+      // --- resume path: tab was closed but we have a persisted thread_id,
+      // so reuse the codex conversation instead of dropping its context.
+      // Mirrors handleResumeReviewSession's terminal-creation pipeline
+      // (icon / createTerminal / trackSessionTerminal / reviewTerminals.set
+      // / show). No session watcher — `codex resume` does NOT write a new
+      // rollout-*.jsonl, so there's nothing to capture. No cwdFallback
+      // toast either — keep parity with the reuse branch.
+      const { themeColor, iconUri } = await this.resolveIssueIcon(opts.issueNumber)
+      const terminal = window.createTerminal({
+        name: terminalName,
+        cwd: effectiveCwd,
+        location: this.resolveTerminalLocation(false),
+        iconPath: iconUri,
+        color: themeColor,
+      })
+      this.reviewTerminals.set(existingSessionId, terminal)
+      this.trackSessionTerminal(terminal, opts.issueNumber, 'review')
+      terminal.show(false)
+      terminal.sendText(`codex resume --dangerously-bypass-approvals-and-sandbox ${existingSessionId}`)
+      // codex resume rebuilds the conversation from the jsonl rollout
+      // before the TUI accepts input — empirically much slower than the
+      // 250ms gap the reuse path uses. 8s is a conservative guess that
+      // covers a cold codex start without feeling laggy.
+      const body = 'PR 更新了，再审一下'
+      setTimeout(() => {
+        terminal.sendText(body, false)
+        setTimeout(() => {
+          terminal.sendText('\r', false)
+        }, 250)
+      }, 8000)
+      logger.add({
+        level: 'info',
+        source: 'review',
+        message: `已 codex resume 审查会话 ${existingSessionId} 并注入再审消息 (#${opts.issueNumber})`,
       })
       return true
     }
