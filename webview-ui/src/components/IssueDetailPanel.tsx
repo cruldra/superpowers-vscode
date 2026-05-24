@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import { ExternalLink, Play, Terminal, Trash2, X } from 'lucide-react'
 import type { Issue, IssueColumn } from '../types'
 import { COLUMN_LABELS, COLUMN_ORDER } from '../types'
@@ -80,6 +80,21 @@ export function IssueDetailPanel({
     ? `等待 #${prerequisiteNumber} 完成`
     : undefined
 
+  // 三个会话 id 行（头脑风暴/实施/审查）共用一个"上次触发时间戳"表，
+  // 防止用户连续快速点击同一行时触发多次 resume —— extension 端 findExistingTerminal
+  // 在前一个 createTerminal 尚未完成时查不到已存在的终端，会重复开 tab。
+  // key 用 sessionId 字符串本身（足够区分三种行 + 不同工单）。
+  const lastFiredAtRef = useRef<Map<string, number>>(new Map())
+  const RESUME_THROTTLE_MS = 800
+  const throttleBySessionId = (sid: string): boolean => {
+    const now = Date.now()
+    const last = lastFiredAtRef.current.get(sid) ?? 0
+    if (now - last < RESUME_THROTTLE_MS)
+      return false
+    lastFiredAtRef.current.set(sid, now)
+    return true
+  }
+
   const schema = useMemo<PropertyGroup[]>(
     () => [
       {
@@ -144,8 +159,11 @@ export function IssueDetailPanel({
                 : '工单尚未关联 cc 会话；点击右侧 ▶ 启动一个新的规划 cc tab',
               actionIcon: <Terminal className="size-3.5" />,
               onAction: (v: unknown) => {
-                if (typeof v === 'string' && v.length > 0)
-                  onResumeSession(v, issue?.profilePath, undefined, issue?.number)
+                if (typeof v !== 'string' || v.length === 0)
+                  return
+                if (!throttleBySessionId(v))
+                  return
+                onResumeSession(v, issue?.profilePath, undefined, issue?.number)
               },
               secondaryActionIcon,
               secondaryActionTitle,
@@ -165,8 +183,11 @@ export function IssueDetailPanel({
               : 'worktree 已清理，将在工作区根目录恢复（cc 可能提示原 cwd 不存在）',
             actionIcon: <Terminal className="size-3.5" />,
             onAction: (v) => {
-              if (typeof v === 'string' && v.length > 0)
-                onResumeSession(v, issue?.profilePath, issue?.worktreePath, issue?.number)
+              if (typeof v !== 'string' || v.length === 0)
+                return
+              if (!throttleBySessionId(v))
+                return
+              onResumeSession(v, issue?.profilePath, issue?.worktreePath, issue?.number)
             },
             secondaryActionIcon: issue?.implementTabOpen
               ? <X className="size-3.5" />
@@ -185,8 +206,11 @@ export function IssueDetailPanel({
                 description: '点击在新终端运行 codex resume <id> 查看审查会话（cwd 优先用 worktree）',
                 actionIcon: <Terminal className="size-3.5" />,
                 onAction: (v) => {
-                  if (typeof v === 'string' && v.length > 0 && issue)
-                    onResumeReviewSession(v, issue.number, issue?.worktreePath)
+                  if (typeof v !== 'string' || v.length === 0 || !issue)
+                    return
+                  if (!throttleBySessionId(v))
+                    return
+                  onResumeReviewSession(v, issue.number, issue?.worktreePath)
                 },
                 secondaryActionIcon: issue?.reviewTabOpen
                   ? <X className="size-3.5" />
