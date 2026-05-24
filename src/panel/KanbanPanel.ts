@@ -164,6 +164,20 @@ export class KanbanWebviewPanel {
   private readonly terminalOrigin = new Map<Terminal, { issueNumber: number, kind: 'brainstorm' | 'implement' | 'review' }>()
 
   /**
+   * 防 handleResumeSession/handleResumeReviewSession 在 await 钩子/终端创建期间被重入触发，
+   * 导致同一 sessionId 开多个 tab。key 形如 `${issueNumber}:brainstorm|implement|review`。
+   *
+   * 触发场景：impl-tab-pre-create 钩子里 `pgrep -f` 等 pycharm 真 PID 最多 15s，
+   * 这段时间用户再点同一会话 id（前端 800ms 节流早已过期），第二次进来时
+   * `findExistingTerminal` 还查不到（前一次 createTerminal 尚未发生），两次都
+   * 走到 createTerminal → 重复 tab。审查会话同理（codex resume 启动有几秒延迟）。
+   *
+   * 锁的释放时机 = 方法返回（包括 throw 时也释放，try/finally 保证）；不持久化，
+   * 重启自动清空。
+   */
+  private readonly resumeInFlight = new Set<string>()
+
+  /**
    * Concurrency lock for the "提交当前代码" button. The webview already
    * disables the button while `commit/state running=true` is in flight, but
    * we keep a server-side lock as defense against duplicate messages.
@@ -536,173 +550,199 @@ export class KanbanWebviewPanel {
   }
 
   private async handleResumeSession(sessionId: string, profilePath?: string, relCwd?: string, issueNumber?: number): Promise<void> {
-    // Server-side prerequisite gate. Webview already disables the entry
-    // visually (see `isIssueLocked` in the kanban UI), but a user who
-    // bypasses that — message tampering, editing Gitea directly, etc. —
-    // would otherwise still get a session. Skip when `issueNumber` is
-    // unknown (legacy sessions) so we don't gate flows that never had a
-    // prerequisite concept.
-    if (issueNumber !== undefined) {
-      const lockCheck = await this.resolveLockedReason(issueNumber)
-      if (lockCheck.locked) {
+    // kind 跟着 sessionRole 提前判定（原来散落在方法中部，提到入口是为了构造
+    // resumeInFlight 锁 key）。relCwd 在则是实施 resume，否则视为规划/讨论。
+    const sessionKind: 'implement' | 'brainstorm' = relCwd ? 'implement' : 'brainstorm'
+
+    // In-flight 锁：防 impl-tab-pre-create 钩子 await（pgrep pycharm 最多 15s）
+    // 期间用户重复点同一会话 id 触发重复 createTerminal。issueNumber 为空时
+    // （legacy session）跳过锁，直接走原路径。
+    const lockKey = issueNumber !== undefined ? `${issueNumber}:${sessionKind}` : undefined
+    if (lockKey !== undefined) {
+      if (this.resumeInFlight.has(lockKey)) {
         logger.add({
-          level: 'warn',
+          level: 'info',
           source: 'panel',
-          message: `拒绝打开会话 #${issueNumber}：前置 #${lockCheck.prerequisiteNumber} 未完成`,
+          message: `resume #${issueNumber}/${sessionKind} 已在进行中，忽略重入`,
         })
-        await window.showWarningMessage(`等待前置工单 #${lockCheck.prerequisiteNumber} 完成`)
         return
       }
+      this.resumeInFlight.add(lockKey)
     }
 
-    const existing = this.terminals.get(sessionId)
-    if (existing) {
-      existing.show(false)
-      return
-    }
-    const effectiveProfilePath
-      = profilePath && profilePath.trim() !== '' ? profilePath : DEFAULT_PROFILE_PATH
-    // Reject paths containing single quotes — we shell-quote with single
-    // quotes below, and embedded quotes would break out of the wrap. In
-    // practice profile paths live under `/home/<user>/...` so this is a
-    // defensive guard that should never fire.
-    if (effectiveProfilePath.includes('\'')) {
-      void window.showErrorMessage(
-        `resume 失败：profilePath 含单引号，拒绝执行 (${effectiveProfilePath})`,
-      )
-      return
-    }
-    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
-    // Implementation sessions live in a worktree; the caller can pass a
-    // workspace-relative `relCwd` so `--resume` runs from the right place.
-    // If the worktree has since been cleaned up (typical: drop card to
-    // "完成" → auto `git worktree remove`), fall back to the workspace
-    // root instead of pointing the terminal at a missing directory.
-    let effectiveCwd: string | undefined = workspaceRoot
-    let cwdFallback = false
-    if (relCwd && workspaceRoot) {
-      const resolved = path.join(workspaceRoot, relCwd)
-      if (fs.existsSync(resolved)) {
-        effectiveCwd = resolved
-      }
-      else {
-        cwdFallback = true
-        effectiveCwd = workspaceRoot
-        logger.add({
-          level: 'warn',
-          source: 'panel',
-          message: `worktree 不存在，退回工作区根目录 (#${issueNumber ?? '?'}): ${relCwd}`,
-        })
-      }
-    }
-    // Open the terminal as an editor tab beside the kanban (not in the
-    // bottom panel), so the user can see both side-by-side. `Beside` opens
-    // in a new editor group when needed.
-    // Name reflects which of the three session roles this is:
-    //   relCwd present  → 实施 session (resumed inside the worktree)
-    //   relCwd absent   → 规划 / discussion session (workspace root)
-    // Fall back to the legacy id-suffixed name if we somehow lack issueNumber.
-    const sessionRole = relCwd ? '实施' : '规划'
-    // kind 跟着 sessionRole：原来两条 trackSessionTerminal 路径都硬写
-    // 'brainstorm'，导致实施 resume 后 terminalOrigin map 里 kind 错，
-    // onDidCloseTerminal 里的 `kind === 'implement'` 判断永远不命中，
-    // impl-tab-post-close 钩子（关 pycharm）不会执行。
-    const sessionKind: 'implement' | 'brainstorm' = relCwd ? 'implement' : 'brainstorm'
-    const terminalName = issueNumber !== undefined
-      ? `issue-${issueNumber}-${sessionRole}`
-      : `Claude · ${sessionId.slice(0, 8)}`
-    // Scan live terminals before creating a new one — survives panel
-    // reload / webview rebuild where `this.terminals` got wiped but the
-    // tab is still open. Refresh the Map too so subsequent lookups (and
-    // selection-change focus calls) keep working.
-    const existingByName = this.findExistingTerminal(terminalName)
-    if (existingByName) {
-      this.terminals.set(sessionId, existingByName)
-      if (issueNumber !== undefined)
-        this.trackSessionTerminal(existingByName, issueNumber, sessionKind)
-      existingByName.show(false)
-      return
-    }
-    // 实施 resume 走新建 terminal 路径时（且 worktree 还在）需触发
-    // impl-tab-pre-create 钩子（启动 pycharm 等）。existingByName fast path
-    // 不调钩子——pycharm 应该已经在跑，重复启会冲突；cwdFallback=true 时
-    // worktree 已清理，pycharm 不该指向 workspace root；legacy session
-    // (issueNumber === undefined) 钩子签名要 issueNumber，也跳过。
-    if (sessionRole === '实施' && !cwdFallback && issueNumber !== undefined && workspaceRoot) {
-      const settingsForHook = getSettings(this.context)
-      // 从 state JSON 读 branch；任何一步读不到就用空字符串（脚本里
-      // BRANCH env 仍能传，只是为空），不阻塞 resume 主流程。
-      let branchForHook = ''
-      try {
-        const remote = await detectRepo(workspaceRoot)
-        if (remote) {
-          const token = await getToken(this.context, remote.host)
-          if (token) {
-            const stateObj = await readStateJsonComment({
-              host: remote.host,
-              owner: remote.owner,
-              repo: remote.repo,
-              token,
-              issueNumber,
-            })
-            if (stateObj && typeof stateObj.branch === 'string')
-              branchForHook = stateObj.branch
-          }
+    try {
+      // Server-side prerequisite gate. Webview already disables the entry
+      // visually (see `isIssueLocked` in the kanban UI), but a user who
+      // bypasses that — message tampering, editing Gitea directly, etc. —
+      // would otherwise still get a session. Skip when `issueNumber` is
+      // unknown (legacy sessions) so we don't gate flows that never had a
+      // prerequisite concept.
+      if (issueNumber !== undefined) {
+        const lockCheck = await this.resolveLockedReason(issueNumber)
+        if (lockCheck.locked) {
+          logger.add({
+            level: 'warn',
+            source: 'panel',
+            message: `拒绝打开会话 #${issueNumber}：前置 #${lockCheck.prerequisiteNumber} 未完成`,
+          })
+          await window.showWarningMessage(`等待前置工单 #${lockCheck.prerequisiteNumber} 完成`)
+          return
         }
       }
-      catch (err) {
-        logger.add({
-          level: 'warn',
-          source: 'panel',
-          message: `resume #${issueNumber} 读 state JSON 失败，钩子 branch 用空字符串`,
-          details: err instanceof Error ? err.message : String(err),
+
+      const existing = this.terminals.get(sessionId)
+      if (existing) {
+        existing.show(false)
+        return
+      }
+      const effectiveProfilePath
+        = profilePath && profilePath.trim() !== '' ? profilePath : DEFAULT_PROFILE_PATH
+      // Reject paths containing single quotes — we shell-quote with single
+      // quotes below, and embedded quotes would break out of the wrap. In
+      // practice profile paths live under `/home/<user>/...` so this is a
+      // defensive guard that should never fire.
+      if (effectiveProfilePath.includes('\'')) {
+        void window.showErrorMessage(
+          `resume 失败：profilePath 含单引号，拒绝执行 (${effectiveProfilePath})`,
+        )
+        return
+      }
+      const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+      // Implementation sessions live in a worktree; the caller can pass a
+      // workspace-relative `relCwd` so `--resume` runs from the right place.
+      // If the worktree has since been cleaned up (typical: drop card to
+      // "完成" → auto `git worktree remove`), fall back to the workspace
+      // root instead of pointing the terminal at a missing directory.
+      let effectiveCwd: string | undefined = workspaceRoot
+      let cwdFallback = false
+      if (relCwd && workspaceRoot) {
+        const resolved = path.join(workspaceRoot, relCwd)
+        if (fs.existsSync(resolved)) {
+          effectiveCwd = resolved
+        }
+        else {
+          cwdFallback = true
+          effectiveCwd = workspaceRoot
+          logger.add({
+            level: 'warn',
+            source: 'panel',
+            message: `worktree 不存在，退回工作区根目录 (#${issueNumber ?? '?'}): ${relCwd}`,
+          })
+        }
+      }
+      // Open the terminal as an editor tab beside the kanban (not in the
+      // bottom panel), so the user can see both side-by-side. `Beside` opens
+      // in a new editor group when needed.
+      // Name reflects which of the three session roles this is:
+      //   relCwd present  → 实施 session (resumed inside the worktree)
+      //   relCwd absent   → 规划 / discussion session (workspace root)
+      // Fall back to the legacy id-suffixed name if we somehow lack issueNumber.
+      const sessionRole = relCwd ? '实施' : '规划'
+      // 注：sessionKind 已在方法入口处判定（用于 resumeInFlight 锁 key）。
+      // 原来两条 trackSessionTerminal 路径都硬写 'brainstorm'，导致实施 resume
+      // 后 terminalOrigin map 里 kind 错，onDidCloseTerminal 里的
+      // `kind === 'implement'` 判断永远不命中，impl-tab-post-close 钩子（关
+      // pycharm）不会执行。
+      const terminalName = issueNumber !== undefined
+        ? `issue-${issueNumber}-${sessionRole}`
+        : `Claude · ${sessionId.slice(0, 8)}`
+      // Scan live terminals before creating a new one — survives panel
+      // reload / webview rebuild where `this.terminals` got wiped but the
+      // tab is still open. Refresh the Map too so subsequent lookups (and
+      // selection-change focus calls) keep working.
+      const existingByName = this.findExistingTerminal(terminalName)
+      if (existingByName) {
+        this.terminals.set(sessionId, existingByName)
+        if (issueNumber !== undefined)
+          this.trackSessionTerminal(existingByName, issueNumber, sessionKind)
+        existingByName.show(false)
+        return
+      }
+      // 实施 resume 走新建 terminal 路径时（且 worktree 还在）需触发
+      // impl-tab-pre-create 钩子（启动 pycharm 等）。existingByName fast path
+      // 不调钩子——pycharm 应该已经在跑，重复启会冲突；cwdFallback=true 时
+      // worktree 已清理，pycharm 不该指向 workspace root；legacy session
+      // (issueNumber === undefined) 钩子签名要 issueNumber，也跳过。
+      if (sessionRole === '实施' && !cwdFallback && issueNumber !== undefined && workspaceRoot) {
+        const settingsForHook = getSettings(this.context)
+        // 从 state JSON 读 branch；任何一步读不到就用空字符串（脚本里
+        // BRANCH env 仍能传，只是为空），不阻塞 resume 主流程。
+        let branchForHook = ''
+        try {
+          const remote = await detectRepo(workspaceRoot)
+          if (remote) {
+            const token = await getToken(this.context, remote.host)
+            if (token) {
+              const stateObj = await readStateJsonComment({
+                host: remote.host,
+                owner: remote.owner,
+                repo: remote.repo,
+                token,
+                issueNumber,
+              })
+              if (stateObj && typeof stateObj.branch === 'string')
+                branchForHook = stateObj.branch
+            }
+          }
+        }
+        catch (err) {
+          logger.add({
+            level: 'warn',
+            source: 'panel',
+            message: `resume #${issueNumber} 读 state JSON 失败，钩子 branch 用空字符串`,
+            details: err instanceof Error ? err.message : String(err),
+          })
+        }
+        await this.dispatchWorktreeHook('impl-tab-pre-create', {
+          workspaceRoot,
+          worktreePath: effectiveCwd!,
+          branch: branchForHook,
+          issueNumber,
+          mainBranch: settingsForHook.devBranch || 'main',
+          customScriptPath: settingsForHook.implTabPreCreateScript,
         })
       }
-      await this.dispatchWorktreeHook('impl-tab-pre-create', {
-        workspaceRoot,
-        worktreePath: effectiveCwd!,
-        branch: branchForHook,
-        issueNumber,
-        mainBranch: settingsForHook.devBranch || 'main',
-        customScriptPath: settingsForHook.implTabPreCreateScript,
+      // VS Code's default editor-tab icon (`>` arrow) does NOT honor the
+      // `color` option — only the panel-view icon does. Force a `circle-filled`
+      // codicon so the tab actually shows the issue color. Keep `color` too:
+      // harmless in the editor tab, still useful if the same terminal ever
+      // gets rendered in panel-view mode.
+      const issueIcon = issueNumber !== undefined
+        ? await this.resolveIssueIcon(issueNumber)
+        : undefined
+      const terminal = window.createTerminal({
+        name: terminalName,
+        cwd: effectiveCwd,
+        location: this.resolveTerminalLocation(false),
+        ...(issueIcon ? { iconPath: issueIcon.iconUri, color: issueIcon.themeColor } : {}),
       })
-    }
-    // VS Code's default editor-tab icon (`>` arrow) does NOT honor the
-    // `color` option — only the panel-view icon does. Force a `circle-filled`
-    // codicon so the tab actually shows the issue color. Keep `color` too:
-    // harmless in the editor tab, still useful if the same terminal ever
-    // gets rendered in panel-view mode.
-    const issueIcon = issueNumber !== undefined
-      ? await this.resolveIssueIcon(issueNumber)
-      : undefined
-    const terminal = window.createTerminal({
-      name: terminalName,
-      cwd: effectiveCwd,
-      location: this.resolveTerminalLocation(false),
-      ...(issueIcon ? { iconPath: issueIcon.iconUri, color: issueIcon.themeColor } : {}),
-    })
-    this.terminals.set(sessionId, terminal)
-    if (issueNumber !== undefined)
-      this.trackSessionTerminal(terminal, issueNumber, sessionKind)
-    terminal.show(false)
-    logger.add({
-      level: 'info',
-      source: 'terminal',
-      message: `已创建终端 "${terminal.name}"`,
-    })
-    // Worktree 已清理时给用户一个明确提示，避免他们误以为 cc 在原
-    // worktree 路径里跑。toast 上 dismissOnTimer 5s 自动消失。
-    if (cwdFallback) {
-      this.postMessage({
-        type: 'toast/show',
-        id: makeNonce(),
+      this.terminals.set(sessionId, terminal)
+      if (issueNumber !== undefined)
+        this.trackSessionTerminal(terminal, issueNumber, sessionKind)
+      terminal.show(false)
+      logger.add({
         level: 'info',
-        message: `工单 #${issueNumber ?? '?'} 的 worktree 已清理，会话将在工作区根目录恢复`,
-        dismissOnTimer: 5000,
+        source: 'terminal',
+        message: `已创建终端 "${terminal.name}"`,
       })
+      // Worktree 已清理时给用户一个明确提示，避免他们误以为 cc 在原
+      // worktree 路径里跑。toast 上 dismissOnTimer 5s 自动消失。
+      if (cwdFallback) {
+        this.postMessage({
+          type: 'toast/show',
+          id: makeNonce(),
+          level: 'info',
+          message: `工单 #${issueNumber ?? '?'} 的 worktree 已清理，会话将在工作区根目录恢复`,
+          dismissOnTimer: 5000,
+        })
+      }
+      const cmd = `claude --dangerously-skip-permissions --settings '${effectiveProfilePath}' --system-prompt="$(serena prompts print-cc-system-prompt-override)" --resume ${sessionId}`
+      terminal.sendText(cmd)
     }
-    const cmd = `claude --dangerously-skip-permissions --settings '${effectiveProfilePath}' --system-prompt="$(serena prompts print-cc-system-prompt-override)" --resume ${sessionId}`
-    terminal.sendText(cmd)
+    finally {
+      if (lockKey !== undefined)
+        this.resumeInFlight.delete(lockKey)
+    }
   }
 
   /**
@@ -773,67 +813,86 @@ export class KanbanWebviewPanel {
   }
 
   private async handleResumeReviewSession(sessionId: string, issueNumber: number, relCwd?: string): Promise<void> {
-    // Server-side prerequisite gate — consistent with handleResumeSession /
-    // handleImplement. In practice review sessions imply the issue has
-    // moved past todo (a worktree must exist), but enforcing here keeps
-    // the contract uniform.
-    const lockCheck = await this.resolveLockedReason(issueNumber)
-    if (lockCheck.locked) {
+    // In-flight 锁：审查会话虽然没有 pre-create 钩子，但 codex resume 启动
+    // 仍有几秒延迟，期间用户重复点同一会话 id 仍会触发重复 createTerminal。
+    // 防御性处理与 handleResumeSession 一致。
+    const lockKey = `${issueNumber}:review`
+    if (this.resumeInFlight.has(lockKey)) {
       logger.add({
-        level: 'warn',
+        level: 'info',
         source: 'panel',
-        message: `拒绝打开审查会话 #${issueNumber}：前置 #${lockCheck.prerequisiteNumber} 未完成`,
+        message: `resume #${issueNumber}/review 已在进行中，忽略重入`,
       })
-      await window.showWarningMessage(`等待前置工单 #${lockCheck.prerequisiteNumber} 完成`)
       return
     }
+    this.resumeInFlight.add(lockKey)
 
-    const existing = this.reviewTerminals.get(sessionId)
-    if (existing) {
-      existing.show(false)
-      return
+    try {
+      // Server-side prerequisite gate — consistent with handleResumeSession /
+      // handleImplement. In practice review sessions imply the issue has
+      // moved past todo (a worktree must exist), but enforcing here keeps
+      // the contract uniform.
+      const lockCheck = await this.resolveLockedReason(issueNumber)
+      if (lockCheck.locked) {
+        logger.add({
+          level: 'warn',
+          source: 'panel',
+          message: `拒绝打开审查会话 #${issueNumber}：前置 #${lockCheck.prerequisiteNumber} 未完成`,
+        })
+        await window.showWarningMessage(`等待前置工单 #${lockCheck.prerequisiteNumber} 完成`)
+        return
+      }
+
+      const existing = this.reviewTerminals.get(sessionId)
+      if (existing) {
+        existing.show(false)
+        return
+      }
+      const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+      if (!relCwd || !workspaceRoot) {
+        void window.showErrorMessage(`审查会话无法恢复 #${issueNumber}：worktree 路径未记录`)
+        return
+      }
+      const worktreeAbs = path.join(workspaceRoot, relCwd)
+      if (!fs.existsSync(worktreeAbs)) {
+        void window.showErrorMessage(`审查会话无法恢复 #${issueNumber}：worktree 不存在 ${worktreeAbs}`)
+        return
+      }
+      // Scan live terminals before creating a new one — survives panel
+      // reload / webview rebuild where `this.reviewTerminals` got wiped but
+      // the tab is still open.
+      const reviewTerminalName = `issue-${issueNumber}-审查`
+      const existingByName = this.findExistingTerminal(reviewTerminalName)
+      if (existingByName) {
+        this.reviewTerminals.set(sessionId, existingByName)
+        this.trackSessionTerminal(existingByName, issueNumber, 'review')
+        existingByName.show(false)
+        return
+      }
+      // VS Code's default editor-tab icon (`>` arrow) does NOT honor the
+      // `color` option. Force a `circle-filled` codicon so the tab actually
+      // shows the issue color; keep `color` too for panel-view fallback.
+      const { themeColor, iconUri } = await this.resolveIssueIcon(issueNumber)
+      const terminal = window.createTerminal({
+        name: reviewTerminalName,
+        cwd: worktreeAbs,
+        location: this.resolveTerminalLocation(false),
+        iconPath: iconUri,
+        color: themeColor,
+      })
+      this.reviewTerminals.set(sessionId, terminal)
+      this.trackSessionTerminal(terminal, issueNumber, 'review')
+      terminal.show(false)
+      terminal.sendText(`codex resume --dangerously-bypass-approvals-and-sandbox ${sessionId}`)
+      logger.add({
+        level: 'info',
+        source: 'terminal',
+        message: `已创建审查会话终端 #${issueNumber} cwd=${worktreeAbs}`,
+      })
     }
-    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
-    if (!relCwd || !workspaceRoot) {
-      void window.showErrorMessage(`审查会话无法恢复 #${issueNumber}：worktree 路径未记录`)
-      return
+    finally {
+      this.resumeInFlight.delete(lockKey)
     }
-    const worktreeAbs = path.join(workspaceRoot, relCwd)
-    if (!fs.existsSync(worktreeAbs)) {
-      void window.showErrorMessage(`审查会话无法恢复 #${issueNumber}：worktree 不存在 ${worktreeAbs}`)
-      return
-    }
-    // Scan live terminals before creating a new one — survives panel
-    // reload / webview rebuild where `this.reviewTerminals` got wiped but
-    // the tab is still open.
-    const reviewTerminalName = `issue-${issueNumber}-审查`
-    const existingByName = this.findExistingTerminal(reviewTerminalName)
-    if (existingByName) {
-      this.reviewTerminals.set(sessionId, existingByName)
-      this.trackSessionTerminal(existingByName, issueNumber, 'review')
-      existingByName.show(false)
-      return
-    }
-    // VS Code's default editor-tab icon (`>` arrow) does NOT honor the
-    // `color` option. Force a `circle-filled` codicon so the tab actually
-    // shows the issue color; keep `color` too for panel-view fallback.
-    const { themeColor, iconUri } = await this.resolveIssueIcon(issueNumber)
-    const terminal = window.createTerminal({
-      name: reviewTerminalName,
-      cwd: worktreeAbs,
-      location: this.resolveTerminalLocation(false),
-      iconPath: iconUri,
-      color: themeColor,
-    })
-    this.reviewTerminals.set(sessionId, terminal)
-    this.trackSessionTerminal(terminal, issueNumber, 'review')
-    terminal.show(false)
-    terminal.sendText(`codex resume --dangerously-bypass-approvals-and-sandbox ${sessionId}`)
-    logger.add({
-      level: 'info',
-      source: 'terminal',
-      message: `已创建审查会话终端 #${issueNumber} cwd=${worktreeAbs}`,
-    })
   }
 
   /**
