@@ -590,6 +590,11 @@ export class KanbanWebviewPanel {
     //   relCwd absent   → 规划 / discussion session (workspace root)
     // Fall back to the legacy id-suffixed name if we somehow lack issueNumber.
     const sessionRole = relCwd ? '实施' : '规划'
+    // kind 跟着 sessionRole：原来两条 trackSessionTerminal 路径都硬写
+    // 'brainstorm'，导致实施 resume 后 terminalOrigin map 里 kind 错，
+    // onDidCloseTerminal 里的 `kind === 'implement'` 判断永远不命中，
+    // impl-tab-post-close 钩子（关 pycharm）不会执行。
+    const sessionKind: 'implement' | 'brainstorm' = relCwd ? 'implement' : 'brainstorm'
     const terminalName = issueNumber !== undefined
       ? `issue-${issueNumber}-${sessionRole}`
       : `Claude · ${sessionId.slice(0, 8)}`
@@ -601,9 +606,53 @@ export class KanbanWebviewPanel {
     if (existingByName) {
       this.terminals.set(sessionId, existingByName)
       if (issueNumber !== undefined)
-        this.trackSessionTerminal(existingByName, issueNumber, 'brainstorm')
+        this.trackSessionTerminal(existingByName, issueNumber, sessionKind)
       existingByName.show(false)
       return
+    }
+    // 实施 resume 走新建 terminal 路径时（且 worktree 还在）需触发
+    // impl-tab-pre-create 钩子（启动 pycharm 等）。existingByName fast path
+    // 不调钩子——pycharm 应该已经在跑，重复启会冲突；cwdFallback=true 时
+    // worktree 已清理，pycharm 不该指向 workspace root；legacy session
+    // (issueNumber === undefined) 钩子签名要 issueNumber，也跳过。
+    if (sessionRole === '实施' && !cwdFallback && issueNumber !== undefined && workspaceRoot) {
+      const settingsForHook = getSettings(this.context)
+      // 从 state JSON 读 branch；任何一步读不到就用空字符串（脚本里
+      // BRANCH env 仍能传，只是为空），不阻塞 resume 主流程。
+      let branchForHook = ''
+      try {
+        const remote = await detectRepo(workspaceRoot)
+        if (remote) {
+          const token = await getToken(this.context, remote.host)
+          if (token) {
+            const stateObj = await readStateJsonComment({
+              host: remote.host,
+              owner: remote.owner,
+              repo: remote.repo,
+              token,
+              issueNumber,
+            })
+            if (stateObj && typeof stateObj.branch === 'string')
+              branchForHook = stateObj.branch
+          }
+        }
+      }
+      catch (err) {
+        logger.add({
+          level: 'warn',
+          source: 'panel',
+          message: `resume #${issueNumber} 读 state JSON 失败，钩子 branch 用空字符串`,
+          details: err instanceof Error ? err.message : String(err),
+        })
+      }
+      await this.dispatchWorktreeHook('impl-tab-pre-create', {
+        workspaceRoot,
+        worktreePath: effectiveCwd!,
+        branch: branchForHook,
+        issueNumber,
+        mainBranch: settingsForHook.devBranch || 'main',
+        customScriptPath: settingsForHook.implTabPreCreateScript,
+      })
     }
     // VS Code's default editor-tab icon (`>` arrow) does NOT honor the
     // `color` option — only the panel-view icon does. Force a `circle-filled`
@@ -621,7 +670,7 @@ export class KanbanWebviewPanel {
     })
     this.terminals.set(sessionId, terminal)
     if (issueNumber !== undefined)
-      this.trackSessionTerminal(terminal, issueNumber, 'brainstorm')
+      this.trackSessionTerminal(terminal, issueNumber, sessionKind)
     terminal.show(false)
     logger.add({
       level: 'info',
