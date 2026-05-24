@@ -24,6 +24,8 @@ import * as path from 'node:path'
 
 const DEFAULT_POST_CREATE_REL = '.spx/worktree-post-create.sh'
 const DEFAULT_PRE_REMOVE_REL = '.spx/worktree-pre-remove.sh'
+const DEFAULT_IMPL_TAB_PRE_CREATE_REL = '.spx/impl-tab-pre-create.sh'
+const DEFAULT_IMPL_TAB_POST_CLOSE_REL = '.spx/impl-tab-post-close.sh'
 const HOOK_TIMEOUT_MS = 30_000
 
 export interface HookContext {
@@ -128,4 +130,12 @@ export function runPostCreateHook(ctx: HookContext): Promise<HookResult> {
 
 export function runPreRemoveHook(ctx: HookContext): Promise<HookResult> {
   return runHook(ctx, DEFAULT_PRE_REMOVE_REL)
+}
+
+export function runImplTabPreCreateHook(ctx: HookContext): Promise<HookResult> {
+  return runHook(ctx, DEFAULT_IMPL_TAB_PRE_CREATE_REL)
+}
+
+export function runImplTabPostCloseHook(ctx: HookContext): Promise<HookResult> {
+  return runHook(ctx, DEFAULT_IMPL_TAB_POST_CLOSE_REL)
 }

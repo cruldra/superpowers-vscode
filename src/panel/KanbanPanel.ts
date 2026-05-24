@@ -24,7 +24,7 @@ import { lockEnvFiles, findEnvFiles, unlockEnvFiles } from '../files/envLock'
 import { checkBranchSync, runBranchSync } from '../git/branchSync'
 import { detectRepo } from '../git/remote'
 import { createWorktree } from '../git/worktree'
-import { runPostCreateHook, runPreRemoveHook, type HookContext } from '../git/worktreeHooks'
+import { runImplTabPostCloseHook, runImplTabPreCreateHook, runPostCreateHook, runPreRemoveHook, type HookContext } from '../git/worktreeHooks'
 import {
   addDependency,
   closeIssue,
@@ -253,10 +253,15 @@ export class KanbanWebviewPanel {
             break
           }
         }
+        // 先抓 origin 再 untrack（untrackClosedTerminal 会从 map 里删 entry）。
+        // 仅对 implement tab 触发 post-close 钩子，fire-and-forget 不阻塞 listener。
+        const origin = this.terminalOrigin.get(closed)
         // 反查 terminalOrigin 给详情面板推 *TabOpen: false，让关闭按钮消失。
         this.untrackClosedTerminal(closed)
         if (closed === this.lastActiveTerminalRef)
           this.lastActiveTerminalRef = undefined
+        if (origin?.kind === 'implement')
+          void this.dispatchImplTabPostCloseAsync(origin.issueNumber)
       }),
       // 用户在 column 2 切换终端 tab 时，反向选中看板上对应的工单卡片。
       window.onDidChangeActiveTerminal((terminal) => {
@@ -1341,6 +1346,17 @@ export class KanbanWebviewPanel {
       return
     }
 
+    // 实施 cc tab 创建前钩子。tab 复用 fast path（顶部 findExistingTerminal
+    // 命中）走早 return，不会执行到这里，刚好满足"复用不触发"语义。
+    await this.dispatchWorktreeHook('impl-tab-pre-create', {
+      workspaceRoot,
+      worktreePath,
+      branch,
+      issueNumber,
+      mainBranch: settings.devBranch || 'main',
+      customScriptPath: settings.implTabPreCreateScript,
+    })
+
     // VS Code's default editor-tab icon (`>` arrow) does NOT honor the
     // `color` option. Force a `circle-filled` codicon so the tab actually
     // shows the issue color; keep `color` too for panel-view fallback.
@@ -1719,12 +1735,16 @@ export class KanbanWebviewPanel {
    * best-effort sidecars.
    */
   private async dispatchWorktreeHook(
-    phase: 'post-create' | 'pre-remove',
+    phase: 'post-create' | 'pre-remove' | 'impl-tab-pre-create' | 'impl-tab-post-close',
     ctx: HookContext,
   ): Promise<void> {
-    const result = phase === 'post-create'
-      ? await runPostCreateHook(ctx)
-      : await runPreRemoveHook(ctx)
+    let result
+    switch (phase) {
+      case 'post-create': result = await runPostCreateHook(ctx); break
+      case 'pre-remove': result = await runPreRemoveHook(ctx); break
+      case 'impl-tab-pre-create': result = await runImplTabPreCreateHook(ctx); break
+      case 'impl-tab-post-close': result = await runImplTabPostCloseHook(ctx); break
+    }
 
     // 'skipped' = the script simply isn't on disk. That's the intended
     // default state — stay silent, don't pester the user.
@@ -1746,7 +1766,12 @@ export class KanbanWebviewPanel {
     // 'info' to keep it non-blocking, matching the "doesn't affect main
     // flow" semantics. Detailed stdout/stderr stays in the log to avoid
     // spamming the toast surface.
-    const label = phase === 'post-create' ? '创建后' : '删除前'
+    const label = {
+      'post-create': '创建后',
+      'pre-remove': '删除前',
+      'impl-tab-pre-create': '实施 tab 创建前',
+      'impl-tab-post-close': '实施 tab 关闭后',
+    }[phase]
     logger.add({
       level: 'warn',
       source: 'panel',
@@ -1766,6 +1791,54 @@ export class KanbanWebviewPanel {
       message: `worktree ${label}钩子失败 #${ctx.issueNumber}（不影响后续流程，详情见日志）`,
       dismissOnTimer: 5000,
     })
+  }
+
+  /**
+   * 实施 cc tab 被关闭后异步触发 impl-tab-post-close 钩子。
+   * 由 onDidCloseTerminal 同步回调里 fire-and-forget 调用，所以这里把整个
+   * 错误 catch 进 log，不向上抛。需要从 state JSON 读 worktreePath / branch。
+   */
+  private async dispatchImplTabPostCloseAsync(issueNumber: number): Promise<void> {
+    try {
+      const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+      if (!workspaceRoot)
+        return
+      const remote = await detectRepo(workspaceRoot)
+      if (!remote)
+        return
+      const token = await getToken(this.context, remote.host)
+      if (!token)
+        return
+      const stateObj = await readStateJsonComment({
+        host: remote.host,
+        owner: remote.owner,
+        repo: remote.repo,
+        token,
+        issueNumber,
+      })
+      const branch = typeof stateObj.branch === 'string' ? stateObj.branch : ''
+      const wt = typeof stateObj.worktreePath === 'string' ? stateObj.worktreePath : ''
+      if (!wt)
+        return
+      const absWorktree = path.isAbsolute(wt) ? wt : path.join(workspaceRoot, wt)
+      const settings = getSettings(this.context)
+      await this.dispatchWorktreeHook('impl-tab-post-close', {
+        workspaceRoot,
+        worktreePath: absWorktree,
+        branch,
+        issueNumber,
+        mainBranch: settings.devBranch || 'main',
+        customScriptPath: settings.implTabPostCloseScript,
+      })
+    }
+    catch (err) {
+      logger.add({
+        level: 'warn',
+        source: 'panel',
+        message: `impl-tab-post-close 钩子调度失败 #${issueNumber}`,
+        details: err instanceof Error ? err.message : String(err),
+      })
+    }
   }
 
 
@@ -3210,6 +3283,8 @@ export class KanbanWebviewPanel {
         autoBuildBranch: s.autoBuildBranch,
         worktreePostCreateScript: s.worktreePostCreateScript,
         worktreePreRemoveScript: s.worktreePreRemoveScript,
+        implTabPreCreateScript: s.implTabPreCreateScript,
+        implTabPostCloseScript: s.implTabPostCloseScript,
       })
       return
     }
@@ -3244,6 +3319,8 @@ export class KanbanWebviewPanel {
           autoBuildBranch: s.autoBuildBranch,
           worktreePostCreateScript: s.worktreePostCreateScript,
           worktreePreRemoveScript: s.worktreePreRemoveScript,
+          implTabPreCreateScript: s.implTabPreCreateScript,
+          implTabPostCloseScript: s.implTabPostCloseScript,
         })
         return
       }
@@ -3265,15 +3342,19 @@ export class KanbanWebviewPanel {
     autoBuildBranch: string
     worktreePostCreateScript: string
     worktreePreRemoveScript: string
+    implTabPreCreateScript: string
+    implTabPostCloseScript: string
   }): Promise<void> {
     const trimmedHost = payload.host.trim()
     const trimmedToken = payload.token.trim()
     const trimmedDevBranch = payload.devBranch.trim()
     const trimmedAutoBuildBranch = payload.autoBuildBranch.trim()
     // Hook script paths: keep '' meaningful (= "use default
-    // .spx/worktree-*.sh"). Just strip whitespace.
+    // .spx/*.sh"). Just strip whitespace.
     const trimmedPostCreate = payload.worktreePostCreateScript.trim()
     const trimmedPreRemove = payload.worktreePreRemoveScript.trim()
+    const trimmedImplPre = payload.implTabPreCreateScript.trim()
+    const trimmedImplPost = payload.implTabPostCloseScript.trim()
     const prev = getSettings(this.context)
     // Capture the previous token *for this host* before overwriting it, so
     // we can decide below whether the kanban needs a re-fetch. (Only host
@@ -3298,6 +3379,8 @@ export class KanbanWebviewPanel {
         autoBuildBranch: trimmedAutoBuildBranch,
         worktreePostCreateScript: trimmedPostCreate,
         worktreePreRemoveScript: trimmedPreRemove,
+        implTabPreCreateScript: trimmedImplPre,
+        implTabPostCloseScript: trimmedImplPost,
       })
       return
     }
@@ -3314,6 +3397,8 @@ export class KanbanWebviewPanel {
       autoBuildBranch: trimmedAutoBuildBranch,
       worktreePostCreateScript: trimmedPostCreate,
       worktreePreRemoveScript: trimmedPreRemove,
+      implTabPreCreateScript: trimmedImplPre,
+      implTabPostCloseScript: trimmedImplPost,
     })
     if (!keepExisting)
       await setToken(this.context, trimmedHost, trimmedToken)
@@ -3376,6 +3461,8 @@ export class KanbanWebviewPanel {
       autoBuildBranch: s.autoBuildBranch,
       worktreePostCreateScript: s.worktreePostCreateScript,
       worktreePreRemoveScript: s.worktreePreRemoveScript,
+      implTabPreCreateScript: s.implTabPreCreateScript,
+      implTabPostCloseScript: s.implTabPostCloseScript,
     })
   }
 

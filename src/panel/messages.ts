@@ -32,6 +32,8 @@ export type ExtensionToWebview =
     autoBuildBranch: string
     worktreePostCreateScript: string
     worktreePreRemoveScript: string
+    implTabPreCreateScript: string
+    implTabPostCloseScript: string
   }
   | {
     type: 'toast/show'
@@ -75,6 +77,8 @@ export type WebviewToExtension =
     autoBuildBranch: string
     worktreePostCreateScript: string
     worktreePreRemoveScript: string
+    implTabPreCreateScript: string
+    implTabPostCloseScript: string
   }
   | { type: 'settings/edit-request' }
   | { type: 'issue/create', userRequest: string, images?: Array<{ mediaType: string, base64: string }>, profilePath?: string }

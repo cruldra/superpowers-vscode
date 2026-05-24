@@ -105,6 +105,27 @@ export interface Settings {
    * Same env vars as the post-create hook.
    */
   worktreePreRemoveScript: string
+  /**
+   * Path to a user-provided shell script that runs *before* the extension
+   * spawns the implement cc terminal tab. Empty string means use the
+   * default `<workspaceRoot>/.spx/impl-tab-pre-create.sh`. Absent file is
+   * treated as a no-op. Tab-reuse fast path (already-open impl terminal)
+   * does NOT trigger this hook.
+   *
+   * Same env vars as the worktree hooks.
+   */
+  implTabPreCreateScript: string
+  /**
+   * Path to a user-provided shell script that runs *after* the implement
+   * cc terminal tab is closed (detected via `onDidCloseTerminal`). Empty
+   * string means use the default
+   * `<workspaceRoot>/.spx/impl-tab-post-close.sh`. Absent file is treated
+   * as a no-op. Typically used to tear down an IDE launched by the
+   * pre-create hook.
+   *
+   * Same env vars as the worktree hooks.
+   */
+  implTabPostCloseScript: string
 }
 
 export const SETTINGS_KEY = 'superpowers.settings'
@@ -121,6 +142,8 @@ function defaults(ctx: ExtensionContext): Settings {
     autoBuildBranch: '',
     worktreePostCreateScript: '',
     worktreePreRemoveScript: '',
+    implTabPreCreateScript: '',
+    implTabPostCloseScript: '',
   }
 }
 
@@ -167,6 +190,13 @@ export function getSettings(ctx: ExtensionContext): Settings {
   const worktreePreRemoveScript = typeof stored.worktreePreRemoveScript === 'string'
     ? stored.worktreePreRemoveScript
     : base.worktreePreRemoveScript
+  // impl-tab hook script paths: same '' = default semantics as worktree hooks.
+  const implTabPreCreateScript = typeof stored.implTabPreCreateScript === 'string'
+    ? stored.implTabPreCreateScript
+    : base.implTabPreCreateScript
+  const implTabPostCloseScript = typeof stored.implTabPostCloseScript === 'string'
+    ? stored.implTabPostCloseScript
+    : base.implTabPostCloseScript
 
   return {
     webhookPort,
@@ -179,6 +209,8 @@ export function getSettings(ctx: ExtensionContext): Settings {
     autoBuildBranch,
     worktreePostCreateScript,
     worktreePreRemoveScript,
+    implTabPreCreateScript,
+    implTabPostCloseScript,
   }
 }
 

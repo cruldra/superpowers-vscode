@@ -34,6 +34,8 @@ export interface SettingsValues {
   autoBuildBranch: string
   worktreePostCreateScript: string
   worktreePreRemoveScript: string
+  implTabPreCreateScript: string
+  implTabPostCloseScript: string
 }
 
 export interface SettingsOverlayState {
@@ -50,6 +52,8 @@ export interface SettingsOverlayState {
   autoBuildBranch: string
   worktreePostCreateScript: string
   worktreePreRemoveScript: string
+  implTabPreCreateScript: string
+  implTabPostCloseScript: string
 }
 
 export type UseIssuesState =
@@ -206,6 +210,8 @@ export function useIssues(): UseIssuesResult {
       autoBuildBranch: values.autoBuildBranch,
       worktreePostCreateScript: values.worktreePostCreateScript,
       worktreePreRemoveScript: values.worktreePreRemoveScript,
+      implTabPreCreateScript: values.implTabPreCreateScript,
+      implTabPostCloseScript: values.implTabPostCloseScript,
     })
   }, [])
 
@@ -448,6 +454,8 @@ export function useIssues(): UseIssuesResult {
             autoBuildBranch: msg.autoBuildBranch,
             worktreePostCreateScript: msg.worktreePostCreateScript,
             worktreePreRemoveScript: msg.worktreePreRemoveScript,
+            implTabPreCreateScript: msg.implTabPreCreateScript,
+            implTabPostCloseScript: msg.implTabPostCloseScript,
           })
           break
         case 'toast/show': {

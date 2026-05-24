@@ -25,6 +25,8 @@ interface SubmitValues {
   autoBuildBranch: string
   worktreePostCreateScript: string
   worktreePreRemoveScript: string
+  implTabPreCreateScript: string
+  implTabPostCloseScript: string
 }
 
 export interface SettingsModalProps {
@@ -42,6 +44,8 @@ export interface SettingsModalProps {
   initialAutoBuildBranch: string
   initialWorktreePostCreateScript: string
   initialWorktreePreRemoveScript: string
+  initialImplTabPreCreateScript: string
+  initialImplTabPostCloseScript: string
   onSubmit: (values: SubmitValues) => void
   onCancel?: () => void
 }
@@ -102,6 +106,8 @@ export function SettingsModal({
   initialAutoBuildBranch,
   initialWorktreePostCreateScript,
   initialWorktreePreRemoveScript,
+  initialImplTabPreCreateScript,
+  initialImplTabPostCloseScript,
   onSubmit,
   onCancel,
 }: SettingsModalProps): ReactElement | null {
@@ -117,6 +123,8 @@ export function SettingsModal({
   const [autoBuildBranch, setAutoBuildBranch] = useState(initialAutoBuildBranch)
   const [worktreePostCreateScript, setWorktreePostCreateScript] = useState(initialWorktreePostCreateScript)
   const [worktreePreRemoveScript, setWorktreePreRemoveScript] = useState(initialWorktreePreRemoveScript)
+  const [implTabPreCreateScript, setImplTabPreCreateScript] = useState(initialImplTabPreCreateScript)
+  const [implTabPostCloseScript, setImplTabPostCloseScript] = useState(initialImplTabPostCloseScript)
   const [errors, setErrors] = useState<Partial<Record<ErrorKey, string>>>({})
 
   // Reset local state whenever the modal opens with fresh server values.
@@ -137,6 +145,8 @@ export function SettingsModal({
     setAutoBuildBranch(initialAutoBuildBranch)
     setWorktreePostCreateScript(initialWorktreePostCreateScript)
     setWorktreePreRemoveScript(initialWorktreePreRemoveScript)
+    setImplTabPreCreateScript(initialImplTabPreCreateScript)
+    setImplTabPostCloseScript(initialImplTabPostCloseScript)
     setErrors({})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
@@ -204,9 +214,11 @@ export function SettingsModal({
       reviewPrompt,
       devBranch: devBranch.trim(),
       autoBuildBranch: autoBuildBranch.trim(),
-      // 钩子路径保持原样 trim（前后空格无意义；空串 = 用默认 .spx/worktree-*.sh）
+      // 钩子路径保持原样 trim（前后空格无意义；空串 = 用默认 .spx/*.sh）
       worktreePostCreateScript: worktreePostCreateScript.trim(),
       worktreePreRemoveScript: worktreePreRemoveScript.trim(),
+      implTabPreCreateScript: implTabPreCreateScript.trim(),
+      implTabPostCloseScript: implTabPostCloseScript.trim(),
     })
   }
 
@@ -507,6 +519,48 @@ export function SettingsModal({
                     value={worktreePreRemoveScript}
                     onChange={e => setWorktreePreRemoveScript(e.target.value)}
                     placeholder=".spx/worktree-pre-remove.sh"
+                    className={inputClass}
+                  />
+                </Field>
+
+                <Field
+                  label="实施 tab 创建前脚本"
+                  hint={(
+                    <>
+                      实施 cc tab 创建之前执行；常用于启动 IDE（pycharm 等）。
+                      留空 = 默认
+                      {' '}
+                      <code>.spx/impl-tab-pre-create.sh</code>
+                      。tab 复用 fast path 不触发。
+                    </>
+                  )}
+                >
+                  <input
+                    type="text"
+                    value={implTabPreCreateScript}
+                    onChange={e => setImplTabPreCreateScript(e.target.value)}
+                    placeholder=".spx/impl-tab-pre-create.sh"
+                    className={inputClass}
+                  />
+                </Field>
+
+                <Field
+                  label="实施 tab 关闭后脚本"
+                  hint={(
+                    <>
+                      实施 cc tab 被关闭后执行；常用于关闭 pre-create 启动的 IDE 进程。
+                      留空 = 默认
+                      {' '}
+                      <code>.spx/impl-tab-post-close.sh</code>
+                      。
+                    </>
+                  )}
+                >
+                  <input
+                    type="text"
+                    value={implTabPostCloseScript}
+                    onChange={e => setImplTabPostCloseScript(e.target.value)}
+                    placeholder=".spx/impl-tab-post-close.sh"
                     className={inputClass}
                   />
                 </Field>

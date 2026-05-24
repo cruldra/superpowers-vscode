@@ -385,6 +385,8 @@ export function App() {
         initialAutoBuildBranch={settings?.autoBuildBranch ?? ''}
         initialWorktreePostCreateScript={settings?.worktreePostCreateScript ?? ''}
         initialWorktreePreRemoveScript={settings?.worktreePreRemoveScript ?? ''}
+        initialImplTabPreCreateScript={settings?.implTabPreCreateScript ?? ''}
+        initialImplTabPostCloseScript={settings?.implTabPostCloseScript ?? ''}
         onSubmit={saveSettings}
         onCancel={settings?.canCancel ? dismissSettings : undefined}
       />
