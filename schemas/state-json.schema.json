@@ -1,0 +1,80 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/cruldra/superpowers-vscode/schemas/state-json.schema.json",
+  "title": "Superpowers VSCode issue state JSON",
+  "description": "持久化在 issue 最后一条 comment 里的 JSON blob，KanbanPanel 用来恢复 issue 在看板上的列、关联的 spec/plan/PR/branch/worktree、以及各个会话 id 等运行时状态。所有字段均可选，缺失字段由 issueLoader 用默认值兜底。",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "column": {
+      "type": "string",
+      "description": "看板列 id；缺失时 issueLoader 按 issue.state 兜底为 todo/done。",
+      "enum": ["todo", "in-progress", "review", "done"]
+    },
+    "sessionId": {
+      "type": "string",
+      "description": "讨论/头脑风暴会话的 Claude Code session id，用于 resume 已有对话。",
+      "minLength": 1
+    },
+    "implementSessionId": {
+      "type": "string",
+      "description": "实施阶段 (implement) 的 Claude Code session id，与讨论 sessionId 隔离。",
+      "minLength": 1
+    },
+    "reviewSessionId": {
+      "type": "string",
+      "description": "审查阶段的会话 id（v1 存 codex thread id），用于 webhook synchronize 时 resume。",
+      "minLength": 1
+    },
+    "profilePath": {
+      "type": "string",
+      "description": "创建工单时使用的 Claude settings 配置文件绝对路径，resume 时作为 --settings 传入。",
+      "minLength": 1
+    },
+    "specFile": {
+      "type": "string",
+      "description": "本工单的 spec 文档路径，相对 workspace，必须形如 `dir/.../name.md`。",
+      "minLength": 1,
+      "pattern": "^[^\\s]+/[^\\s]+\\.md$"
+    },
+    "planFile": {
+      "type": "string",
+      "description": "本工单的 plan 文档路径，相对 workspace，必须形如 `dir/.../name.md`。",
+      "minLength": 1,
+      "pattern": "^[^\\s]+/[^\\s]+\\.md$"
+    },
+    "pr": {
+      "type": "string",
+      "description": "本工单关联的 PR number（字符串形式，webhook 触发后写入）。",
+      "minLength": 1
+    },
+    "prMerged": {
+      "type": "boolean",
+      "description": "关联 PR 是否已合并；优先以 PR API 实时结果为准，此字段是 fallback。"
+    },
+    "branch": {
+      "type": "string",
+      "description": "实施分支名，例如 `feature/<hash>`。",
+      "minLength": 1
+    },
+    "worktreePath": {
+      "type": "string",
+      "description": "实施 worktree 的 workspace 相对路径。",
+      "minLength": 1
+    },
+    "implementStatus": {
+      "type": "string",
+      "description": "实施流程生命周期状态。",
+      "enum": ["running", "done", "failed"]
+    },
+    "color": {
+      "type": "string",
+      "description": "Terminal/tab 配色（一个 terminal.ansi* ThemeColor key），首次开会话时固化，后续所有会话复用同一色。",
+      "minLength": 1
+    },
+    "autoReview": {
+      "type": "boolean",
+      "description": "本工单是否启用自动审查（覆盖全局 autoReview 设置）。"
+    }
+  }
+}
