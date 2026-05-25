@@ -134,14 +134,32 @@ func buildIssueCmd() *cobra.Command {
 			if icPlan != "" {
 				body = marker.UpsertMarker(body, "plan", icPlan)
 			}
-			// Validate state JSON BEFORE hitting the API — better to fail
-			// loudly here than leave a half-initialised issue behind.
+			// Build the merged state map (state-json/state-file as base, then
+			// fold in --spec / --plan as specFile / planFile so the kanban can
+			// read them from state JSON, which is the loader's source of truth
+			// — see superpowers-vscode/src/gitea/issueLoader.ts).
 			stateBytes, err := resolveStatePayload(icStateJSON, icStateFile)
 			if err != nil {
 				return err
 			}
+			mergedState := map[string]any{}
 			if stateBytes != nil {
-				if err := state.Validate(stateBytes); err != nil {
+				if err := json.Unmarshal(stateBytes, &mergedState); err != nil {
+					return fmt.Errorf("解析 --state-json/--state-file 内容失败: %w", err)
+				}
+			}
+			if icSpec != "" {
+				mergedState["specFile"] = icSpec
+			}
+			if icPlan != "" {
+				mergedState["planFile"] = icPlan
+			}
+			// Validate the merged blob BEFORE hitting the API so e.g. a bad
+			// --spec path fails fast instead of leaving an issue half-built.
+			// schema's specFile/planFile pattern doubles as input validation.
+			hasState := len(mergedState) > 0
+			if hasState {
+				if err := state.ValidateValue(mergedState); err != nil {
 					return err
 				}
 			}
@@ -151,11 +169,15 @@ func buildIssueCmd() *cobra.Command {
 				return err
 			}
 			var statePayload any
-			if stateBytes != nil {
-				if _, postErr := rc.Client.CreateIssueComment(rc.Owner, rc.Repo, issue.Number, string(stateBytes)); postErr != nil {
+			if hasState {
+				mergedBytes, err := json.Marshal(mergedState)
+				if err != nil {
+					return fmt.Errorf("工单已建 (#%d)，但序列化 state JSON 失败: %w", issue.Number, err)
+				}
+				if _, postErr := rc.Client.CreateIssueComment(rc.Owner, rc.Repo, issue.Number, string(mergedBytes)); postErr != nil {
 					return fmt.Errorf("工单已建 (#%d)，但写入 state JSON comment 失败: %w", issue.Number, postErr)
 				}
-				_ = json.Unmarshal(stateBytes, &statePayload)
+				statePayload = mergedState
 			}
 			if rc.JSON {
 				return emitJSON(map[string]any{
@@ -171,21 +193,28 @@ func buildIssueCmd() *cobra.Command {
 	create.Flags().StringVar(&icTitle, "title", "", "工单标题（必填）")
 	create.Flags().StringVar(&icBody, "body", "", "工单正文（与 --body-file 二选一）")
 	create.Flags().StringVar(&icBodyFile, "body-file", "", "从文件读取工单正文")
-	create.Flags().StringVar(&icSpec, "spec", "", "在 body 末尾追加 spx:spec marker")
-	create.Flags().StringVar(&icPlan, "plan", "", "在 body 末尾追加 spx:plan marker")
+	create.Flags().StringVar(&icSpec, "spec", "", "在 body 追加 spx:spec marker，并把 specFile 同步合并进 state JSON comment")
+	create.Flags().StringVar(&icPlan, "plan", "", "在 body 追加 spx:plan marker，并把 planFile 同步合并进 state JSON comment")
 	create.Flags().StringVar(&icStateJSON, "state-json", "", "state JSON 字符串（建工单后写入最后一条 comment；与 --state-file 二选一）")
 	create.Flags().StringVar(&icStateFile, "state-file", "", "从文件读取 state JSON")
 	_ = create.MarkFlagRequired("title")
 
 	markerCmd := &cobra.Command{
 		Use:   "marker",
-		Short: "增量更新现有工单的 spec/plan marker",
+		Short: "增量更新现有工单的 spec/plan marker，并同步合并 specFile/planFile 进 state JSON",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if imIssue <= 0 {
 				return fmt.Errorf("--issue 必须是正整数")
 			}
 			if imType != "spec" && imType != "plan" {
 				return fmt.Errorf("--type 必须是 spec 或 plan，得到 %q", imType)
+			}
+			// Fail fast on a bad path before we touch the network — the
+			// schema's specFile/planFile pattern doubles as input check.
+			fieldName := map[string]string{"spec": "specFile", "plan": "planFile"}[imType]
+			patch := map[string]any{fieldName: imValue}
+			if err := state.ValidateValue(patch); err != nil {
+				return err
 			}
 			rc := fromCtx(cmd)
 			cur, err := rc.Client.GetIssue(rc.Owner, rc.Repo, imIssue)
@@ -198,20 +227,30 @@ func buildIssueCmd() *cobra.Command {
 					return err
 				}
 			}
+			// Now merge specFile/planFile into the state JSON comment so the
+			// kanban (which reads state JSON, not body markers) sees the same
+			// value. If this fails the marker is already written, so we warn
+			// and exit non-zero rather than panic — re-running spx fixes it.
+			merged, mergeErr := mergeAndPostState(rc, imIssue, patch)
+			if mergeErr != nil {
+				fmt.Fprintf(os.Stderr, "warning: marker 已写入 #%d body，但合并到 state JSON 失败: %v\n", imIssue, mergeErr)
+				return mergeErr
+			}
 			if rc.JSON {
 				return emitJSON(map[string]any{
 					"number": imIssue,
 					"type":   imType,
 					"value":  imValue,
+					"state":  merged,
 				})
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "已更新 #%d 的 %s marker → %s\n", imIssue, imType, imValue)
+			fmt.Fprintf(cmd.OutOrStdout(), "已更新 #%d 的 %s marker → %s（state JSON 已同步合并 %s）\n", imIssue, imType, imValue, fieldName)
 			return nil
 		},
 	}
 	markerCmd.Flags().IntVar(&imIssue, "issue", 0, "工单编号（必填）")
 	markerCmd.Flags().StringVar(&imType, "type", "", "marker 类型：spec 或 plan（必填）")
-	markerCmd.Flags().StringVar(&imValue, "value", "", "marker 值（路径，必填）")
+	markerCmd.Flags().StringVar(&imValue, "value", "", "marker 值（路径，必填，同步写入 state JSON 的 specFile/planFile）")
 	_ = markerCmd.MarkFlagRequired("issue")
 	_ = markerCmd.MarkFlagRequired("type")
 	_ = markerCmd.MarkFlagRequired("value")
@@ -281,24 +320,8 @@ func buildIssueStateCmd() *cobra.Command {
 				return fmt.Errorf("解析 --state-json/--state-file 内容失败: %w", err)
 			}
 			rc := fromCtx(cmd)
-			cur, err := lastStateMap(rc.Client, rc.Owner, rc.Repo, ismIssue)
+			merged, err := mergeAndPostState(rc, ismIssue, incoming)
 			if err != nil {
-				return err
-			}
-			// Shallow merge: new keys overwrite old. Mirrors mergeStateJsonComment.
-			for k, v := range incoming {
-				cur[k] = v
-			}
-			// Re-validate the merged blob before persisting so we never
-			// poison the issue's comment trail with malformed state.
-			if err := state.ValidateValue(cur); err != nil {
-				return err
-			}
-			mergedBytes, err := json.Marshal(cur)
-			if err != nil {
-				return fmt.Errorf("序列化合并后的 state 失败: %w", err)
-			}
-			if _, err := rc.Client.CreateIssueComment(rc.Owner, rc.Repo, ismIssue, string(mergedBytes)); err != nil {
 				return err
 			}
 			enc := json.NewEncoder(os.Stdout)
@@ -306,7 +329,7 @@ func buildIssueStateCmd() *cobra.Command {
 			if rc.JSON {
 				enc.SetIndent("", "  ")
 			}
-			return enc.Encode(cur)
+			return enc.Encode(merged)
 		},
 	}
 	merge.Flags().IntVar(&ismIssue, "issue", 0, "工单编号（必填）")
@@ -316,6 +339,34 @@ func buildIssueStateCmd() *cobra.Command {
 
 	stateCmd.AddCommand(get, merge)
 	return stateCmd
+}
+
+// mergeAndPostState shallow-merges patch into the issue's current state JSON
+// (last comment), re-validates the result against the schema, and posts a new
+// comment with the merged blob. Returns the merged map for callers that want
+// to echo it back. Shared by `issue create --spec/--plan`, `issue marker`,
+// and `issue state merge` so the three paths can't drift.
+func mergeAndPostState(rc *runtimeContext, issueNumber int, patch map[string]any) (map[string]any, error) {
+	cur, err := lastStateMap(rc.Client, rc.Owner, rc.Repo, issueNumber)
+	if err != nil {
+		return nil, err
+	}
+	for k, v := range patch {
+		cur[k] = v
+	}
+	// Re-validate the merged blob before persisting so we never poison the
+	// issue's comment trail with malformed state.
+	if err := state.ValidateValue(cur); err != nil {
+		return nil, err
+	}
+	mergedBytes, err := json.Marshal(cur)
+	if err != nil {
+		return nil, fmt.Errorf("序列化合并后的 state 失败: %w", err)
+	}
+	if _, err := rc.Client.CreateIssueComment(rc.Owner, rc.Repo, issueNumber, string(mergedBytes)); err != nil {
+		return nil, err
+	}
+	return cur, nil
 }
 
 // lastStateMap fetches all comments on an issue, parses the LAST one as JSON
