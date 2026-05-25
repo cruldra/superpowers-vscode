@@ -1,10 +1,15 @@
-.PHONY: build install test clean
+.PHONY: build install test clean sync-schema
 
 BINARY := spx
 BUILD_DIR := bin
 INSTALL_PATH := $(HOME)/.local/bin
+SCHEMA_SRC := ../schemas/state-json.schema.json
+SCHEMA_DST := internal/state/schema.json
 
-build:
+sync-schema:
+	@cp $(SCHEMA_SRC) $(SCHEMA_DST)
+
+build: sync-schema
 	go build -o $(BUILD_DIR)/$(BINARY) ./cmd/spx
 
 install: build

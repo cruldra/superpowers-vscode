@@ -16,6 +16,7 @@ import (
 	"github.com/cruldra/superpowers-vscode/cli/internal/gitea"
 	"github.com/cruldra/superpowers-vscode/cli/internal/marker"
 	"github.com/cruldra/superpowers-vscode/cli/internal/repo"
+	"github.com/cruldra/superpowers-vscode/cli/internal/state"
 	"github.com/cruldra/superpowers-vscode/cli/internal/tea"
 )
 
@@ -41,11 +42,13 @@ var (
 
 // issue create flags.
 var (
-	icTitle    string
-	icBody     string
-	icBodyFile string
-	icSpec     string
-	icPlan     string
+	icTitle     string
+	icBody      string
+	icBodyFile  string
+	icSpec      string
+	icPlan      string
+	icStateJSON string
+	icStateFile string
 )
 
 // issue marker flags.
@@ -53,6 +56,18 @@ var (
 	imIssue int
 	imType  string
 	imValue string
+)
+
+// issue state get flags.
+var (
+	isgIssue int
+)
+
+// issue state merge flags.
+var (
+	ismIssue     int
+	ismStateJSON string
+	ismStateFile string
 )
 
 // pr review-comment flags.
@@ -104,7 +119,7 @@ func buildIssueCmd() *cobra.Command {
 
 	create := &cobra.Command{
 		Use:   "create",
-		Short: "创建一个新工单并可选附加 spec/plan marker",
+		Short: "创建一个新工单并可选附加 spec/plan marker 与 state JSON",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if strings.TrimSpace(icTitle) == "" {
 				return fmt.Errorf("--title 不能为空")
@@ -119,15 +134,34 @@ func buildIssueCmd() *cobra.Command {
 			if icPlan != "" {
 				body = marker.UpsertMarker(body, "plan", icPlan)
 			}
+			// Validate state JSON BEFORE hitting the API — better to fail
+			// loudly here than leave a half-initialised issue behind.
+			stateBytes, err := resolveStatePayload(icStateJSON, icStateFile)
+			if err != nil {
+				return err
+			}
+			if stateBytes != nil {
+				if err := state.Validate(stateBytes); err != nil {
+					return err
+				}
+			}
 			rc := fromCtx(cmd)
 			issue, err := rc.Client.CreateIssue(rc.Owner, rc.Repo, icTitle, body)
 			if err != nil {
 				return err
 			}
+			var statePayload any
+			if stateBytes != nil {
+				if _, postErr := rc.Client.CreateIssueComment(rc.Owner, rc.Repo, issue.Number, string(stateBytes)); postErr != nil {
+					return fmt.Errorf("工单已建 (#%d)，但写入 state JSON comment 失败: %w", issue.Number, postErr)
+				}
+				_ = json.Unmarshal(stateBytes, &statePayload)
+			}
 			if rc.JSON {
 				return emitJSON(map[string]any{
 					"number":   issue.Number,
 					"html_url": issue.HTMLURL,
+					"state":    statePayload,
 				})
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "#%d\n", issue.Number)
@@ -139,6 +173,8 @@ func buildIssueCmd() *cobra.Command {
 	create.Flags().StringVar(&icBodyFile, "body-file", "", "从文件读取工单正文")
 	create.Flags().StringVar(&icSpec, "spec", "", "在 body 末尾追加 spx:spec marker")
 	create.Flags().StringVar(&icPlan, "plan", "", "在 body 末尾追加 spx:plan marker")
+	create.Flags().StringVar(&icStateJSON, "state-json", "", "state JSON 字符串（建工单后写入最后一条 comment；与 --state-file 二选一）")
+	create.Flags().StringVar(&icStateFile, "state-file", "", "从文件读取 state JSON")
 	_ = create.MarkFlagRequired("title")
 
 	markerCmd := &cobra.Command{
@@ -180,8 +216,149 @@ func buildIssueCmd() *cobra.Command {
 	_ = markerCmd.MarkFlagRequired("type")
 	_ = markerCmd.MarkFlagRequired("value")
 
-	issue.AddCommand(create, markerCmd)
+	issue.AddCommand(create, markerCmd, buildIssueStateCmd())
 	return issue
+}
+
+// buildIssueStateCmd assembles the `spx issue state` subtree (get + merge).
+//
+// The state JSON convention: the LAST comment on an issue holds a single JSON
+// blob (see schemas/state-json.schema.json). `get` reads it, `merge` does a
+// shallow-merge write of new keys on top of the existing blob.
+func buildIssueStateCmd() *cobra.Command {
+	stateCmd := &cobra.Command{
+		Use:   "state",
+		Short: "读取/合并工单的 state JSON（持久化在最后一条 comment）",
+	}
+
+	get := &cobra.Command{
+		Use:   "get",
+		Short: "读取工单最后一条 comment 里的 state JSON",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if isgIssue <= 0 {
+				return fmt.Errorf("--issue 必须是正整数")
+			}
+			rc := fromCtx(cmd)
+			cur, err := lastStateMap(rc.Client, rc.Owner, rc.Repo, isgIssue)
+			if err != nil {
+				return err
+			}
+			// `cur` may be an empty map; print `{}` in that case.
+			out := os.Stdout
+			enc := json.NewEncoder(out)
+			enc.SetEscapeHTML(false)
+			if rc.JSON {
+				enc.SetIndent("", "  ")
+			}
+			return enc.Encode(cur)
+		},
+	}
+	get.Flags().IntVar(&isgIssue, "issue", 0, "工单编号（必填）")
+	_ = get.MarkFlagRequired("issue")
+
+	merge := &cobra.Command{
+		Use:   "merge",
+		Short: "浅合并新 state JSON 到现有 state（最后一条 comment）",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if ismIssue <= 0 {
+				return fmt.Errorf("--issue 必须是正整数")
+			}
+			incomingBytes, err := resolveStatePayload(ismStateJSON, ismStateFile)
+			if err != nil {
+				return err
+			}
+			if incomingBytes == nil {
+				return fmt.Errorf("必须提供 --state-json 或 --state-file 之一")
+			}
+			// Validate the incoming payload BEFORE any network call so a
+			// malformed input fails fast (e.g. wrong enum) without surfacing
+			// confusing "issue not found" errors from Gitea first.
+			if err := state.Validate(incomingBytes); err != nil {
+				return err
+			}
+			var incoming map[string]any
+			if err := json.Unmarshal(incomingBytes, &incoming); err != nil {
+				return fmt.Errorf("解析 --state-json/--state-file 内容失败: %w", err)
+			}
+			rc := fromCtx(cmd)
+			cur, err := lastStateMap(rc.Client, rc.Owner, rc.Repo, ismIssue)
+			if err != nil {
+				return err
+			}
+			// Shallow merge: new keys overwrite old. Mirrors mergeStateJsonComment.
+			for k, v := range incoming {
+				cur[k] = v
+			}
+			// Re-validate the merged blob before persisting so we never
+			// poison the issue's comment trail with malformed state.
+			if err := state.ValidateValue(cur); err != nil {
+				return err
+			}
+			mergedBytes, err := json.Marshal(cur)
+			if err != nil {
+				return fmt.Errorf("序列化合并后的 state 失败: %w", err)
+			}
+			if _, err := rc.Client.CreateIssueComment(rc.Owner, rc.Repo, ismIssue, string(mergedBytes)); err != nil {
+				return err
+			}
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetEscapeHTML(false)
+			if rc.JSON {
+				enc.SetIndent("", "  ")
+			}
+			return enc.Encode(cur)
+		},
+	}
+	merge.Flags().IntVar(&ismIssue, "issue", 0, "工单编号（必填）")
+	merge.Flags().StringVar(&ismStateJSON, "state-json", "", "state JSON 字符串（与 --state-file 二选一）")
+	merge.Flags().StringVar(&ismStateFile, "state-file", "", "从文件读取 state JSON")
+	_ = merge.MarkFlagRequired("issue")
+
+	stateCmd.AddCommand(get, merge)
+	return stateCmd
+}
+
+// lastStateMap fetches all comments on an issue, parses the LAST one as JSON
+// and returns it as a map. Empty issue, empty comment, or non-JSON last
+// comment all yield an empty (non-nil) map — never an error.
+func lastStateMap(c *gitea.Client, owner, repo string, number int) (map[string]any, error) {
+	comments, err := c.ListIssueComments(owner, repo, number)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]any{}
+	if len(comments) == 0 {
+		return out, nil
+	}
+	last := strings.TrimSpace(comments[len(comments)-1].Body)
+	if last == "" {
+		return out, nil
+	}
+	if err := json.Unmarshal([]byte(last), &out); err != nil {
+		// Not JSON — treat as empty so callers can still merge cleanly.
+		return map[string]any{}, nil
+	}
+	return out, nil
+}
+
+// resolveStatePayload picks the state JSON bytes from --state-json /
+// --state-file. Returns (nil, nil) when neither is supplied so callers can
+// branch on "no state requested". Both set is an error.
+func resolveStatePayload(inline, file string) ([]byte, error) {
+	if inline != "" && file != "" {
+		return nil, fmt.Errorf("--state-json 和 --state-file 不能同时指定")
+	}
+	if inline != "" {
+		return []byte(inline), nil
+	}
+	if file != "" {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			return nil, fmt.Errorf("读取 state 文件 %s 失败: %w", file, err)
+		}
+		return data, nil
+	}
+	return nil, nil
 }
 
 func buildPRCmd() *cobra.Command {

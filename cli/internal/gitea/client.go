@@ -110,6 +110,18 @@ func (c *Client) UpdateIssueBody(owner, repo string, number int, body string) er
 	return c.do(http.MethodPatch, path, payload, nil)
 }
 
+// ListIssueComments returns the issue/PR comments in Gitea's default order
+// (ascending by creation time). Used by `spx issue state get|merge` to find
+// the last comment, which is where the state JSON blob lives.
+func (c *Client) ListIssueComments(owner, repo string, number int) ([]Comment, error) {
+	path := fmt.Sprintf("/api/v1/repos/%s/%s/issues/%d/comments", owner, repo, number)
+	var out []Comment
+	if err := c.do(http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CreateIssueComment posts a comment on an issue or PR.
 //
 // In Gitea, PR comments (not review threads) live under the same endpoint as
