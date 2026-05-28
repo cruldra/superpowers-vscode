@@ -656,11 +656,27 @@ class WebhookCoordinator {
     const nextSpec = specFile ?? currentSpec
     const nextPlan = planFile ?? currentPlan
     if (currentSpec === nextSpec && currentPlan === nextPlan) {
+      // Gitea state JSON 已是最新（spx 同步写过的情况），跳过 mergeStateJsonComment
+      // 节省一次 API 写。但 webview 内存里可能还是旧值（webview 不轮询，全靠
+      // coordinator 推 issue/patch），所以**仍然要推一次 patch** 把当前值同步过去，
+      // 否则底部 property grid 不刷新。
       logger.add({
         level: 'info',
         source: 'webhook',
-        message: `issue=#${event.issueNumber} edited spec/plan 无变化，跳过 (spec=${nextSpec ?? '<空>'} plan=${nextPlan ?? '<空>'})`,
+        message: `issue=#${event.issueNumber} edited spec/plan 在 state JSON 已同步，跳过 merge 但推 issue/patch 刷 webview (spec=${nextSpec ?? '<空>'} plan=${nextPlan ?? '<空>'})`,
       })
+      if (this.activePanel) {
+        const patch: { specFile?: string, planFile?: string } = {}
+        if (nextSpec)
+          patch.specFile = nextSpec
+        if (nextPlan)
+          patch.planFile = nextPlan
+        this.activePanel.postMessage({
+          type: 'issue/patch',
+          issueNumber: event.issueNumber,
+          patch,
+        })
+      }
       return
     }
 
