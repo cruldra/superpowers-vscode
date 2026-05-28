@@ -392,6 +392,7 @@ export function App() {
         initialWorktreePreRemoveScript={settings?.worktreePreRemoveScript ?? ''}
         initialImplTabPreCreateScript={settings?.implTabPreCreateScript ?? ''}
         initialImplTabPostCloseScript={settings?.implTabPostCloseScript ?? ''}
+        initialImplementProfilePath={settings?.implementProfilePath ?? ''}
         onSubmit={saveSettings}
         onCancel={settings?.canCancel ? dismissSettings : undefined}
       />

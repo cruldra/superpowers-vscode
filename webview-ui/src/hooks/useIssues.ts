@@ -36,6 +36,7 @@ export interface SettingsValues {
   worktreePreRemoveScript: string
   implTabPreCreateScript: string
   implTabPostCloseScript: string
+  implementProfilePath: string
 }
 
 export interface SettingsOverlayState {
@@ -54,6 +55,7 @@ export interface SettingsOverlayState {
   worktreePreRemoveScript: string
   implTabPreCreateScript: string
   implTabPostCloseScript: string
+  implementProfilePath: string
 }
 
 export type UseIssuesState =
@@ -212,6 +214,7 @@ export function useIssues(): UseIssuesResult {
       worktreePreRemoveScript: values.worktreePreRemoveScript,
       implTabPreCreateScript: values.implTabPreCreateScript,
       implTabPostCloseScript: values.implTabPostCloseScript,
+      implementProfilePath: values.implementProfilePath,
     })
   }, [])
 
@@ -456,6 +459,7 @@ export function useIssues(): UseIssuesResult {
             worktreePreRemoveScript: msg.worktreePreRemoveScript,
             implTabPreCreateScript: msg.implTabPreCreateScript,
             implTabPostCloseScript: msg.implTabPostCloseScript,
+            implementProfilePath: msg.implementProfilePath,
           })
           break
         case 'toast/show': {

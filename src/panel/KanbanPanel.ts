@@ -595,8 +595,12 @@ export class KanbanWebviewPanel {
         existing.show(false)
         return
       }
+      // 实施 resume 走全局 settings.implementProfilePath 优先级（同 handleImplement /
+      // startConflictResolution）；头脑风暴 resume 保持现状，只看工单级 + 默认。
       const effectiveProfilePath
-        = profilePath && profilePath.trim() !== '' ? profilePath : DEFAULT_PROFILE_PATH
+        = sessionKind === 'implement'
+          ? this.resolveImplementProfilePath(profilePath)
+          : (profilePath && profilePath.trim() !== '' ? profilePath : DEFAULT_PROFILE_PATH)
       // Reject paths containing single quotes — we shell-quote with single
       // quotes below, and embedded quotes would break out of the wrap. In
       // practice profile paths live under `/home/<user>/...` so this is a
@@ -1427,8 +1431,9 @@ export class KanbanWebviewPanel {
       return
     }
 
-    const effectiveProfilePath
-      = profilePath && profilePath.trim() !== '' ? profilePath : DEFAULT_PROFILE_PATH
+    // 全局 settings.implementProfilePath > 工单级 profilePath > 默认 fallback。
+    // 让用户从设置里覆盖每个工单的 lock-in，而不必逐个改 state JSON。
+    const effectiveProfilePath = this.resolveImplementProfilePath(profilePath)
     // Same guard as handleResumeSession — we wrap with single quotes and
     // embedded quotes would break out of the wrap. Defensive only.
     if (effectiveProfilePath.includes('\'')) {
@@ -3113,10 +3118,9 @@ export class KanbanWebviewPanel {
       return
     }
     terminal.show(false)
-    // 与 handleImplement 保持一致：用同一份 profile 启动 cc，让冲突解决会话
-    // 与该工单的实施/头脑风暴会话体验一致。空串/未传时回落到默认 profile。
-    const effectiveProfilePath
-      = profilePath && profilePath.trim() !== '' ? profilePath : DEFAULT_PROFILE_PATH
+    // 与 handleImplement 保持一致：走全局 settings.implementProfilePath > 工单级
+    // profilePath > 默认 fallback 的优先级，让冲突解决会话和实施会话用同一份 profile。
+    const effectiveProfilePath = this.resolveImplementProfilePath(profilePath)
     if (effectiveProfilePath.includes('\'')) {
       logger.add({
         level: 'error',
@@ -3691,6 +3695,7 @@ export class KanbanWebviewPanel {
         worktreePreRemoveScript: s.worktreePreRemoveScript,
         implTabPreCreateScript: s.implTabPreCreateScript,
         implTabPostCloseScript: s.implTabPostCloseScript,
+        implementProfilePath: s.implementProfilePath,
       })
       return
     }
@@ -3727,6 +3732,7 @@ export class KanbanWebviewPanel {
           worktreePreRemoveScript: s.worktreePreRemoveScript,
           implTabPreCreateScript: s.implTabPreCreateScript,
           implTabPostCloseScript: s.implTabPostCloseScript,
+          implementProfilePath: s.implementProfilePath,
         })
         return
       }
@@ -3750,6 +3756,7 @@ export class KanbanWebviewPanel {
     worktreePreRemoveScript: string
     implTabPreCreateScript: string
     implTabPostCloseScript: string
+    implementProfilePath: string
   }): Promise<void> {
     const trimmedHost = payload.host.trim()
     const trimmedToken = payload.token.trim()
@@ -3761,6 +3768,10 @@ export class KanbanWebviewPanel {
     const trimmedPreRemove = payload.worktreePreRemoveScript.trim()
     const trimmedImplPre = payload.implTabPreCreateScript.trim()
     const trimmedImplPost = payload.implTabPostCloseScript.trim()
+    // implementProfilePath: '' is meaningful (= "fall back to per-issue
+    // profilePath then DEFAULT_PROFILE_PATH"). Just strip whitespace so a
+    // stray space can't make the resolver think it's set.
+    const trimmedImplProfile = payload.implementProfilePath.trim()
     const prev = getSettings(this.context)
     // Capture the previous token *for this host* before overwriting it, so
     // we can decide below whether the kanban needs a re-fetch. (Only host
@@ -3787,6 +3798,7 @@ export class KanbanWebviewPanel {
         worktreePreRemoveScript: trimmedPreRemove,
         implTabPreCreateScript: trimmedImplPre,
         implTabPostCloseScript: trimmedImplPost,
+        implementProfilePath: trimmedImplProfile,
       })
       return
     }
@@ -3805,6 +3817,7 @@ export class KanbanWebviewPanel {
       worktreePreRemoveScript: trimmedPreRemove,
       implTabPreCreateScript: trimmedImplPre,
       implTabPostCloseScript: trimmedImplPost,
+      implementProfilePath: trimmedImplProfile,
     })
     if (!keepExisting)
       await setToken(this.context, trimmedHost, trimmedToken)
@@ -3869,7 +3882,34 @@ export class KanbanWebviewPanel {
       worktreePreRemoveScript: s.worktreePreRemoveScript,
       implTabPreCreateScript: s.implTabPreCreateScript,
       implTabPostCloseScript: s.implTabPostCloseScript,
+      implementProfilePath: s.implementProfilePath,
     })
+  }
+
+  /**
+   * Pick the profile.json that the *implement-class* cc sessions
+   * (handleImplement / handleResumeSession when sessionKind === 'implement' /
+   * startConflictResolution) should launch with. Priority:
+   *   1. Global `settings.implementProfilePath` (lets the user override every
+   *      issue's lock-in from one place).
+   *   2. The per-issue `profilePath` recorded in state JSON when the issue
+   *      was created (preserves the brainstorm-time choice).
+   *   3. The hard-coded `DEFAULT_PROFILE_PATH` fallback.
+   *
+   * Brainstorm sessions deliberately don't go through this helper — they
+   * keep the legacy `profilePath || DEFAULT_PROFILE_PATH` so creators can
+   * still pick a profile per issue at brainstorm time without the global
+   * override stomping on it.
+   */
+  private resolveImplementProfilePath(issueLevelProfilePath: string | undefined): string {
+    const settings = getSettings(this.context)
+    const global = settings.implementProfilePath?.trim()
+    if (global)
+      return global
+    const issueLevel = issueLevelProfilePath?.trim()
+    if (issueLevel)
+      return issueLevel
+    return DEFAULT_PROFILE_PATH
   }
 
   private async handleIssueCreate(

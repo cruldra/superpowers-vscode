@@ -2,7 +2,7 @@
   "publisher": "clurdra",
   "name": "superpowers-vscode-clurdra",
   "displayName": "Superpowers-clurdra",
-  "version": "0.2.9",
+  "version": "0.2.12",
   "packageManager": "pnpm@10.27.0",
   "description": "Superpowers specs and plans Kanban explorer",
   "author": "clurdra",

@@ -36,6 +36,7 @@ export type ExtensionToWebview
       worktreePreRemoveScript: string
       implTabPreCreateScript: string
       implTabPostCloseScript: string
+      implementProfilePath: string
     }
     | {
       type: 'toast/show'
@@ -82,6 +83,7 @@ export type WebviewToExtension
       worktreePreRemoveScript: string
       implTabPreCreateScript: string
       implTabPostCloseScript: string
+      implementProfilePath: string
     }
     | { type: 'settings/edit-request' }
     | { type: 'issue/create', userRequest: string, images?: Array<{ mediaType: string, base64: string }>, profilePath?: string }

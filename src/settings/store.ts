@@ -126,6 +126,14 @@ export interface Settings {
    * Same env vars as the worktree hooks.
    */
   implTabPostCloseScript: string
+  /**
+   * Absolute path to a Claude Code profile JSON used to launch implement /
+   * implement-resume / conflict-resolution cc sessions. Empty string means
+   * fall back to the per-issue `profilePath` recorded in state JSON, and
+   * finally to the hard-coded `DEFAULT_PROFILE_PATH`. Brainstorm sessions
+   * are unaffected and keep using the issue-level profilePath.
+   */
+  implementProfilePath: string
 }
 
 export const SETTINGS_KEY = 'superpowers.settings'
@@ -144,6 +152,7 @@ function defaults(ctx: ExtensionContext): Settings {
     worktreePreRemoveScript: '',
     implTabPreCreateScript: '',
     implTabPostCloseScript: '',
+    implementProfilePath: '',
   }
 }
 
@@ -197,6 +206,11 @@ export function getSettings(ctx: ExtensionContext): Settings {
   const implTabPostCloseScript = typeof stored.implTabPostCloseScript === 'string'
     ? stored.implTabPostCloseScript
     : base.implTabPostCloseScript
+  // implementProfilePath: '' is meaningful (= "fall back to issue.profilePath
+  // then DEFAULT_PROFILE_PATH"). Non-string legacy values collapse to ''.
+  const implementProfilePath = typeof stored.implementProfilePath === 'string'
+    ? stored.implementProfilePath
+    : base.implementProfilePath
 
   return {
     webhookPort,
@@ -211,6 +225,7 @@ export function getSettings(ctx: ExtensionContext): Settings {
     worktreePreRemoveScript,
     implTabPreCreateScript,
     implTabPostCloseScript,
+    implementProfilePath,
   }
 }
 
