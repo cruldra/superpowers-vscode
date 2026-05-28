@@ -53,6 +53,15 @@ function runGit(cwd: string, args: string[], timeoutMs = 30_000): Promise<RunRes
   })
 }
 
+/**
+ * 通用 git fetch origin，best-effort。返回 ok 标志和 stderr 供调用方记日志。
+ * 超时 30s。
+ */
+export async function gitFetch(workspaceRoot: string): Promise<{ ok: boolean, stderr: string, stdout: string }> {
+  const r = await runGit(workspaceRoot, ['fetch', 'origin'])
+  return { ok: r.ok, stderr: r.stderr, stdout: r.stdout }
+}
+
 export interface CheckBranchSyncOpts {
   workspaceRoot: string
   /** Already non-empty (caller falls back to devBranch when autoBuild is ''). */

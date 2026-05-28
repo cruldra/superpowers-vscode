@@ -21,7 +21,7 @@ import { watchForNewCodexSession } from '../cc/codexSessionWatcher'
 import { projectsDirFor, watchForNewSession } from '../cc/sessionWatcher'
 import { spawnClaude } from '../cc/spawnClaude'
 import { lockEnvFiles, findEnvFiles, unlockEnvFiles } from '../files/envLock'
-import { checkBranchSync, runBranchSync } from '../git/branchSync'
+import { checkBranchSync, gitFetch, runBranchSync } from '../git/branchSync'
 import { detectRepo } from '../git/remote'
 import { createWorktree } from '../git/worktree'
 import { runImplTabPostCloseHook, runImplTabPreCreateHook, runPostCreateHook, runPreRemoveHook, type HookContext } from '../git/worktreeHooks'
@@ -2712,6 +2712,35 @@ export class KanbanWebviewPanel {
           message: `已合并 PR #${prIndex}`,
           dismissOnTimer: 4000,
         })
+        // 合并成功后做一次 fetch，让本地 main 能感知远端的 merge commit
+        // （best-effort，失败不影响合并流程，只 log）。
+        try {
+          const fetched = await gitFetch(workspaceRoot)
+          if (fetched.ok) {
+            logger.add({
+              level: 'info',
+              source: 'panel',
+              message: `git fetch origin 成功 (PR #${prIndex} 合并后)`,
+            })
+          }
+          else {
+            logger.add({
+              level: 'warn',
+              source: 'panel',
+              message: `git fetch origin 失败 (PR #${prIndex} 合并后)`,
+              details: fetched.stderr,
+            })
+          }
+        }
+        catch (err) {
+          const m = err instanceof Error ? err.message : String(err)
+          logger.add({
+            level: 'warn',
+            source: 'panel',
+            message: `git fetch origin 抛错 (PR #${prIndex} 合并后)`,
+            details: m,
+          })
+        }
       }
       catch (err) {
         const message = err instanceof Error ? err.message : String(err)
