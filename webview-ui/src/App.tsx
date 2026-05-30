@@ -36,6 +36,7 @@ export function App() {
     openWorktree,
     deleteWorktree,
     deleteIssue,
+    closeIssue,
     closeSessionTab,
     startBrainstormSession,
     changeColumn,
@@ -305,6 +306,7 @@ export function App() {
                 onOpenWorktree={openWorktree}
                 onDeleteWorktree={deleteWorktree}
                 onDeleteIssue={deleteIssue}
+                onCloseIssue={closeIssue}
                 onCloseSessionTab={closeSessionTab}
                 onStartBrainstormSession={startBrainstormSession}
                 onUpdateAutoReview={updateIssueAutoReview}

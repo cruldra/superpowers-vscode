@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { useMemo, useRef } from 'react'
-import { ExternalLink, Play, Terminal, Trash2, X } from 'lucide-react'
+import { CircleSlash, ExternalLink, Play, Terminal, Trash2, X } from 'lucide-react'
 import type { Issue, IssueColumn } from '../types'
 import { COLUMN_LABELS, COLUMN_ORDER } from '../types'
 import { isIssueLocked } from '../lib/dependencies'
@@ -31,6 +31,8 @@ interface IssueDetailPanelProps {
   /** 硬删整个工单 + 关联资源（worktree / PR / feature branch / cc tabs）。
    * 顶部垃圾桶按钮触发，扩展端做 modal confirm，可选。 */
   onDeleteIssue?: (issueNumber: number) => void
+  /** 关闭 Gitea 工单，不清理本地会话、worktree、PR 或分支。 */
+  onCloseIssue: (issueNumber: number) => void
   /** Close the matching session terminal tab. The extension watches
    * onDidCloseTerminal and clears the corresponding `*TabOpen` flag, which
    * makes the X button vanish on its own. */
@@ -66,6 +68,7 @@ export function IssueDetailPanel({
   onOpenWorktree,
   onDeleteWorktree,
   onDeleteIssue,
+  onCloseIssue,
   onCloseSessionTab,
   onStartBrainstormSession,
   onUpdateAutoReview,
@@ -384,6 +387,18 @@ export function IssueDetailPanel({
         >
           <ExternalLink className="size-3.5" />
           在 Gitea 打开
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            if (window.confirm(`确定关闭工单 #${issue.number}？`))
+              onCloseIssue(issue.number)
+          }}
+          title="关闭工单"
+          aria-label="关闭工单"
+          className="inline-flex shrink-0 items-center justify-center rounded border border-[var(--vscode-panel-border)] p-1 text-xs text-[var(--vscode-foreground)] hover:border-yellow-500/60 hover:bg-yellow-500/10 hover:text-yellow-500"
+        >
+          <CircleSlash className="size-3.5" />
         </button>
         <button
           type="button"

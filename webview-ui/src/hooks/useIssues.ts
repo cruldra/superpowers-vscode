@@ -98,6 +98,8 @@ export interface UseIssuesResult {
    * 用户在详情面板顶部点垃圾桶按钮触发。扩展端做 modal confirm + 串行清理，
    * 全部成功后 push `issue/remove`，webview 将该 issue 从 issues 数组移除。 */
   deleteIssue: (issueNumber: number) => void
+  /** 关闭 Gitea 工单，不清理本地会话、worktree、PR 或分支。 */
+  closeIssue: (issueNumber: number) => void
   /** Dispose the matching session terminal tab. Extension reacts via
    * onDidCloseTerminal and clears `*TabOpen` so the X button disappears. */
   closeSessionTab: (issueNumber: number, kind: 'brainstorm' | 'implement' | 'review') => void
@@ -288,6 +290,10 @@ export function useIssues(): UseIssuesResult {
     postMessage({ type: 'issue/delete', issueNumber })
   }, [])
 
+  const closeIssue = useCallback((issueNumber: number): void => {
+    postMessage({ type: 'issue/close', issueNumber })
+  }, [])
+
   const closeSessionTab = useCallback(
     (issueNumber: number, kind: 'brainstorm' | 'implement' | 'review'): void => {
       postMessage({ type: 'session/close-tab', issueNumber, kind })
@@ -392,7 +398,7 @@ export function useIssues(): UseIssuesResult {
           })
           break
         case 'issue/remove':
-          // 工单被硬删 — 从 issues 数组移除。如果它是当前选中的，挑下一张
+          // 工单被删除或关闭 — 从 open issues 数组移除。如果它是当前选中的，挑下一张
           // 同列的卡片（按 number 降序近邻）；同列没有则交给 App.tsx 的
           // 现有 effect（selectedId 失效 → setSelectedId(null)）兜底。
           setState((prev) => {
@@ -552,5 +558,5 @@ export function useIssues(): UseIssuesResult {
     return cleanup
   }, [])
 
-  return { state, settings, globalAutoReview, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, focusSession, openFile, implement, openPr, openWorktree, deleteWorktree, deleteIssue, closeSessionTab, startBrainstormSession, changeColumn, setDependency, clearDependency, updateIssueAutoReview, logs, fetchLogs, clearLogs, pendingSelectId, clearPendingSelect, commitRunning, runCommit, hasChanges, branchSyncBehind, branchSyncRunning, branchSyncDisabled, branchSyncTitle, runBranchSync, envLocked, envFileCount, envLockRunning, envLockTitle, toggleEnvLock }
+  return { state, settings, globalAutoReview, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, focusSession, openFile, implement, openPr, openWorktree, deleteWorktree, deleteIssue, closeIssue, closeSessionTab, startBrainstormSession, changeColumn, setDependency, clearDependency, updateIssueAutoReview, logs, fetchLogs, clearLogs, pendingSelectId, clearPendingSelect, commitRunning, runCommit, hasChanges, branchSyncBehind, branchSyncRunning, branchSyncDisabled, branchSyncTitle, runBranchSync, envLocked, envFileCount, envLockRunning, envLockTitle, toggleEnvLock }
 }

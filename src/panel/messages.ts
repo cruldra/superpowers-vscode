@@ -110,6 +110,7 @@ export type WebviewToExtension
     | { type: 'env-lock/check' }
     | { type: 'env-lock/toggle' }
     | { type: 'issue/delete', issueNumber: number }
+    | { type: 'issue/close', issueNumber: number }
     | { type: 'brainstorm/start', issueNumber: number }
     | { type: 'profiles/get' }
     | { type: 'profiles/save', data: ProfilesData }

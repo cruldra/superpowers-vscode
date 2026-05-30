@@ -30,6 +30,7 @@ interface BottomTabsProps {
   onOpenWorktree: (path: string) => void
   onDeleteWorktree: (issueNumber: number, path: string) => void
   onDeleteIssue?: (issueNumber: number) => void
+  onCloseIssue: (issueNumber: number) => void
   onCloseSessionTab: (issueNumber: number, kind: 'brainstorm' | 'implement' | 'review') => void
   onStartBrainstormSession: (issueNumber: number) => void
   onUpdateAutoReview: (issueNumber: number, value: boolean) => void
@@ -79,6 +80,7 @@ export function BottomTabs(props: BottomTabsProps) {
                 onOpenWorktree={props.onOpenWorktree}
                 onDeleteWorktree={props.onDeleteWorktree}
                 onDeleteIssue={props.onDeleteIssue}
+                onCloseIssue={props.onCloseIssue}
                 onCloseSessionTab={props.onCloseSessionTab}
                 onStartBrainstormSession={props.onStartBrainstormSession}
                 onUpdateAutoReview={props.onUpdateAutoReview}
