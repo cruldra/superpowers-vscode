@@ -10,6 +10,7 @@
 import type { ReactElement } from 'react'
 import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
+import type { ClaudeProfile } from './NewIssueModal'
 
 type GroupKey = 'auth' | 'network' | 'prompts' | 'hooks'
 
@@ -48,6 +49,7 @@ export interface SettingsModalProps {
   initialImplTabPreCreateScript: string
   initialImplTabPostCloseScript: string
   initialImplementProfilePath: string
+  profiles: ClaudeProfile[]
   onSubmit: (values: SubmitValues) => void
   onCancel?: () => void
 }
@@ -111,6 +113,7 @@ export function SettingsModal({
   initialImplTabPreCreateScript,
   initialImplTabPostCloseScript,
   initialImplementProfilePath,
+  profiles,
   onSubmit,
   onCancel,
 }: SettingsModalProps): ReactElement | null {
@@ -177,6 +180,8 @@ export function SettingsModal({
   const tokenPageUrl = trimmedHost
     ? `https://${trimmedHost}/user/settings/applications`
     : ''
+  const hasImplementProfileOption = profiles.some(p => p.path === implementProfilePath)
+  const showCustomImplementProfilePath = implementProfilePath !== '' && !hasImplementProfileOption
 
   function handleSubmit(event: React.FormEvent): void {
     event.preventDefault()
@@ -580,13 +585,19 @@ export function SettingsModal({
                     </>
                   )}
                 >
-                  <input
-                    type="text"
+                  <select
                     value={implementProfilePath}
                     onChange={e => setImplementProfilePath(e.target.value)}
-                    placeholder="/path/to/profile.json"
                     className={inputClass}
-                  />
+                  >
+                    <option value="">留空：使用工单创建时锁定的 profile（再没有则默认）</option>
+                    {profiles.map(p => (
+                      <option key={`${p.name}:${p.path}`} value={p.path}>{p.name}</option>
+                    ))}
+                    {showCustomImplementProfilePath && (
+                      <option value={implementProfilePath}>{`自定义：${implementProfilePath}`}</option>
+                    )}
+                  </select>
                 </Field>
               </>
             )}

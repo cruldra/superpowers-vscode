@@ -393,6 +393,7 @@ export function App() {
         initialImplTabPreCreateScript={settings?.implTabPreCreateScript ?? ''}
         initialImplTabPostCloseScript={settings?.implTabPostCloseScript ?? ''}
         initialImplementProfilePath={settings?.implementProfilePath ?? ''}
+        profiles={profiles}
         onSubmit={saveSettings}
         onCancel={settings?.canCancel ? dismissSettings : undefined}
       />
