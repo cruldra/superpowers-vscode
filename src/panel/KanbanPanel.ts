@@ -2233,6 +2233,20 @@ export class KanbanWebviewPanel {
    * 成功后复用 issue/remove 消息，让 open issues 看板立即移除该工单。
    */
   private async handleCloseIssue(issueNumber: number): Promise<void> {
+    logger.add({
+      level: 'info',
+      source: 'panel',
+      message: `收到关闭工单请求 #${issueNumber}`,
+    })
+
+    const choice = await window.showWarningMessage(
+      `确定关闭工单 #${issueNumber}？此操作只会关闭 Gitea 工单，不会清理本地会话、worktree、PR 或分支。`,
+      { modal: true },
+      '关闭工单',
+    )
+    if (choice !== '关闭工单')
+      return
+
     const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
     if (!workspaceRoot) {
       this.postMessage({

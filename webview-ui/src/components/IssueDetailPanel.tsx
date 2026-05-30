@@ -390,10 +390,7 @@ export function IssueDetailPanel({
         </button>
         <button
           type="button"
-          onClick={() => {
-            if (window.confirm(`确定关闭工单 #${issue.number}？`))
-              onCloseIssue(issue.number)
-          }}
+          onClick={() => onCloseIssue(issue.number)}
           title="关闭工单"
           aria-label="关闭工单"
           className="inline-flex shrink-0 items-center justify-center rounded border border-[var(--vscode-panel-border)] p-1 text-xs text-[var(--vscode-foreground)] hover:border-yellow-500/60 hover:bg-yellow-500/10 hover:text-yellow-500"
