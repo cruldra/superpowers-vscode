@@ -21,7 +21,7 @@ import { watchForNewCodexSession } from '../cc/codexSessionWatcher'
 import { projectsDirFor, watchForNewSession } from '../cc/sessionWatcher'
 import { spawnClaude } from '../cc/spawnClaude'
 import { lockEnvFiles, findEnvFiles, unlockEnvFiles } from '../files/envLock'
-import { checkBranchSync, gitFetch, runBranchSync } from '../git/branchSync'
+import { checkBranchSync, deleteLocalBranch, gitFetch, runBranchSync } from '../git/branchSync'
 import { detectRepo } from '../git/remote'
 import { createWorktree } from '../git/worktree'
 import { runImplTabPostCloseHook, runImplTabPreCreateHook, runPostCreateHook, runPreRemoveHook, type HookContext } from '../git/worktreeHooks'
@@ -2565,7 +2565,9 @@ export class KanbanWebviewPanel {
    *   3. Merge `{column: 'done'}` into state JSON.
    *   4. Best-effort: `git worktree remove --force` the worktree if it still
    *      exists (force is OK here since the work is already shipped via PR).
-   *   5. Refresh + success toast.
+   *   5. Best-effort: delete the remote and local feature branches after the
+   *      worktree is gone.
+   *   6. Refresh + success toast.
    */
   private async handleColumnChange(issueNumber: number, toColumn: IssueColumn): Promise<void> {
     if (toColumn === 'in-progress') {
@@ -3028,6 +3030,75 @@ export class KanbanWebviewPanel {
           })
           rollback(fromColumn)
           return
+        }
+      }
+    }
+
+    if (featureBranch) {
+      const settingsForBranchCleanup = getSettings(this.context)
+      const protectedBranches = new Set(
+        ['main', 'master', settingsForBranchCleanup.devBranch, settingsForBranchCleanup.autoBuildBranch]
+          .filter((branch): branch is string => Boolean(branch)),
+      )
+      if (protectedBranches.has(featureBranch)) {
+        logger.add({
+          level: 'warn',
+          source: 'panel',
+          message: `跳过受保护分支清理 ${featureBranch} (issue #${issueNumber})`,
+        })
+      }
+      else {
+        try {
+          await deleteBranch({
+            host: remote.host,
+            token,
+            owner: remote.owner,
+            repo: remote.repo,
+            branch: featureBranch,
+          })
+          logger.add({
+            level: 'info',
+            source: 'panel',
+            message: `已删除远程 feature 分支 ${featureBranch} (issue #${issueNumber})`,
+          })
+        }
+        catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          logger.add({
+            level: 'warn',
+            source: 'panel',
+            message: `删除远程 feature 分支失败 ${featureBranch} (issue #${issueNumber})`,
+            details: message,
+          })
+        }
+
+        try {
+          const deleted = await deleteLocalBranch(workspaceRoot, featureBranch)
+          if (deleted.ok) {
+            logger.add({
+              level: 'info',
+              source: 'panel',
+              message: `已删除本地 feature 分支 ${featureBranch} (issue #${issueNumber})`,
+              details: deleted.stdout || deleted.stderr,
+            })
+          }
+          else {
+            logger.add({
+              level: 'warn',
+              source: 'panel',
+              message: `删除本地 feature 分支失败 ${featureBranch} (issue #${issueNumber})`,
+              details: deleted.stderr || deleted.stdout,
+            })
+          }
+        }
+        catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          logger.add({
+            level: 'warn',
+            source: 'panel',
+            message: `删除本地 feature 分支抛错 ${featureBranch} (issue #${issueNumber})`,
+            details: message,
+          })
         }
       }
     }

@@ -62,6 +62,18 @@ export async function gitFetch(workspaceRoot: string): Promise<{ ok: boolean, st
   return { ok: r.ok, stderr: r.stderr, stdout: r.stdout }
 }
 
+/**
+ * 删除本地分支。分支不存在时视为已清理，避免重复完成流程产生噪音。
+ */
+export async function deleteLocalBranch(workspaceRoot: string, branch: string): Promise<{ ok: boolean, stdout: string, stderr: string }> {
+  const exists = await runGit(workspaceRoot, ['show-ref', '--verify', '--quiet', `refs/heads/${branch}`])
+  if (!exists.ok)
+    return { ok: true, stdout: '', stderr: '' }
+
+  const r = await runGit(workspaceRoot, ['branch', '-D', branch])
+  return { ok: r.ok, stdout: r.stdout, stderr: r.stderr }
+}
+
 export interface CheckBranchSyncOpts {
   workspaceRoot: string
   /** Already non-empty (caller falls back to devBranch when autoBuild is ''). */
