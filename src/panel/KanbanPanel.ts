@@ -746,7 +746,8 @@ export class KanbanWebviewPanel {
           dismissOnTimer: 5000,
         })
       }
-      const cmd = `claude --dangerously-skip-permissions --settings '${effectiveProfilePath}' --system-prompt="$(serena prompts print-cc-system-prompt-override)" --resume ${sessionId}`
+      const effortArg = sessionKind === 'implement' ? ' --effort high' : ''
+      const cmd = `claude${effortArg} --dangerously-skip-permissions --settings '${effectiveProfilePath}' --system-prompt="$(serena prompts print-cc-system-prompt-override)" --resume ${sessionId}`
       terminal.sendText(cmd)
     }
     finally {
@@ -1587,7 +1588,7 @@ export class KanbanWebviewPanel {
       source: 'terminal',
       message: `已创建终端 "${terminal.name}"`,
     })
-    const cmd = `claude --dangerously-skip-permissions --settings '${effectiveProfilePath}' --system-prompt="$(serena prompts print-cc-system-prompt-override)" '${prompt}'`
+    const cmd = `claude --effort high --dangerously-skip-permissions --settings '${effectiveProfilePath}' --system-prompt="$(serena prompts print-cc-system-prompt-override)" '${prompt}'`
     terminal.sendText(cmd)
     logger.add({
       level: 'info',
@@ -3133,8 +3134,8 @@ export class KanbanWebviewPanel {
    * 流程：
    *   1. 校验主 workspace working tree 干净（否则 checkout 会丢用户改动）
    *   2. fetch + checkout feature → fetch dev → merge origin/dev（冲突落地）
-   *   3. 用 claude --dangerously-skip-permissions 启临时终端，给 cc 写死的
-   *      解决指引。cc commit + push 后由用户重新拖到完成列触发重试。
+   *   3. 用 claude --effort high --dangerously-skip-permissions 启临时终端，
+   *      给 cc 写死的解决指引。cc commit + push 后由用户重新拖到完成列触发重试。
    */
   private async startConflictResolution(opts: {
     issueNumber: number
@@ -3310,7 +3311,7 @@ export class KanbanWebviewPanel {
       })
       return
     }
-    const cmd = `claude --dangerously-skip-permissions --settings '${effectiveProfilePath}' --system-prompt="$(serena prompts print-cc-system-prompt-override)" '${prompt}'`
+    const cmd = `claude --effort high --dangerously-skip-permissions --settings '${effectiveProfilePath}' --system-prompt="$(serena prompts print-cc-system-prompt-override)" '${prompt}'`
     terminal.sendText(cmd)
 
     logger.add({
