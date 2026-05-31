@@ -17,7 +17,9 @@ opencli spx issue marker --issue <工单号> --type plan --value <plan 路径>
 
 特别地：
 
-- 不要 `git checkout` 任何分支
+- 不要创建分支
+- 不要切换分支，包括 `git checkout` / `git switch`
+- 不要修改当前主 worktree 所在分支
 - 不要修改任何代码文件
 - 不要创建 PR
 - 不要调用 gitea 其他写操作（除上面的 marker 同步）
