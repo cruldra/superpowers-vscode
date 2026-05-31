@@ -19,7 +19,7 @@ import { getReviewPrompt } from '../cc/prompts'
 import { detectRepo } from '../git/remote'
 import { deleteWebhook, getPullRequest, listIssueComments } from '../gitea/api'
 import { loadIssues, loadSingleIssue } from '../gitea/issueLoader'
-import { mergeStateJsonComment, readStateJsonComment } from '../gitea/stateJson'
+import { mergeStateJsonComment, mergeStateJsonCommentGuarded, readStateJsonComment } from '../gitea/stateJson'
 import { logger } from '../logging/logger'
 import { getSettings } from '../settings/store'
 import { WebhookServer } from './server'
@@ -1266,24 +1266,34 @@ class WebhookCoordinator {
         issueNumber,
       })
       if (stateJson.column === 'in-progress') {
-        await mergeStateJsonComment({
+        const result = await mergeStateJsonCommentGuarded({
           host: ctx.host,
           token: ctx.token,
           owner: ctx.owner,
           repo: ctx.repo,
           issueNumber,
+          protectDoneColumn: true,
           extra: { column: 'review' },
         })
-        this.activePanel?.postMessage({
-          type: 'issue/patch',
-          issueNumber,
-          patch: { column: 'review' },
-        })
-        logger.add({
-          level: 'info',
-          source: 'webhook',
-          message: `自动推进 #${issueNumber}: in-progress → review`,
-        })
+        if (result.protectedDoneColumn) {
+          logger.add({
+            level: 'info',
+            source: 'webhook',
+            message: `跳过自动推进 #${issueNumber}: 当前已是 done，不回退到 review`,
+          })
+        }
+        else if (result.posted) {
+          this.activePanel?.postMessage({
+            type: 'issue/patch',
+            issueNumber,
+            patch: { column: 'review' },
+          })
+          logger.add({
+            level: 'info',
+            source: 'webhook',
+            message: `自动推进 #${issueNumber}: in-progress → review`,
+          })
+        }
       }
     }
     catch (err) {

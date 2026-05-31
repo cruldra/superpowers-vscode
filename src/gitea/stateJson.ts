@@ -25,30 +25,63 @@ export interface MergeStateJsonCommentOpts {
  * are responsible for surfacing errors.
  */
 export async function mergeStateJsonComment(opts: MergeStateJsonCommentOpts): Promise<void> {
-  const comments = await listIssueComments({
+  const currentState = await readStateJsonComment({
     host: opts.host,
-    token: opts.token,
     owner: opts.owner,
     repo: opts.repo,
-    index: opts.issueNumber,
+    token: opts.token,
+    issueNumber: opts.issueNumber,
   })
-  let currentState: Record<string, unknown> = {}
-  if (comments.length > 0) {
-    const lastBody = (comments[comments.length - 1].body ?? '').trim()
-    if (lastBody) {
-      try {
-        const parsed = JSON.parse(lastBody) as unknown
-        if (parsed && typeof parsed === 'object')
-          currentState = parsed as Record<string, unknown>
-      }
-      catch {
-        // Last comment wasn't JSON; start fresh.
-      }
-    }
+  await postMergedStateJsonComment(opts, currentState, opts.extra)
+}
+
+export interface MergeStateJsonCommentGuardedOpts extends MergeStateJsonCommentOpts {
+  protectDoneColumn?: boolean
+}
+
+/**
+ * Merge `extra` while protecting terminal `done` cards from stale automatic
+ * column updates. When protection removes the only incoming field, no comment
+ * is posted.
+ */
+export async function mergeStateJsonCommentGuarded(
+  opts: MergeStateJsonCommentGuardedOpts,
+): Promise<{ posted: boolean, protectedDoneColumn: boolean }> {
+  const currentState = await readStateJsonComment({
+    host: opts.host,
+    owner: opts.owner,
+    repo: opts.repo,
+    token: opts.token,
+    issueNumber: opts.issueNumber,
+  })
+  const extra = { ...opts.extra }
+  let protectedDoneColumn = false
+
+  if (
+    opts.protectDoneColumn
+    && currentState.column === 'done'
+    && typeof extra.column === 'string'
+    && extra.column !== 'done'
+  ) {
+    delete extra.column
+    protectedDoneColumn = true
   }
+
+  if (Object.keys(extra).length === 0)
+    return { posted: false, protectedDoneColumn }
+
+  await postMergedStateJsonComment(opts, currentState, extra)
+  return { posted: true, protectedDoneColumn }
+}
+
+async function postMergedStateJsonComment(
+  opts: MergeStateJsonCommentOpts,
+  currentState: Record<string, unknown>,
+  extra: Record<string, unknown>,
+): Promise<void> {
   const merged: Record<string, unknown> = {
     ...currentState,
-    ...opts.extra,
+    ...extra,
   }
   await postIssueComment({
     host: opts.host,
