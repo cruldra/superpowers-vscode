@@ -61,4 +61,10 @@ export interface Issue {
    * webhook coordinator uses this value instead of the global flag. Stored
    * in the issue's state-JSON comment so it survives reloads. */
   autoReview?: boolean
+  /** Whether the brainstorm terminal tab is currently alive in this VS Code window. */
+  brainstormTabOpen?: boolean
+  /** Whether the implementation terminal tab is currently alive in this VS Code window. */
+  implementTabOpen?: boolean
+  /** Whether the review terminal tab is currently alive in this VS Code window. */
+  reviewTabOpen?: boolean
 }

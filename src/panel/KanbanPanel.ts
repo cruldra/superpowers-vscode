@@ -4,7 +4,7 @@ import type {
   TerminalEditorLocationOptions,
   WebviewPanel,
 } from 'vscode'
-import type { IssueColumn } from '../gitea/types'
+import type { Issue, IssueColumn } from '../gitea/types'
 import type { ExtensionToWebview, WebviewToExtension } from './messages'
 import { Buffer } from 'node:buffer'
 import { execFile } from 'node:child_process'
@@ -596,6 +596,8 @@ export class KanbanWebviewPanel {
 
       const existing = this.terminals.get(sessionId)
       if (existing) {
+        if (issueNumber !== undefined)
+          this.trackSessionTerminal(existing, issueNumber, sessionKind)
         existing.show(false)
         return
       }
@@ -853,6 +855,7 @@ export class KanbanWebviewPanel {
 
       const existing = this.reviewTerminals.get(sessionId)
       if (existing) {
+        this.trackSessionTerminal(existing, issueNumber, 'review')
         existing.show(false)
         return
       }
@@ -3749,6 +3752,59 @@ export class KanbanWebviewPanel {
   }
 
   /**
+   * 将当前 VS Code 里仍存活的会话终端同步回 issue 列表。
+   *
+   * `issues/update` 会用 Gitea 里持久化的 state JSON 整体替换 webview
+   * 状态；tabOpen 是本地运行态，不在 state JSON 中，因此发送列表前要按
+   * live terminal 重新补齐，同时登记 terminalOrigin，确保详情面板的关闭
+   * 按钮能找到对应 terminal。
+   */
+  private withLiveTerminalTabState(issues: Issue[]): Issue[] {
+    const liveByIssue = new Map<number, Partial<Pick<Issue, 'brainstormTabOpen' | 'implementTabOpen' | 'reviewTabOpen'>>>()
+    const mark = (issueNumber: number, kind: 'brainstorm' | 'implement' | 'review'): void => {
+      const patch = liveByIssue.get(issueNumber) ?? {}
+      if (kind === 'brainstorm')
+        patch.brainstormTabOpen = true
+      else if (kind === 'implement')
+        patch.implementTabOpen = true
+      else
+        patch.reviewTabOpen = true
+      liveByIssue.set(issueNumber, patch)
+    }
+
+    for (const [terminal, origin] of this.terminalOrigin) {
+      if (terminal.exitStatus === undefined)
+        mark(origin.issueNumber, origin.kind)
+    }
+
+    for (const terminal of window.terminals) {
+      if (terminal.exitStatus !== undefined)
+        continue
+      const match = terminal.name.match(/^issue-(\d+)-(规划|实施|审查)(?:\s|$)/)
+      if (!match)
+        continue
+      const issueNumber = Number.parseInt(match[1], 10)
+      if (!Number.isFinite(issueNumber))
+        continue
+      const kind = match[2] === '规划'
+        ? 'brainstorm'
+        : match[2] === '实施'
+          ? 'implement'
+          : 'review'
+      this.terminalOrigin.set(terminal, { issueNumber, kind })
+      mark(issueNumber, kind)
+    }
+
+    if (liveByIssue.size === 0)
+      return issues
+
+    return issues.map((issue) => {
+      const patch = liveByIssue.get(issue.number)
+      return patch ? { ...issue, ...patch } : issue
+    })
+  }
+
+  /**
    * Reloads issues from gitea and pushes to the webview. Public so the
    * always-on webhook coordinator can refresh us when a PR event arrives.
    */
@@ -3800,7 +3856,9 @@ export class KanbanWebviewPanel {
     }
 
     try {
-      const issues = await loadIssues({ host, token, owner, repo, workspaceRoot })
+      const issues = this.withLiveTerminalTabState(
+        await loadIssues({ host, token, owner, repo, workspaceRoot }),
+      )
       this.postMessage({
         type: 'issues/update',
         issues,
