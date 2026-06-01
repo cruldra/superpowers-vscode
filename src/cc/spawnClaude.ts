@@ -197,6 +197,28 @@ function buildStreamJsonLine(prompt: string, images: ClaudeImage[]): string {
   return `${JSON.stringify(message)}\n`
 }
 
+/**
+ * 构造后台 claude 子进程的环境变量：从父进程 env 剔除会导致 headless 鉴权
+ * 失败或嵌套会话静默退出的变量，让子进程回落到订阅 OAuth 凭据。
+ *
+ * - ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN：headless `-p` 无条件优先用它们，
+ *   若属于受限/过期 org 会 403 Request not allowed。剔除后回落 ~/.claude 订阅登录。
+ * - CLAUDECODE / CLAUDE_CODE_ENTRYPOINT / CLAUDE_CODE_SESSION_ID / CLAUDE_CODE_SESSION：
+ *   从父 Claude 会话继承会让子进程当成嵌套会话直接静默退出、零输出。
+ */
+function buildClaudeChildEnv(): NodeJS.ProcessEnv {
+  const {
+    ANTHROPIC_API_KEY: _apiKey,
+    ANTHROPIC_AUTH_TOKEN: _authToken,
+    CLAUDECODE: _claudecode,
+    CLAUDE_CODE_ENTRYPOINT: _entrypoint,
+    CLAUDE_CODE_SESSION_ID: _sessionId,
+    CLAUDE_CODE_SESSION: _session,
+    ...rest
+  } = process.env
+  return rest
+}
+
 export async function spawnClaude(opts: {
   prompt: string
   cwd: string
@@ -239,7 +261,7 @@ function spawnClaudeText(
 
     const child = spawn('claude', args, {
       cwd,
-      env: { ...process.env },
+      env: buildClaudeChildEnv(),
       stdio: ['ignore', 'pipe', 'pipe'],
     })
 
@@ -357,7 +379,7 @@ function spawnClaudeStreamed(
 
     const child = spawn('claude', args, {
       cwd,
-      env: { ...process.env },
+      env: buildClaudeChildEnv(),
       stdio: ['pipe', 'pipe', 'pipe'],
     })
 

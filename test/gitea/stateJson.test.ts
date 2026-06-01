@@ -166,6 +166,52 @@ describe('spawnClaude', () => {
       timeoutMs: 1_000,
     })).rejects.toThrow('Claude 退出码非零 (1): plain failure from stdout')
   })
+
+  it('strips API keys and nested-session env vars so headless claude falls back to subscription OAuth', async () => {
+    const saved = {
+      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+      ANTHROPIC_AUTH_TOKEN: process.env.ANTHROPIC_AUTH_TOKEN,
+      CLAUDECODE: process.env.CLAUDECODE,
+      CLAUDE_CODE_ENTRYPOINT: process.env.CLAUDE_CODE_ENTRYPOINT,
+      CLAUDE_CODE_SESSION_ID: process.env.CLAUDE_CODE_SESSION_ID,
+      CLAUDE_CODE_SESSION: process.env.CLAUDE_CODE_SESSION,
+    }
+    process.env.ANTHROPIC_API_KEY = 'sk-restricted-org-key'
+    process.env.ANTHROPIC_AUTH_TOKEN = 'auth-token'
+    process.env.CLAUDECODE = '1'
+    process.env.CLAUDE_CODE_ENTRYPOINT = 'cli'
+    process.env.CLAUDE_CODE_SESSION_ID = 'parent-session'
+    process.env.CLAUDE_CODE_SESSION = 'parent-session'
+
+    try {
+      mockClaudeSpawnSuccess('{"session_id":"session-env","result":"ok"}')
+
+      const { spawnClaude } = await import('../../src/cc/spawnClaude.js')
+
+      await spawnClaude({
+        prompt: 'hi',
+        cwd: '/repo',
+        timeoutMs: 1_000,
+      })
+
+      const env = spawn.mock.calls[0][2].env as NodeJS.ProcessEnv
+      expect(env).not.toHaveProperty('ANTHROPIC_API_KEY')
+      expect(env).not.toHaveProperty('ANTHROPIC_AUTH_TOKEN')
+      expect(env).not.toHaveProperty('CLAUDECODE')
+      expect(env).not.toHaveProperty('CLAUDE_CODE_ENTRYPOINT')
+      expect(env).not.toHaveProperty('CLAUDE_CODE_SESSION_ID')
+      expect(env).not.toHaveProperty('CLAUDE_CODE_SESSION')
+      expect(env.PATH).toBe(process.env.PATH)
+    }
+    finally {
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined)
+          delete process.env[key]
+        else
+          process.env[key] = value
+      }
+    }
+  })
 })
 
 describe('deleteLocalBranch', () => {
