@@ -47,6 +47,10 @@ import { PALETTE, pickRandomIssueColor, resolveIssueColor, themeColorIdToIconUri
 
 const DEFAULT_PROFILE_PATH = '/home/cruldra/Sources/cruldra-profile/claude-config/profiles/offical.json'
 
+/** PR 变更摘要等后台内容生成任务用的 profile：DeepSeek（自带 token + base_url，
+ * headless 稳定，不依赖订阅 OAuth，避免 403 Request not allowed）。 */
+const PR_DIFF_SUMMARY_PROFILE_PATH = '/home/cruldra/Sources/cruldra-profile/claude-config/profiles/deepseek.json'
+
 /**
  * Minimal subset of the built-in `vscode.git` extension's public API that we
  * consume. The official typings live in the VS Code repo's extension source
@@ -2085,9 +2089,7 @@ export class KanbanWebviewPanel {
         dismissOnTimer: 5000,
       })
 
-      const profilePath = this.resolveImplementProfilePath(
-        typeof state.profilePath === 'string' ? state.profilePath : undefined,
-      )
+      const profilePath = PR_DIFF_SUMMARY_PROFILE_PATH
       const prompt = `你在一个 VS Code 扩展启动的后台 Claude 会话中工作。\n\n硬性限制：\n- 不要修改代码。\n- 不要创建或切换分支。\n- 不要提交。\n- 不要 push。\n- 不要写任何文件。\n- 只分析当前 PR 的代码变动，并把 Markdown 摘要正文直接输出到 stdout。\n\n任务：\n- 当前工作目录是工单 #${issueNumber} 的 worktree。\n- 分析 PR #${pr} 与主分支的代码差异。\n- 可使用 git diff origin/main...HEAD、tea pulls diff ${pr} 或其他只读 git/tea 命令。\n\n摘要格式必须严格为：\n\`\`\`text\n审查重点\n\ndir\n    subdir\n        file     一句关于新增/修改这个文件的目的的简短描述\n\n不太重要的\n\ndir\n    subdir\n        file     一句关于新增/修改这个文件的目的的简短描述\n\`\`\`\n\n要求：\n- 每个新增/修改文件一行。\n- 每行说明新增/修改了什么，以及一句话说明目的。\n- 保留原始文件目录结构，使用 ASCII explorer 缩进。\n- 按重要性分区，最重要文件、核心入口点、关键业务逻辑放在「审查重点」前面。\n- 次要配置、样式、构建产物、纯同步文件放在「不太重要的」。\n- 只输出 Markdown 摘要正文本身，不要写文件，不要任何前导说明/寒暄/结尾总结，第一行就是正文。`
 
       const result = await spawnClaude({
