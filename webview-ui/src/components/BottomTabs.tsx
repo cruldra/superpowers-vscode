@@ -28,6 +28,7 @@ interface BottomTabsProps {
   onImplement: (issueNumber: number, planFile: string, profilePath?: string, sessionId?: string) => void
   onOpenPr: (pr: string) => void
   onGeneratePrDiffSummary: (issueNumber: number) => void
+  isPrDiffSummaryRunning: (issueNumber: number) => boolean
   onOpenWorktree: (path: string) => void
   onDeleteWorktree: (issueNumber: number, path: string) => void
   onDeleteIssue?: (issueNumber: number) => void
@@ -79,6 +80,7 @@ export function BottomTabs(props: BottomTabsProps) {
                 onImplement={props.onImplement}
                 onOpenPr={props.onOpenPr}
                 onGeneratePrDiffSummary={props.onGeneratePrDiffSummary}
+                isPrDiffSummaryRunning={props.isPrDiffSummaryRunning}
                 onOpenWorktree={props.onOpenWorktree}
                 onDeleteWorktree={props.onDeleteWorktree}
                 onDeleteIssue={props.onDeleteIssue}

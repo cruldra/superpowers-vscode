@@ -16,7 +16,7 @@
  * after a drag. Persisting drag moves back to Gitea is step 3+.
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Issue, IssueColumn } from '../types'
 import type { ToastItem } from '../components/ToastStack'
 import type { LogEntry } from '../lib/messages'
@@ -92,6 +92,7 @@ export interface UseIssuesResult {
   openFile: (path: string) => void
   implement: (issueNumber: number, planFile: string, profilePath?: string, sessionId?: string) => void
   generatePrDiffSummary: (issueNumber: number) => void
+  isPrDiffSummaryRunning: (issueNumber: number) => boolean
   openPr: (pr: string) => void
   openWorktree: (path: string) => void
   deleteWorktree: (issueNumber: number, path: string) => void
@@ -183,6 +184,14 @@ export function useIssues(): UseIssuesResult {
   const [envFileCount, setEnvFileCount] = useState<number>(0)
   const [envLockRunning, setEnvLockRunning] = useState<boolean>(false)
   const [envLockTitle, setEnvLockTitle] = useState<string>('正在检查 .env 锁定状态…')
+  const prDiffSummaryRunningRef = useRef<Set<number>>(new Set())
+  const [prDiffSummaryRunning, setPrDiffSummaryRunning] = useState<ReadonlySet<number>>(() => new Set())
+
+  const clearPrDiffSummaryRunning = useCallback((issueNumber: number): void => {
+    if (!prDiffSummaryRunningRef.current.delete(issueNumber))
+      return
+    setPrDiffSummaryRunning(new Set(prDiffSummaryRunningRef.current))
+  }, [])
 
   const clearPendingSelect = useCallback((): void => {
     setPendingSelectId(null)
@@ -276,8 +285,16 @@ export function useIssues(): UseIssuesResult {
   }, [])
 
   const generatePrDiffSummary = useCallback((issueNumber: number): void => {
+    if (prDiffSummaryRunningRef.current.has(issueNumber))
+      return
+    prDiffSummaryRunningRef.current.add(issueNumber)
+    setPrDiffSummaryRunning(new Set(prDiffSummaryRunningRef.current))
     postMessage({ type: 'issue/generate-pr-diff-summary', issueNumber })
   }, [])
+
+  const isPrDiffSummaryRunning = useCallback((issueNumber: number): boolean => {
+    return prDiffSummaryRunning.has(issueNumber)
+  }, [prDiffSummaryRunning])
 
   const openPr = useCallback((pr: string): void => {
     postMessage({ type: 'pr/open', pr })
@@ -401,6 +418,11 @@ export function useIssues(): UseIssuesResult {
               ),
             }
           })
+          if (msg.patch.prDiffFile)
+            clearPrDiffSummaryRunning(msg.issueNumber)
+          break
+        case 'issue/pr-diff-summary-done':
+          clearPrDiffSummaryRunning(msg.issueNumber)
           break
         case 'issue/remove':
           // 工单被删除或关闭 — 从 open issues 数组移除。如果它是当前选中的，挑下一张
@@ -561,7 +583,7 @@ export function useIssues(): UseIssuesResult {
     postMessage({ type: 'branch-sync/check' })
     postMessage({ type: 'env-lock/check' })
     return cleanup
-  }, [])
+  }, [clearPrDiffSummaryRunning])
 
-  return { state, settings, globalAutoReview, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, focusSession, openFile, implement, generatePrDiffSummary, openPr, openWorktree, deleteWorktree, deleteIssue, closeIssue, closeSessionTab, startBrainstormSession, changeColumn, setDependency, clearDependency, updateIssueAutoReview, logs, fetchLogs, clearLogs, pendingSelectId, clearPendingSelect, commitRunning, runCommit, hasChanges, branchSyncBehind, branchSyncRunning, branchSyncDisabled, branchSyncTitle, runBranchSync, envLocked, envFileCount, envLockRunning, envLockTitle, toggleEnvLock }
+  return { state, settings, globalAutoReview, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, focusSession, openFile, implement, generatePrDiffSummary, isPrDiffSummaryRunning, openPr, openWorktree, deleteWorktree, deleteIssue, closeIssue, closeSessionTab, startBrainstormSession, changeColumn, setDependency, clearDependency, updateIssueAutoReview, logs, fetchLogs, clearLogs, pendingSelectId, clearPendingSelect, commitRunning, runCommit, hasChanges, branchSyncBehind, branchSyncRunning, branchSyncDisabled, branchSyncTitle, runBranchSync, envLocked, envFileCount, envLockRunning, envLockTitle, toggleEnvLock }
 }

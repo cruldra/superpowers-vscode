@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { useMemo, useRef } from 'react'
-import { CircleSlash, ExternalLink, FileSearch, Play, Terminal, Trash2, X } from 'lucide-react'
+import { CircleSlash, ExternalLink, Play, Terminal, Trash2, X } from 'lucide-react'
 import type { Issue, IssueColumn } from '../types'
 import { COLUMN_LABELS, COLUMN_ORDER } from '../types'
 import { isIssueLocked } from '../lib/dependencies'
@@ -26,6 +26,8 @@ interface IssueDetailPanelProps {
   onOpenPr: (pr: string) => void
   /** Start a background Claude run that writes the PR diff summary markdown. */
   onGeneratePrDiffSummary: (issueNumber: number) => void
+  /** Whether a PR diff summary generation request is in flight for an issue. */
+  isPrDiffSummaryRunning: (issueNumber: number) => boolean
   /** Open the workspace-relative worktree path in a new VS Code window. */
   onOpenWorktree: (path: string) => void
   /** Delete the worktree (`git worktree remove`) and clear it from state. */
@@ -68,6 +70,7 @@ export function IssueDetailPanel({
   onImplement,
   onOpenPr,
   onGeneratePrDiffSummary,
+  isPrDiffSummaryRunning,
   onOpenWorktree,
   onDeleteWorktree,
   onDeleteIssue,
@@ -85,6 +88,7 @@ export function IssueDetailPanel({
   const lockTitle = locked && prerequisiteNumber != null
     ? `等待 #${prerequisiteNumber} 完成`
     : undefined
+  const prDiffSummaryRunning = issue ? isPrDiffSummaryRunning(issue.number) : false
 
   // 三个会话 id 行（头脑风暴/实施/审查）共用一个"上次触发时间戳"表，
   // 防止用户连续快速点击同一行时触发多次 resume —— extension 端 findExistingTerminal
@@ -302,12 +306,15 @@ export function IssueDetailPanel({
               if (pr.length > 0)
                 onOpenPr(pr)
             },
-            secondaryActionIcon: issue?.pr
-              ? <FileSearch className="size-3.5" />
+            secondaryActionIcon: issue?.pr && !issue?.prDiffFile
+              ? <Play className="size-3.5" />
               : undefined,
-            secondaryActionTitle: '生成 PR 变更摘要',
+            secondaryActionTitle: prDiffSummaryRunning
+              ? 'PR 变更摘要生成中'
+              : '生成 PR 变更摘要',
+            secondaryDisabled: prDiffSummaryRunning,
             onSecondaryAction: () => {
-              if (issue?.pr)
+              if (issue?.pr && !issue.prDiffFile && !prDiffSummaryRunning)
                 onGeneratePrDiffSummary(issue.number)
             },
           },
@@ -346,7 +353,7 @@ export function IssueDetailPanel({
         ],
       },
     ],
-    [onResumeSession, onResumeReviewSession, onOpenFile, onImplement, onOpenPr, onGeneratePrDiffSummary, onOpenWorktree, onDeleteWorktree, onCloseSessionTab, onStartBrainstormSession, onOpenLogs, issue, locked, lockTitle, globalAutoReview],
+    [onResumeSession, onResumeReviewSession, onOpenFile, onImplement, onOpenPr, onGeneratePrDiffSummary, onOpenWorktree, onDeleteWorktree, onCloseSessionTab, onStartBrainstormSession, onOpenLogs, issue, locked, lockTitle, globalAutoReview, prDiffSummaryRunning],
   )
 
   if (!issue) {

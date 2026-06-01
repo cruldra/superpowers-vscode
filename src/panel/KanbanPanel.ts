@@ -2007,7 +2007,8 @@ export class KanbanWebviewPanel {
   }
 
   private async handleGeneratePrDiffSummary(issueNumber: number): Promise<void> {
-    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    try {
+      const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
     if (!workspaceRoot) {
       void window.showErrorMessage('请先打开一个工作区文件夹')
       return
@@ -2141,6 +2142,10 @@ export class KanbanWebviewPanel {
         dismissOnTimer: 8000,
       })
       void window.showErrorMessage(`生成 PR 变更摘要失败: ${message}`)
+    }
+    }
+    finally {
+      this.postMessage({ type: 'issue/pr-diff-summary-done', issueNumber })
     }
   }
 

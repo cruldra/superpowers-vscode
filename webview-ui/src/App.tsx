@@ -33,6 +33,7 @@ export function App() {
     openFile,
     implement,
     generatePrDiffSummary,
+    isPrDiffSummaryRunning,
     openPr,
     openWorktree,
     deleteWorktree,
@@ -305,6 +306,7 @@ export function App() {
                 onImplement={implement}
                 onOpenPr={openPr}
                 onGeneratePrDiffSummary={generatePrDiffSummary}
+                isPrDiffSummaryRunning={isPrDiffSummaryRunning}
                 onOpenWorktree={openWorktree}
                 onDeleteWorktree={deleteWorktree}
                 onDeleteIssue={deleteIssue}
