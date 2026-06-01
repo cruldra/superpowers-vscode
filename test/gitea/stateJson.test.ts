@@ -23,6 +23,28 @@ function mockClaudeSpawnSuccess(stdout: string) {
   return child
 }
 
+function mockClaudeSpawnFailure(code: number, stdout: string, stderr = '') {
+  const child = new EventEmitter() as EventEmitter & {
+    stdout: EventEmitter
+    stderr: EventEmitter
+    kill: ReturnType<typeof vi.fn>
+  }
+  child.stdout = new EventEmitter()
+  child.stderr = new EventEmitter()
+  child.kill = vi.fn()
+  spawn.mockImplementationOnce(() => {
+    queueMicrotask(() => {
+      if (stdout)
+        child.stdout.emit('data', Buffer.from(stdout))
+      if (stderr)
+        child.stderr.emit('data', Buffer.from(stderr))
+      child.emit('close', code)
+    })
+    return child
+  })
+  return child
+}
+
 vi.mock('node:child_process', () => ({
   execFile,
   spawn,
@@ -119,6 +141,30 @@ describe('spawnClaude', () => {
       cwd: '/repo',
       stdio: ['ignore', 'pipe', 'pipe'],
     })
+  })
+
+  it('reports JSON stdout diagnostics when claude exits non-zero without stderr', async () => {
+    mockClaudeSpawnFailure(1, '{"error":"quota exceeded","session_id":"session-2"}')
+
+    const { spawnClaude } = await import('../../src/cc/spawnClaude.js')
+
+    await expect(spawnClaude({
+      prompt: 'hi',
+      cwd: '/repo',
+      timeoutMs: 1_000,
+    })).rejects.toThrow('Claude 退出码非零 (1): quota exceeded')
+  })
+
+  it('reports text stdout diagnostics when claude exits non-zero without stderr', async () => {
+    mockClaudeSpawnFailure(1, 'plain failure from stdout')
+
+    const { spawnClaude } = await import('../../src/cc/spawnClaude.js')
+
+    await expect(spawnClaude({
+      prompt: 'hi',
+      cwd: '/repo',
+      timeoutMs: 1_000,
+    })).rejects.toThrow('Claude 退出码非零 (1): plain failure from stdout')
   })
 })
 

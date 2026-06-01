@@ -22,6 +22,7 @@ import { spawn } from 'node:child_process'
 
 const DEFAULT_TIMEOUT_MS = 300_000
 const MAX_BUFFER_BYTES = 10 * 1024 * 1024
+const EXIT_DIAGNOSTIC_MAX_CHARS = 2000
 
 export interface ClaudeImage {
   /** e.g. "image/png", "image/jpeg", "image/webp", "image/gif" */
@@ -97,6 +98,81 @@ function extractClaudePayload(stdout: string): ParsedClaudeJson | null {
       return candidate
   }
   return null
+}
+
+
+function truncateDiagnostic(text: string): string {
+  if (text.length <= EXIT_DIAGNOSTIC_MAX_CHARS)
+    return text
+  return `${text.slice(0, EXIT_DIAGNOSTIC_MAX_CHARS)}…`
+}
+
+function formatDiagnosticValue(value: unknown): string | null {
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    return trimmed || null
+  }
+  if (typeof value === 'number' || typeof value === 'boolean')
+    return String(value)
+  if (value && typeof value === 'object') {
+    try {
+      return JSON.stringify(value)
+    }
+    catch {
+      return null
+    }
+  }
+  return null
+}
+
+function extractJsonDiagnostic(text: string): string | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  }
+  catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== 'object')
+    return null
+
+  const obj = parsed as Record<string, unknown>
+  for (const key of ['error', 'message', 'result', 'summary']) {
+    const diagnostic = formatDiagnosticValue(obj[key])
+    if (diagnostic)
+      return truncateDiagnostic(diagnostic)
+  }
+  return null
+}
+
+function extractStdoutDiagnostic(stdout: string): string | null {
+  const trimmed = stdout.trim()
+  if (!trimmed)
+    return null
+
+  const direct = extractJsonDiagnostic(trimmed)
+  if (direct)
+    return direct
+
+  const lines = trimmed.split('\n')
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim()
+    if (!line)
+      continue
+    const diagnostic = extractJsonDiagnostic(line)
+    if (diagnostic)
+      return diagnostic
+  }
+
+  return truncateDiagnostic(trimmed)
+}
+
+function buildClaudeExitDiagnostic(stderr: string, stdout: string): string {
+  const stderrDiagnostic = stderr.trim()
+  if (stderrDiagnostic)
+    return truncateDiagnostic(stderrDiagnostic)
+
+  return extractStdoutDiagnostic(stdout) ?? '(无 stderr/stdout)'
 }
 
 function buildStreamJsonLine(prompt: string, images: ClaudeImage[]): string {
@@ -225,7 +301,7 @@ function spawnClaudeText(
       clearTimeout(timer)
       if (code !== 0) {
         reject(new ClaudeError(
-          `Claude 退出码非零 (${code}): ${stderr.trim() || '(无 stderr)'}`,
+          `Claude 退出码非零 (${code}): ${buildClaudeExitDiagnostic(stderr, stdout)}`,
           stderr,
         ))
         return
@@ -343,7 +419,7 @@ function spawnClaudeStreamed(
       clearTimeout(timer)
       if (code !== 0) {
         reject(new ClaudeError(
-          `Claude 退出码非零 (${code}): ${stderr.trim() || '(无 stderr)'}`,
+          `Claude 退出码非零 (${code}): ${buildClaudeExitDiagnostic(stderr, stdout)}`,
           stderr,
         ))
         return
