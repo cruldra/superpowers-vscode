@@ -386,22 +386,50 @@ function PropertyRow({
 
       case 'pr-link': {
         const hasValue = typeof value === 'string' && value.length > 0
-        if (!hasValue) {
+        const hasSecondary = propDef.secondaryActionIcon != null
+        const secondaryDisabled = !!propDef.secondaryDisabled
+        if (!hasValue && !hasSecondary) {
           return (
             <span className="block truncate px-2 py-1.5 text-xs opacity-50">未关联 PR</span>
           )
         }
         return (
-          <button
-            type="button"
-            data-property-action="primary"
-            onClick={() => propDef.onAction?.(value)}
-            className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left text-xs text-[var(--vscode-textLink-foreground)] hover:text-[var(--vscode-textLink-activeForeground)]"
-          >
-            <span className="truncate font-mono underline-offset-2 hover:underline">
-              {`#${value as string}`}
-            </span>
-          </button>
+          <div className="flex w-full items-center gap-1.5 px-2 py-1.5">
+            {hasValue
+              ? (
+                  <button
+                    type="button"
+                    data-property-action="primary"
+                    onClick={() => propDef.onAction?.(value)}
+                    className="min-w-0 flex-1 truncate text-left text-xs font-mono text-[var(--vscode-textLink-foreground)] underline-offset-2 hover:text-[var(--vscode-textLink-activeForeground)] hover:underline"
+                  >
+                    {`#${value as string}`}
+                  </button>
+                )
+              : (
+                  <span className="min-w-0 flex-1 truncate text-xs opacity-50">未关联 PR</span>
+                )}
+            {hasSecondary && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (secondaryDisabled)
+                    return
+                  propDef.onSecondaryAction?.()
+                }}
+                disabled={secondaryDisabled}
+                title={propDef.secondaryActionTitle}
+                aria-label={propDef.secondaryActionTitle ?? '次要操作'}
+                className={`grid size-5 shrink-0 place-items-center ${
+                  secondaryDisabled
+                    ? 'cursor-not-allowed opacity-30'
+                    : 'opacity-60 hover:opacity-100'
+                }`}
+              >
+                {propDef.secondaryActionIcon}
+              </button>
+            )}
+          </div>
         )
       }
 
