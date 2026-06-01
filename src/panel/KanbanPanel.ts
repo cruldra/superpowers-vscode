@@ -14,8 +14,7 @@ import { promises as fsp } from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { commands, env, TabInputTerminal, ThemeColor, Uri, ViewColumn, window, workspace } from 'vscode'
-import { deleteToken, getToken, setToken } from '../auth/secrets'
-import { listClaudeProfiles } from '../cc/profiles'
+import { deleteToken, getToken } from '../auth/secrets'
 import { getBrainstormContinuePrompt, getBrainstormPrompt, getImplementPlanPrompt } from '../cc/prompts'
 import { watchForNewCodexSession } from '../cc/codexSessionWatcher'
 import { projectsDirFor, watchForNewSession } from '../cc/sessionWatcher'
@@ -39,9 +38,9 @@ import {
 import { isValidSpxFilePath, loadIssues } from '../gitea/issueLoader'
 import { mergeStateJsonComment, readStateJsonComment } from '../gitea/stateJson'
 import { logger } from '../logging/logger'
-import { readProfiles, writeProfiles, type ProfilesData } from '../profiles/store'
-import { getSettings, saveSettings } from '../settings/store'
+import { getSettings } from '../settings/store'
 import { webhookCoordinator } from '../webhook/coordinator'
+import * as settings from './handlers/settings'
 import * as toolbar from './handlers/toolbar'
 import { PALETTE, pickRandomIssueColor, resolveIssueColor, themeColorIdToIconUri } from './issueColor'
 
@@ -323,11 +322,11 @@ export class KanbanWebviewPanel {
       return
     }
     if (msg.type === 'settings/save') {
-      void this.handleSettingsSave(msg)
+      void settings.handleSettingsSave(this, msg)
       return
     }
     if (msg.type === 'settings/edit-request') {
-      void this.handleEditSettingsRequest()
+      void settings.handleEditSettingsRequest(this)
       return
     }
     if (msg.type === 'issue/create') {
@@ -335,7 +334,7 @@ export class KanbanWebviewPanel {
       return
     }
     if (msg.type === 'profiles/list') {
-      void this.handleProfilesList()
+      void settings.handleProfilesList(this)
       return
     }
     if (msg.type === 'toast/open-url') {
@@ -440,15 +439,15 @@ export class KanbanWebviewPanel {
       return
     }
     if (msg.type === 'profiles/get') {
-      void this.handleProfilesGet()
+      void settings.handleProfilesGet(this)
       return
     }
     if (msg.type === 'profiles/save') {
-      void this.handleProfilesSave(msg.data)
+      void settings.handleProfilesSave(this, msg.data)
       return
     }
     if (msg.type === 'profiles/open') {
-      void this.handleProfilesOpen(msg.value)
+      void settings.handleProfilesOpen(this, msg.value)
     }
   }
 
@@ -1779,187 +1778,6 @@ export class KanbanWebviewPanel {
     })
 
     void window.showInformationMessage(`已启动 #${issueNumber} 规划会话`)
-  }
-
-  /**
-   * 工作区 profile 表读取入口：webview mount 时 / 切换到 Profile tab 时拉数据。
-   * 文件不存在直接返回默认结构 `{ profiles: ['dev', 'prod'], rows: [] }`，
-   * 不会物理创建文件。
-   */
-  private async handleProfilesGet(): Promise<void> {
-    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
-    if (!workspaceRoot) {
-      this.postMessage({
-        type: 'toast/show',
-        id: makeNonce(),
-        level: 'error',
-        message: '请先打开一个工作区文件夹',
-        dismissOnTimer: 5000,
-      })
-      return
-    }
-    try {
-      const data = await readProfiles(workspaceRoot)
-      this.postMessage({ type: 'profiles/show', data })
-    }
-    catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      this.postMessage({
-        type: 'toast/show',
-        id: makeNonce(),
-        level: 'error',
-        message: `读取 profiles.json 失败: ${message}`,
-        dismissOnTimer: 6000,
-      })
-    }
-  }
-
-  /**
-   * 工作区 profile 表写入入口。webview 已经 optimistic 更新，
-   * 成功不回消息；失败弹 toast。
-   */
-  private async handleProfilesSave(data: ProfilesData): Promise<void> {
-    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
-    if (!workspaceRoot) {
-      this.postMessage({
-        type: 'toast/show',
-        id: makeNonce(),
-        level: 'error',
-        message: '请先打开一个工作区文件夹',
-        dismissOnTimer: 5000,
-      })
-      return
-    }
-    try {
-      await writeProfiles(workspaceRoot, data)
-    }
-    catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      this.postMessage({
-        type: 'toast/show',
-        id: makeNonce(),
-        level: 'error',
-        message: `写入 profiles.json 失败: ${message}`,
-        dismissOnTimer: 6000,
-      })
-    }
-  }
-
-  /**
-   * 智能打开 profile 单元格里的 value。
-   *
-   * - http(s):// / git@host:owner/repo → 外部浏览器（git@ 先转 https）
-   * - 其他 → 当作路径处理，`~` 展开为 home，相对路径以 workspaceRoot 为基
-   *   - 是目录 → revealFileInOS
-   *   - 是文件 → vscode.open
-   *   - 不存在 → toast 报错
-   */
-  private async handleProfilesOpen(value: string): Promise<void> {
-    const trimmed = value.trim()
-    if (!trimmed) {
-      this.postMessage({
-        type: 'toast/show',
-        id: makeNonce(),
-        level: 'error',
-        message: '无法打开：值为空',
-        dismissOnTimer: 5000,
-      })
-      return
-    }
-
-    // URL 分支：http(s) 直开；git@ 先转 https
-    if (/^(?:https?:\/\/|git@)/i.test(trimmed)) {
-      let url = trimmed
-      const gitSshMatch = /^git@([^:]+):(.+?)(?:\.git)?$/i.exec(trimmed)
-      if (gitSshMatch) {
-        const host = gitSshMatch[1]
-        const repoPath = gitSshMatch[2].replace(/\.git$/i, '')
-        url = `https://${host}/${repoPath}`
-      }
-      else if (/^https?:\/\//i.test(trimmed)) {
-        url = trimmed.replace(/\.git$/i, '')
-      }
-      try {
-        await env.openExternal(Uri.parse(url))
-      }
-      catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        this.postMessage({
-          type: 'toast/show',
-          id: makeNonce(),
-          level: 'error',
-          message: `打开链接失败: ${message}`,
-          dismissOnTimer: 6000,
-        })
-      }
-      return
-    }
-
-    // 路径分支：~ 展开、相对路径补 workspaceRoot
-    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
-    let abs: string
-    if (trimmed.startsWith('~')) {
-      abs = path.join(os.homedir(), trimmed.slice(1))
-    }
-    else if (path.isAbsolute(trimmed)) {
-      abs = trimmed
-    }
-    else {
-      if (!workspaceRoot) {
-        this.postMessage({
-          type: 'toast/show',
-          id: makeNonce(),
-          level: 'error',
-          message: '无法解析相对路径：未打开工作区',
-          dismissOnTimer: 5000,
-        })
-        return
-      }
-      abs = path.join(workspaceRoot, trimmed)
-    }
-
-    let stat: fs.Stats
-    try {
-      stat = fs.statSync(abs)
-    }
-    catch {
-      this.postMessage({
-        type: 'toast/show',
-        id: makeNonce(),
-        level: 'error',
-        message: `无法打开：路径不存在 / 不是 URL（${abs}）`,
-        dismissOnTimer: 6000,
-      })
-      return
-    }
-
-    try {
-      if (stat.isDirectory()) {
-        await commands.executeCommand('revealFileInOS', Uri.file(abs))
-      }
-      else if (stat.isFile()) {
-        await commands.executeCommand('vscode.open', Uri.file(abs))
-      }
-      else {
-        this.postMessage({
-          type: 'toast/show',
-          id: makeNonce(),
-          level: 'error',
-          message: `无法打开：既不是文件也不是目录（${abs}）`,
-          dismissOnTimer: 6000,
-        })
-      }
-    }
-    catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      this.postMessage({
-        type: 'toast/show',
-        id: makeNonce(),
-        level: 'error',
-        message: `打开失败: ${message}`,
-        dismissOnTimer: 6000,
-      })
-    }
   }
 
   /**
@@ -4100,150 +3918,6 @@ export class KanbanWebviewPanel {
     }
   }
 
-  private async handleSettingsSave(payload: {
-    host: string
-    token: string
-    webhookPort: number
-    brainstormPrompt: string
-    implementPlanPrompt: string
-    autoReview: boolean
-    reviewPrompt: string
-    devBranch: string
-    autoBuildBranch: string
-    worktreePostCreateScript: string
-    worktreePreRemoveScript: string
-    implTabPreCreateScript: string
-    implTabPostCloseScript: string
-    implementProfilePath: string
-  }): Promise<void> {
-    const trimmedHost = payload.host.trim()
-    const trimmedToken = payload.token.trim()
-    const trimmedDevBranch = payload.devBranch.trim()
-    const trimmedAutoBuildBranch = payload.autoBuildBranch.trim()
-    // Hook script paths: keep '' meaningful (= "use default
-    // .spx/*.sh"). Just strip whitespace.
-    const trimmedPostCreate = payload.worktreePostCreateScript.trim()
-    const trimmedPreRemove = payload.worktreePreRemoveScript.trim()
-    const trimmedImplPre = payload.implTabPreCreateScript.trim()
-    const trimmedImplPost = payload.implTabPostCloseScript.trim()
-    // implementProfilePath: '' is meaningful (= "fall back to per-issue
-    // profilePath then DEFAULT_PROFILE_PATH"). Just strip whitespace so a
-    // stray space can't make the resolver think it's set.
-    const trimmedImplProfile = payload.implementProfilePath.trim()
-    const prev = getSettings(this.context)
-    // Capture the previous token *for this host* before overwriting it, so
-    // we can decide below whether the kanban needs a re-fetch. (Only host
-    // and token affect the issue list — port/url-prefix/prompts don't.)
-    const oldToken = trimmedHost ? await getToken(this.context, trimmedHost) : undefined
-    // Empty token + existing saved token = user wants to keep the existing
-    // one (placeholder semantics in the modal). Skip rewriting and skip the
-    // kanban refresh since auth didn't change.
-    const keepExisting = trimmedToken === '' && !!oldToken
-    if (!trimmedHost || (!trimmedToken && !keepExisting)) {
-      this.postMessage({
-        type: 'settings/show',
-        host: trimmedHost,
-        errorMessage: 'Host 和 Token 都不能为空',
-        tokenSaved: !!oldToken,
-        webhookPort: payload.webhookPort,
-        brainstormPrompt: payload.brainstormPrompt || prev.brainstormPrompt,
-        implementPlanPrompt: payload.implementPlanPrompt || prev.implementPlanPrompt,
-        autoReview: payload.autoReview,
-        reviewPrompt: payload.reviewPrompt || prev.reviewPrompt,
-        devBranch: trimmedDevBranch || prev.devBranch,
-        autoBuildBranch: trimmedAutoBuildBranch,
-        worktreePostCreateScript: trimmedPostCreate,
-        worktreePreRemoveScript: trimmedPreRemove,
-        implTabPreCreateScript: trimmedImplPre,
-        implTabPostCloseScript: trimmedImplPost,
-        implementProfilePath: trimmedImplProfile,
-      })
-      return
-    }
-    await saveSettings(this.context, {
-      webhookPort: payload.webhookPort,
-      brainstormPrompt: payload.brainstormPrompt,
-      implementPlanPrompt: payload.implementPlanPrompt,
-      autoReview: payload.autoReview,
-      reviewPrompt: payload.reviewPrompt,
-      // Persist trimmed values; '' is meaningful for autoBuildBranch
-      // ("follow devBranch"), so don't coerce — getSettings handles the
-      // fallback at read time.
-      devBranch: trimmedDevBranch,
-      autoBuildBranch: trimmedAutoBuildBranch,
-      worktreePostCreateScript: trimmedPostCreate,
-      worktreePreRemoveScript: trimmedPreRemove,
-      implTabPreCreateScript: trimmedImplPre,
-      implTabPostCloseScript: trimmedImplPost,
-      implementProfilePath: trimmedImplProfile,
-    })
-    if (!keepExisting)
-      await setToken(this.context, trimmedHost, trimmedToken)
-    // Honor a port change without requiring a window reload. Restart the
-    // listener and emit a log entry when the port actually changed so the
-    // user can see it in the log modal.
-    const newPort = getSettings(this.context).webhookPort
-    if (newPort !== prev.webhookPort) {
-      logger.add({
-        level: 'info',
-        source: 'webhook',
-        message: `端口配置变更，重启监听 :${newPort}`,
-      })
-    }
-    try {
-      await webhookCoordinator.ensurePort(newPort)
-    }
-    catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      logger.add({
-        level: 'warn',
-        source: 'webhook',
-        message: 'ensurePort 失败',
-        details: message,
-      })
-    }
-    // Only re-fetch issues when the credential that gates the kanban
-    // actually changed. Saves a round-trip + visible loading flash when the
-    // user just tweaked prompts or webhook settings. `keepExisting` already
-    // guarantees no auth change.
-    if (!keepExisting && oldToken !== trimmedToken)
-      await this.loadAndPush()
-    // Branch-sync inputs may have changed — refresh the toolbar button.
-    void this.handleBranchSyncCheck()
-  }
-
-  private async handleEditSettingsRequest(): Promise<void> {
-    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
-    let host = ''
-    if (workspaceRoot) {
-      const remote = await detectRepo(workspaceRoot)
-      if (remote)
-        host = remote.host
-    }
-    const s = getSettings(this.context)
-    const tok = host ? await getToken(this.context, host) : undefined
-    const tokenSaved = !!tok && tok.length > 0
-    // User clicked the gear themselves — let them back out without saving.
-    this.postMessage({
-      type: 'settings/show',
-      host,
-      canCancel: true,
-      tokenSaved,
-      webhookPort: s.webhookPort,
-      brainstormPrompt: s.brainstormPrompt,
-      implementPlanPrompt: s.implementPlanPrompt,
-      autoReview: s.autoReview,
-      reviewPrompt: s.reviewPrompt,
-      devBranch: s.devBranch,
-      autoBuildBranch: s.autoBuildBranch,
-      worktreePostCreateScript: s.worktreePostCreateScript,
-      worktreePreRemoveScript: s.worktreePreRemoveScript,
-      implTabPreCreateScript: s.implTabPreCreateScript,
-      implTabPostCloseScript: s.implTabPostCloseScript,
-      implementProfilePath: s.implementProfilePath,
-    })
-  }
-
   /**
    * Pick the profile.json that the *implement-class* cc sessions
    * (handleImplement / handleResumeSession when sessionKind === 'implement' /
@@ -4507,20 +4181,6 @@ export class KanbanWebviewPanel {
   }
 
   /**
-   * Read profiles from the hardcoded directory and push the list to the
-   * webview. Failures are swallowed and surfaced as an empty list so the
-   * modal simply hides its profile selector.
-   */
-  private async handleProfilesList(): Promise<void> {
-    try {
-      const profiles = await listClaudeProfiles()
-      this.postMessage({ type: 'profiles/update', profiles })
-    }
-    catch {
-      this.postMessage({ type: 'profiles/update', profiles: [] })
-    }
-  }
-  /**
    * Compute how far the remote auto-build branch is behind the remote dev
    * branch, then push a `branch-sync/status` to the webview. Called on
    * webview init, after `settings/save`, and after a successful sync.
@@ -4528,7 +4188,8 @@ export class KanbanWebviewPanel {
    * Empty `autoBuildBranch` setting means "use devBranch" — collapsing to
    * the equal-branch case in `checkBranchSync`, which marks it unavailable.
    */
-  private handleBranchSyncCheck(): Promise<void> {
+  // internal: handler 模块访问
+  handleBranchSyncCheck(): Promise<void> {
     return toolbar.handleBranchSyncCheck(this)
   }
 
@@ -4546,7 +4207,8 @@ export class KanbanWebviewPanel {
 
   /** Forces the open panel (if any) into the setup-auth state. */
   static requestEditAuth(): void {
-    void KanbanWebviewPanel.current?.handleEditSettingsRequest()
+    if (KanbanWebviewPanel.current)
+      settings.requestEditAuth(KanbanWebviewPanel.current)
   }
 
   postMessage(msg: ExtensionToWebview): void {
