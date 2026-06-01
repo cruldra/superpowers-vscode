@@ -1,9 +1,31 @@
+import { EventEmitter } from 'node:events'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const execFile = vi.fn()
+const spawn = vi.fn()
+
+function mockClaudeSpawnSuccess(stdout: string) {
+  const child = new EventEmitter() as EventEmitter & {
+    stdout: EventEmitter
+    stderr: EventEmitter
+    kill: ReturnType<typeof vi.fn>
+  }
+  child.stdout = new EventEmitter()
+  child.stderr = new EventEmitter()
+  child.kill = vi.fn()
+  spawn.mockImplementationOnce(() => {
+    queueMicrotask(() => {
+      child.stdout.emit('data', Buffer.from(stdout))
+      child.emit('close', 0)
+    })
+    return child
+  })
+  return child
+}
 
 vi.mock('node:child_process', () => ({
   execFile,
+  spawn,
 }))
 
 const listIssueComments = vi.fn()
@@ -62,6 +84,41 @@ describe('mergeStateJsonCommentGuarded', () => {
     })
 
     expect(postIssueComment).not.toHaveBeenCalled()
+  })
+})
+
+describe('spawnClaude', () => {
+  beforeEach(() => {
+    execFile.mockReset()
+    spawn.mockReset()
+  })
+
+  it('runs text prompts with stdin ignored so claude -p does not wait for piped input', async () => {
+    execFile.mockImplementationOnce((_cmd, _args, _opts, cb) => {
+      cb(null, '{"session_id":"legacy","result":"wrong"}', '')
+    })
+    mockClaudeSpawnSuccess('{"session_id":"session-1","result":"ok"}')
+
+    const { spawnClaude } = await import('../../src/cc/spawnClaude.js')
+
+    const result = await spawnClaude({
+      prompt: 'hi',
+      cwd: '/repo',
+      timeoutMs: 1_000,
+    })
+
+    expect(result).toEqual({
+      sessionId: 'session-1',
+      resultText: 'ok',
+      rawJson: '{"session_id":"session-1","result":"ok"}',
+    })
+    expect(execFile).not.toHaveBeenCalled()
+    expect(spawn).toHaveBeenCalledOnce()
+    expect(spawn.mock.calls[0][0]).toBe('claude')
+    expect(spawn.mock.calls[0][2]).toMatchObject({
+      cwd: '/repo',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
   })
 })
 

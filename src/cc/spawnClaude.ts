@@ -7,7 +7,7 @@
  * Two execution paths share the same output-parsing logic:
  *
  * - **Text-only** (no images): plain `claude -p "<prompt>" --output-format json`
- *   via `execFile`. Simple and identical to v1 behaviour.
+ *   via `spawn` with stdin ignored so the CLI does not wait for piped input.
  *
  * - **With images**: switch to `claude -p --input-format stream-json
  *   --output-format json` via `spawn`, then feed a single NDJSON line on
@@ -18,7 +18,7 @@
  *   https://code.claude.com/docs/en/agent-sdk/streaming-vs-single-mode
  */
 
-import { execFile, spawn } from 'node:child_process'
+import { spawn } from 'node:child_process'
 
 const DEFAULT_TIMEOUT_MS = 300_000
 const MAX_BUFFER_BYTES = 10 * 1024 * 1024
@@ -156,56 +156,95 @@ function spawnClaudeText(
   ]
 
   return new Promise<ClaudeResult>((resolve, reject) => {
-    const child = execFile(
-      'claude',
-      args,
-      {
-        cwd,
-        env: { ...process.env },
-        timeout: timeoutMs,
-        maxBuffer: MAX_BUFFER_BYTES,
-      },
-      (error, stdout, stderr) => {
-        if (error) {
-          const errCode = (error as NodeJS.ErrnoException).code
-          if (errCode === 'ENOENT') {
-            reject(new ClaudeError(
-              '未检测到 claude CLI，请确认已安装并在 PATH 中',
-              stderr ?? '',
-            ))
-            return
-          }
-          const killed = (error as NodeJS.ErrnoException & { killed?: boolean }).killed
-          if (killed || errCode === 'ETIMEDOUT') {
-            reject(new ClaudeTimeoutError(
-              `Claude 调用超时（${Math.round(timeoutMs / 1000)}s）`,
-              stderr ?? '',
-            ))
-            return
-          }
-          reject(new ClaudeError(
-            `Claude 调用失败: ${error.message}`,
-            stderr ?? '',
-          ))
-          return
-        }
+    let stdout = ''
+    let stderr = ''
+    let stdoutBytes = 0
+    let settled = false
 
-        const payload = extractClaudePayload(stdout)
-        if (!payload) {
-          reject(new ClaudeError(
-            'Claude 返回异常: 无法解析 JSON 输出',
-            stdout,
-          ))
+    const child = spawn('claude', args, {
+      cwd,
+      env: { ...process.env },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+
+    const timer = setTimeout(() => {
+      if (settled)
+        return
+      settled = true
+      child.kill('SIGKILL')
+      reject(new ClaudeTimeoutError(
+        `Claude 调用超时（${Math.round(timeoutMs / 1000)}s）`,
+        stderr,
+      ))
+    }, timeoutMs)
+
+    child.on('error', (err) => {
+      if (settled)
+        return
+      settled = true
+      clearTimeout(timer)
+      const errCode = (err as NodeJS.ErrnoException).code
+      if (errCode === 'ENOENT') {
+        reject(new ClaudeError(
+          '未检测到 claude CLI，请确认已安装并在 PATH 中',
+          stderr,
+        ))
+        return
+      }
+      reject(new ClaudeError(
+        `Claude 调用失败: ${err.message}`,
+        stderr,
+      ))
+    })
+
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdoutBytes += chunk.length
+      if (stdoutBytes > MAX_BUFFER_BYTES) {
+        if (settled)
           return
-        }
-        resolve({
-          sessionId: payload.session_id,
-          resultText: payload.result,
-          rawJson: stdout,
-        })
-      },
-    )
-    void child
+        settled = true
+        clearTimeout(timer)
+        child.kill('SIGKILL')
+        reject(new ClaudeError(
+          `Claude 输出超过 ${MAX_BUFFER_BYTES} bytes`,
+          stderr,
+        ))
+        return
+      }
+      stdout += chunk.toString('utf8')
+    })
+
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString('utf8')
+    })
+
+    child.on('close', (code) => {
+      if (settled)
+        return
+      settled = true
+      clearTimeout(timer)
+      if (code !== 0) {
+        reject(new ClaudeError(
+          `Claude 退出码非零 (${code}): ${stderr.trim() || '(无 stderr)'}`,
+          stderr,
+        ))
+        return
+      }
+
+      const payload = extractClaudePayload(stdout)
+      if (!payload) {
+        reject(new ClaudeError(
+          'Claude 返回异常: 无法解析 JSON 输出',
+          stdout,
+        ))
+        return
+      }
+      resolve({
+        sessionId: payload.session_id,
+        resultText: payload.result,
+        rawJson: stdout,
+      })
+    })
   })
 }
 
