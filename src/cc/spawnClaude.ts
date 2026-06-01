@@ -207,16 +207,24 @@ function buildStreamJsonLine(prompt: string, images: ClaudeImage[]): string {
  *   从父 Claude 会话继承会让子进程当成嵌套会话直接静默退出、零输出。
  */
 function buildClaudeChildEnv(): NodeJS.ProcessEnv {
-  const {
-    ANTHROPIC_API_KEY: _apiKey,
-    ANTHROPIC_AUTH_TOKEN: _authToken,
-    CLAUDECODE: _claudecode,
-    CLAUDE_CODE_ENTRYPOINT: _entrypoint,
-    CLAUDE_CODE_SESSION_ID: _sessionId,
-    CLAUDE_CODE_SESSION: _session,
-    ...rest
-  } = process.env
-  return rest
+  // 剔除所有 ANTHROPIC_* 是为了让 `--settings` profile 成为 provider/鉴权的唯一来源
+  // （profile 没配则回落 ~/.claude 订阅 OAuth），避免宿主 env 残留的 BASE_URL/TOKEN
+  // 覆盖 profile 导致 403。同时清除嵌套 Claude 会话标记，避免后台 `claude -p` 误判处于嵌套会话。
+  const NESTED_GUARDS = new Set([
+    'CLAUDECODE',
+    'CLAUDE_CODE_ENTRYPOINT',
+    'CLAUDE_CODE_SESSION_ID',
+    'CLAUDE_CODE_SESSION',
+  ])
+  const out: NodeJS.ProcessEnv = {}
+  for (const [k, v] of Object.entries(process.env)) {
+    if (k.startsWith('ANTHROPIC_'))
+      continue
+    if (NESTED_GUARDS.has(k))
+      continue
+    out[k] = v
+  }
+  return out
 }
 
 export async function spawnClaude(opts: {

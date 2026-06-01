@@ -2076,7 +2076,6 @@ export class KanbanWebviewPanel {
 
       const outputRelPath = `docs/pr-diff/pr-${pr}-issue-${issueNumber}.md`
       const outputAbsPath = path.join(workspaceRoot, outputRelPath)
-      await fsp.mkdir(path.dirname(outputAbsPath), { recursive: true })
 
       this.postMessage({
         type: 'toast/show',
@@ -2089,21 +2088,30 @@ export class KanbanWebviewPanel {
       const profilePath = this.resolveImplementProfilePath(
         typeof state.profilePath === 'string' ? state.profilePath : undefined,
       )
-      const prompt = `你在一个 VS Code 扩展启动的后台 Claude 会话中工作。\n\n硬性限制：\n- 不要修改代码。\n- 不要创建或切换分支。\n- 不要提交。\n- 不要 push。\n- 只分析当前 PR 的代码变动，并写出一个 Markdown 摘要文件。\n\n任务：\n- 当前工作目录是工单 #${issueNumber} 的 worktree。\n- 分析 PR #${pr} 与主分支的代码差异。\n- 可使用 git diff origin/main...HEAD、tea pulls diff ${pr} 或其他只读 git/tea 命令。\n- 将结果写入主工作区文件：${outputAbsPath}\n- 输出文件路径相对主工作区为：${outputRelPath}\n\n摘要格式必须严格为：\n\`\`\`text\n审查重点\n\ndir\n    subdir\n        file     一句关于新增/修改这个文件的目的的简短描述\n\n不太重要的\n\ndir\n    subdir\n        file     一句关于新增/修改这个文件的目的的简短描述\n\`\`\`\n\n要求：\n- 每个新增/修改文件一行。\n- 每行说明新增/修改了什么，以及一句话说明目的。\n- 保留原始文件目录结构，使用 ASCII explorer 缩进。\n- 按重要性分区，最重要文件、核心入口点、关键业务逻辑放在「审查重点」前面。\n- 次要配置、样式、构建产物、纯同步文件放在「不太重要的」。\n- Markdown 文件中只写上述两区内容，不要添加任务历史、执行日志或额外寒暄。`
+      const prompt = `你在一个 VS Code 扩展启动的后台 Claude 会话中工作。\n\n硬性限制：\n- 不要修改代码。\n- 不要创建或切换分支。\n- 不要提交。\n- 不要 push。\n- 不要写任何文件。\n- 只分析当前 PR 的代码变动，并把 Markdown 摘要正文直接输出到 stdout。\n\n任务：\n- 当前工作目录是工单 #${issueNumber} 的 worktree。\n- 分析 PR #${pr} 与主分支的代码差异。\n- 可使用 git diff origin/main...HEAD、tea pulls diff ${pr} 或其他只读 git/tea 命令。\n\n摘要格式必须严格为：\n\`\`\`text\n审查重点\n\ndir\n    subdir\n        file     一句关于新增/修改这个文件的目的的简短描述\n\n不太重要的\n\ndir\n    subdir\n        file     一句关于新增/修改这个文件的目的的简短描述\n\`\`\`\n\n要求：\n- 每个新增/修改文件一行。\n- 每行说明新增/修改了什么，以及一句话说明目的。\n- 保留原始文件目录结构，使用 ASCII explorer 缩进。\n- 按重要性分区，最重要文件、核心入口点、关键业务逻辑放在「审查重点」前面。\n- 次要配置、样式、构建产物、纯同步文件放在「不太重要的」。\n- 只输出 Markdown 摘要正文本身，不要写文件，不要任何前导说明/寒暄/结尾总结，第一行就是正文。`
 
-      await spawnClaude({
+      const result = await spawnClaude({
         prompt,
         cwd: worktreePath,
         profilePath,
         timeoutMs: 600_000,
       })
 
-      try {
-        await fsp.access(outputAbsPath, fs.constants.F_OK)
+      const summary = result.resultText.trim()
+      if (!summary) {
+        this.postMessage({
+          type: 'toast/show',
+          id: randomUUID(),
+          level: 'error',
+          message: 'Claude 未返回摘要内容',
+          dismissOnTimer: 8000,
+        })
+        void window.showErrorMessage('Claude 未返回摘要内容')
+        return
       }
-      catch {
-        throw new Error(`Claude 未生成摘要文件: ${outputRelPath}`)
-      }
+
+      fs.mkdirSync(path.dirname(outputAbsPath), { recursive: true })
+      fs.writeFileSync(outputAbsPath, summary, 'utf8')
 
       await mergeStateJsonComment({
         host: remote.host,

@@ -171,6 +171,8 @@ describe('spawnClaude', () => {
     const saved = {
       ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
       ANTHROPIC_AUTH_TOKEN: process.env.ANTHROPIC_AUTH_TOKEN,
+      ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
+      ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL,
       CLAUDECODE: process.env.CLAUDECODE,
       CLAUDE_CODE_ENTRYPOINT: process.env.CLAUDE_CODE_ENTRYPOINT,
       CLAUDE_CODE_SESSION_ID: process.env.CLAUDE_CODE_SESSION_ID,
@@ -178,6 +180,8 @@ describe('spawnClaude', () => {
     }
     process.env.ANTHROPIC_API_KEY = 'sk-restricted-org-key'
     process.env.ANTHROPIC_AUTH_TOKEN = 'auth-token'
+    process.env.ANTHROPIC_BASE_URL = 'https://relay.example/v1'
+    process.env.ANTHROPIC_MODEL = 'relay-model'
     process.env.CLAUDECODE = '1'
     process.env.CLAUDE_CODE_ENTRYPOINT = 'cli'
     process.env.CLAUDE_CODE_SESSION_ID = 'parent-session'
@@ -197,6 +201,8 @@ describe('spawnClaude', () => {
       const env = spawn.mock.calls[0][2].env as NodeJS.ProcessEnv
       expect(env).not.toHaveProperty('ANTHROPIC_API_KEY')
       expect(env).not.toHaveProperty('ANTHROPIC_AUTH_TOKEN')
+      expect(env).not.toHaveProperty('ANTHROPIC_BASE_URL')
+      expect(env).not.toHaveProperty('ANTHROPIC_MODEL')
       expect(env).not.toHaveProperty('CLAUDECODE')
       expect(env).not.toHaveProperty('CLAUDE_CODE_ENTRYPOINT')
       expect(env).not.toHaveProperty('CLAUDE_CODE_SESSION_ID')
