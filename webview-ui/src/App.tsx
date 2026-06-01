@@ -32,6 +32,7 @@ export function App() {
     focusSession,
     openFile,
     implement,
+    generatePrDiffSummary,
     openPr,
     openWorktree,
     deleteWorktree,
@@ -303,6 +304,7 @@ export function App() {
                 onOpenFile={openFile}
                 onImplement={implement}
                 onOpenPr={openPr}
+                onGeneratePrDiffSummary={generatePrDiffSummary}
                 onOpenWorktree={openWorktree}
                 onDeleteWorktree={deleteWorktree}
                 onDeleteIssue={deleteIssue}

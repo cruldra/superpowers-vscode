@@ -57,6 +57,13 @@ func TestValidateRejectsBadSpecFile(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsBadPrDiffFile(t *testing.T) {
+	err := Validate([]byte(`{"prDiffFile":"docs/superpowers/plans/foo.md"}`))
+	if err == nil {
+		t.Fatal("非 docs/pr-diff/*.md 路径应当被 prDiffFile pattern 拒绝")
+	}
+}
+
 func TestValidateAcceptsFullState(t *testing.T) {
 	full := `{
         "column":"in-progress",
@@ -66,6 +73,7 @@ func TestValidateAcceptsFullState(t *testing.T) {
         "profilePath":"/home/x/.claude/settings.json",
         "specFile":"docs/superpowers/specs/foo.md",
         "planFile":"docs/superpowers/plans/foo.md",
+        "prDiffFile":"docs/pr-diff/pr-42-issue-7.md",
         "pr":"42",
         "prMerged":true,
         "branch":"feature/abc",

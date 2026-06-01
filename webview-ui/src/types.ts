@@ -19,6 +19,8 @@ export interface Issue {
    * surfaced from the Claude session transcript. Lives under
    * `docs/superpowers/plans/*.md`. */
   planFile?: string
+  /** Optional workspace-relative path to the generated PR diff summary. */
+  prDiffFile?: string
   /** PR number associated with this issue (set after webhook fires). */
   pr?: string
   /** Whether the associated PR has been merged. */

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { useMemo, useRef } from 'react'
-import { CircleSlash, ExternalLink, Play, Terminal, Trash2, X } from 'lucide-react'
+import { CircleSlash, ExternalLink, FileSearch, Play, Terminal, Trash2, X } from 'lucide-react'
 import type { Issue, IssueColumn } from '../types'
 import { COLUMN_LABELS, COLUMN_ORDER } from '../types'
 import { isIssueLocked } from '../lib/dependencies'
@@ -24,6 +24,8 @@ interface IssueDetailPanelProps {
   onImplement: (issueNumber: number, planFile: string, profilePath?: string, sessionId?: string) => void
   /** Open the gitea PR page in the browser. */
   onOpenPr: (pr: string) => void
+  /** Start a background Claude run that writes the PR diff summary markdown. */
+  onGeneratePrDiffSummary: (issueNumber: number) => void
   /** Open the workspace-relative worktree path in a new VS Code window. */
   onOpenWorktree: (path: string) => void
   /** Delete the worktree (`git worktree remove`) and clear it from state. */
@@ -65,6 +67,7 @@ export function IssueDetailPanel({
   onOpenFile,
   onImplement,
   onOpenPr,
+  onGeneratePrDiffSummary,
   onOpenWorktree,
   onDeleteWorktree,
   onDeleteIssue,
@@ -290,7 +293,7 @@ export function IssueDetailPanel({
             key: 'pr',
             label: '合并请求',
             type: 'pr-link',
-            description: '点击在浏览器打开关联的 PR；已合并时编号后追加 "(已合并)" 标识',
+            description: '点击在浏览器打开关联的 PR；点击右侧按钮生成 PR 变更摘要；已合并时编号后追加 "(已合并)" 标识',
             onAction: (v) => {
               if (typeof v !== 'string' || v.length === 0)
                 return
@@ -299,6 +302,21 @@ export function IssueDetailPanel({
               if (pr.length > 0)
                 onOpenPr(pr)
             },
+            secondaryActionIcon: issue?.pr
+              ? <FileSearch className="size-3.5" />
+              : undefined,
+            secondaryActionTitle: '生成 PR 变更摘要',
+            onSecondaryAction: () => {
+              if (issue?.pr)
+                onGeneratePrDiffSummary(issue.number)
+            },
+          },
+          {
+            key: 'prDiffFile',
+            label: 'PR 变更摘要',
+            type: 'file-link',
+            description: '点击文件名在编辑器打开生成的 PR 代码变更摘要',
+            onOpen: (p: string) => onOpenFile(p),
           },
           {
             key: 'branch',
@@ -328,7 +346,7 @@ export function IssueDetailPanel({
         ],
       },
     ],
-    [onResumeSession, onResumeReviewSession, onOpenFile, onImplement, onOpenPr, onOpenWorktree, onDeleteWorktree, onCloseSessionTab, onStartBrainstormSession, onOpenLogs, issue, locked, lockTitle, globalAutoReview],
+    [onResumeSession, onResumeReviewSession, onOpenFile, onImplement, onOpenPr, onGeneratePrDiffSummary, onOpenWorktree, onDeleteWorktree, onCloseSessionTab, onStartBrainstormSession, onOpenLogs, issue, locked, lockTitle, globalAutoReview],
   )
 
   if (!issue) {
@@ -349,6 +367,7 @@ export function IssueDetailPanel({
     profilePath: issue.profilePath ?? null,
     specFile: issue.specFile ?? null,
     planFile: issue.planFile ?? null,
+    prDiffFile: issue.prDiffFile ?? null,
     pr: issue.pr
       ? `${issue.pr}${issue.prMerged ? '(已合并)' : ''}`
       : null,

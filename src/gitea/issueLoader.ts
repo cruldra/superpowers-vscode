@@ -49,6 +49,11 @@ export function isValidSpxFilePath(v: unknown): v is string {
     && v !== '…'
 }
 
+function isValidPrDiffFilePath(v: unknown): v is string {
+  return typeof v === 'string'
+    && /^docs\/pr-diff\/[^\s]+\.md$/.test(v)
+}
+
 function isIssueColumn(value: unknown): value is IssueColumn {
   return typeof value === 'string' && (COLUMN_IDS as readonly string[]).includes(value)
 }
@@ -67,6 +72,7 @@ function parseColumnFromComments(comments: GiteaComment[]): {
   profilePath?: string
   specFile?: string
   planFile?: string
+  prDiffFile?: string
   pr?: string
   prMerged?: boolean
   branch?: string
@@ -92,6 +98,7 @@ function parseColumnFromComments(comments: GiteaComment[]): {
         profilePath?: unknown
         specFile?: unknown
         planFile?: unknown
+        prDiffFile?: unknown
         pr?: unknown
         prMerged?: unknown
         branch?: unknown
@@ -111,6 +118,7 @@ function parseColumnFromComments(comments: GiteaComment[]): {
           : undefined
         const specFile = isValidSpxFilePath(obj.specFile) ? obj.specFile : undefined
         const planFile = isValidSpxFilePath(obj.planFile) ? obj.planFile : undefined
+        const prDiffFile = isValidPrDiffFilePath(obj.prDiffFile) ? obj.prDiffFile : undefined
         const pr = typeof obj.pr === 'string' && obj.pr.length > 0
           ? obj.pr
           : undefined
@@ -142,6 +150,7 @@ function parseColumnFromComments(comments: GiteaComment[]): {
           profilePath,
           specFile,
           planFile,
+          prDiffFile,
           pr,
           prMerged,
           branch,
@@ -259,6 +268,7 @@ async function buildIssue(opts: {
     profilePath,
     specFile,
     planFile,
+    prDiffFile,
     pr,
     prMerged: persistedMerged,
     branch,
@@ -317,6 +327,7 @@ async function buildIssue(opts: {
     ...(profilePath ? { profilePath } : {}),
     ...(specFile ? { specFile } : {}),
     ...(planFile ? { planFile } : {}),
+    ...(prDiffFile ? { prDiffFile } : {}),
     ...(pr ? { pr } : {}),
     ...(prMerged !== undefined ? { prMerged } : {}),
     ...(branch ? { branch } : {}),

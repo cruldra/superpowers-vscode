@@ -91,6 +91,7 @@ export interface UseIssuesResult {
   focusSession: (issueNumber: number) => void
   openFile: (path: string) => void
   implement: (issueNumber: number, planFile: string, profilePath?: string, sessionId?: string) => void
+  generatePrDiffSummary: (issueNumber: number) => void
   openPr: (pr: string) => void
   openWorktree: (path: string) => void
   deleteWorktree: (issueNumber: number, path: string) => void
@@ -272,6 +273,10 @@ export function useIssues(): UseIssuesResult {
     sessionId?: string,
   ): void => {
     postMessage({ type: 'issue/implement', issueNumber, planFile, profilePath, sessionId })
+  }, [])
+
+  const generatePrDiffSummary = useCallback((issueNumber: number): void => {
+    postMessage({ type: 'issue/generate-pr-diff-summary', issueNumber })
   }, [])
 
   const openPr = useCallback((pr: string): void => {
@@ -558,5 +563,5 @@ export function useIssues(): UseIssuesResult {
     return cleanup
   }, [])
 
-  return { state, settings, globalAutoReview, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, focusSession, openFile, implement, openPr, openWorktree, deleteWorktree, deleteIssue, closeIssue, closeSessionTab, startBrainstormSession, changeColumn, setDependency, clearDependency, updateIssueAutoReview, logs, fetchLogs, clearLogs, pendingSelectId, clearPendingSelect, commitRunning, runCommit, hasChanges, branchSyncBehind, branchSyncRunning, branchSyncDisabled, branchSyncTitle, runBranchSync, envLocked, envFileCount, envLockRunning, envLockTitle, toggleEnvLock }
+  return { state, settings, globalAutoReview, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, focusSession, openFile, implement, generatePrDiffSummary, openPr, openWorktree, deleteWorktree, deleteIssue, closeIssue, closeSessionTab, startBrainstormSession, changeColumn, setDependency, clearDependency, updateIssueAutoReview, logs, fetchLogs, clearLogs, pendingSelectId, clearPendingSelect, commitRunning, runCommit, hasChanges, branchSyncBehind, branchSyncRunning, branchSyncDisabled, branchSyncTitle, runBranchSync, envLocked, envFileCount, envLockRunning, envLockTitle, toggleEnvLock }
 }

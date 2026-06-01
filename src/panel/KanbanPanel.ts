@@ -390,6 +390,10 @@ export class KanbanWebviewPanel {
       void this.handleOpenPr(msg.pr)
       return
     }
+    if (msg.type === 'issue/generate-pr-diff-summary') {
+      void this.handleGeneratePrDiffSummary(msg.issueNumber)
+      return
+    }
     if (msg.type === 'worktree/open') {
       void this.handleOpenWorktree(msg.path)
       return
@@ -2000,6 +2004,144 @@ export class KanbanWebviewPanel {
     }
     const url = `https://${remote.host}/${remote.owner}/${remote.repo}/pulls/${pr}`
     void env.openExternal(Uri.parse(url))
+  }
+
+  private async handleGeneratePrDiffSummary(issueNumber: number): Promise<void> {
+    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    if (!workspaceRoot) {
+      void window.showErrorMessage('请先打开一个工作区文件夹')
+      return
+    }
+    const remote = await detectRepo(workspaceRoot)
+    if (!remote) {
+      void window.showErrorMessage('当前工作区没有 Gitea 远程仓库')
+      return
+    }
+    const token = await getToken(this.context, remote.host)
+    if (!token) {
+      void window.showErrorMessage('请先完成 Gitea 配置')
+      return
+    }
+
+    try {
+      const state = await readStateJsonComment({
+        host: remote.host,
+        owner: remote.owner,
+        repo: remote.repo,
+        token,
+        issueNumber,
+      })
+      const pr = typeof state.pr === 'string' && /^\d+$/.test(state.pr) ? state.pr : undefined
+      if (!pr) {
+        this.postMessage({
+          type: 'toast/show',
+          id: randomUUID(),
+          level: 'error',
+          message: `#${issueNumber} 尚未关联有效 PR`,
+          dismissOnTimer: 8000,
+        })
+        void window.showErrorMessage(`#${issueNumber} 尚未关联有效 PR`)
+        return
+      }
+      const stateWorktreePath = typeof state.worktreePath === 'string' && state.worktreePath.length > 0
+        ? state.worktreePath
+        : undefined
+      if (!stateWorktreePath) {
+        this.postMessage({
+          type: 'toast/show',
+          id: randomUUID(),
+          level: 'error',
+          message: `#${issueNumber} 尚未记录 worktree 路径`,
+          dismissOnTimer: 8000,
+        })
+        void window.showErrorMessage(`#${issueNumber} 尚未记录 worktree 路径`)
+        return
+      }
+      const worktreePath = path.isAbsolute(stateWorktreePath)
+        ? stateWorktreePath
+        : path.join(workspaceRoot, stateWorktreePath)
+      let worktreeStat: fs.Stats
+      try {
+        worktreeStat = await fsp.stat(worktreePath)
+      }
+      catch {
+        void window.showErrorMessage(`#${issueNumber} 的 worktree 不存在: ${worktreePath}`)
+        return
+      }
+      if (!worktreeStat.isDirectory()) {
+        void window.showErrorMessage(`#${issueNumber} 的 worktree 不是目录: ${worktreePath}`)
+        return
+      }
+
+      const outputRelPath = `docs/pr-diff/pr-${pr}-issue-${issueNumber}.md`
+      const outputAbsPath = path.join(workspaceRoot, outputRelPath)
+      await fsp.mkdir(path.dirname(outputAbsPath), { recursive: true })
+
+      this.postMessage({
+        type: 'toast/show',
+        id: randomUUID(),
+        level: 'info',
+        message: `已启动 PR #${pr} 变更摘要生成`,
+        dismissOnTimer: 5000,
+      })
+
+      const profilePath = this.resolveImplementProfilePath(
+        typeof state.profilePath === 'string' ? state.profilePath : undefined,
+      )
+      const prompt = `你在一个 VS Code 扩展启动的后台 Claude 会话中工作。\n\n硬性限制：\n- 不要修改代码。\n- 不要创建或切换分支。\n- 不要提交。\n- 不要 push。\n- 只分析当前 PR 的代码变动，并写出一个 Markdown 摘要文件。\n\n任务：\n- 当前工作目录是工单 #${issueNumber} 的 worktree。\n- 分析 PR #${pr} 与主分支的代码差异。\n- 可使用 git diff origin/main...HEAD、tea pulls diff ${pr} 或其他只读 git/tea 命令。\n- 将结果写入主工作区文件：${outputAbsPath}\n- 输出文件路径相对主工作区为：${outputRelPath}\n\n摘要格式必须严格为：\n\`\`\`text\n审查重点\n\ndir\n    subdir\n        file     一句关于新增/修改这个文件的目的的简短描述\n\n不太重要的\n\ndir\n    subdir\n        file     一句关于新增/修改这个文件的目的的简短描述\n\`\`\`\n\n要求：\n- 每个新增/修改文件一行。\n- 每行说明新增/修改了什么，以及一句话说明目的。\n- 保留原始文件目录结构，使用 ASCII explorer 缩进。\n- 按重要性分区，最重要文件、核心入口点、关键业务逻辑放在「审查重点」前面。\n- 次要配置、样式、构建产物、纯同步文件放在「不太重要的」。\n- Markdown 文件中只写上述两区内容，不要添加任务历史、执行日志或额外寒暄。`
+
+      await spawnClaude({
+        prompt,
+        cwd: worktreePath,
+        profilePath,
+        timeoutMs: 600_000,
+      })
+
+      try {
+        await fsp.access(outputAbsPath, fs.constants.F_OK)
+      }
+      catch {
+        throw new Error(`Claude 未生成摘要文件: ${outputRelPath}`)
+      }
+
+      await mergeStateJsonComment({
+        host: remote.host,
+        owner: remote.owner,
+        repo: remote.repo,
+        token,
+        issueNumber,
+        extra: { prDiffFile: outputRelPath },
+      })
+      this.postMessage({
+        type: 'issue/patch',
+        issueNumber,
+        patch: { prDiffFile: outputRelPath },
+      })
+      this.postMessage({
+        type: 'toast/show',
+        id: randomUUID(),
+        level: 'success',
+        message: `PR #${pr} 变更摘要已生成`,
+        dismissOnTimer: 5000,
+      })
+    }
+    catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.add({
+        level: 'error',
+        source: 'panel',
+        message: `生成 PR 变更摘要失败 #${issueNumber}`,
+        details: message,
+      })
+      this.postMessage({
+        type: 'toast/show',
+        id: randomUUID(),
+        level: 'error',
+        message: `生成 PR 变更摘要失败: ${message}`,
+        dismissOnTimer: 8000,
+      })
+      void window.showErrorMessage(`生成 PR 变更摘要失败: ${message}`)
+    }
   }
 
   /**

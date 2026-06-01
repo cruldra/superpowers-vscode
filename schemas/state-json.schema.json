@@ -43,6 +43,12 @@
       "minLength": 1,
       "pattern": "^[^\\s]+/[^\\s]+\\.md$"
     },
+    "prDiffFile": {
+      "type": "string",
+      "description": "本工单的 PR 变更摘要文件路径，相对 workspace，必须位于 docs/pr-diff/ 下。",
+      "minLength": 1,
+      "pattern": "^docs/pr-diff/[^\\s]+\\.md$"
+    },
     "pr": {
       "type": "string",
       "description": "本工单关联的 PR number（字符串形式，webhook 触发后写入）。",
