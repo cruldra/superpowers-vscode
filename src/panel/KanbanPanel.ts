@@ -13,15 +13,14 @@ import * as fs from 'node:fs'
 import { promises as fsp } from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { commands, env, extensions, TabInputTerminal, ThemeColor, Uri, ViewColumn, window, workspace } from 'vscode'
+import { commands, env, TabInputTerminal, ThemeColor, Uri, ViewColumn, window, workspace } from 'vscode'
 import { deleteToken, getToken, setToken } from '../auth/secrets'
 import { listClaudeProfiles } from '../cc/profiles'
 import { getBrainstormContinuePrompt, getBrainstormPrompt, getImplementPlanPrompt } from '../cc/prompts'
 import { watchForNewCodexSession } from '../cc/codexSessionWatcher'
 import { projectsDirFor, watchForNewSession } from '../cc/sessionWatcher'
 import { spawnClaude } from '../cc/spawnClaude'
-import { lockEnvFiles, findEnvFiles, unlockEnvFiles } from '../files/envLock'
-import { checkBranchSync, deleteLocalBranch, gitFetch, runBranchSync } from '../git/branchSync'
+import { deleteLocalBranch, gitFetch } from '../git/branchSync'
 import { detectRepo } from '../git/remote'
 import { createWorktree } from '../git/worktree'
 import { runImplTabPostCloseHook, runImplTabPreCreateHook, runPostCreateHook, runPreRemoveHook, type HookContext } from '../git/worktreeHooks'
@@ -43,6 +42,7 @@ import { logger } from '../logging/logger'
 import { readProfiles, writeProfiles, type ProfilesData } from '../profiles/store'
 import { getSettings, saveSettings } from '../settings/store'
 import { webhookCoordinator } from '../webhook/coordinator'
+import * as toolbar from './handlers/toolbar'
 import { PALETTE, pickRandomIssueColor, resolveIssueColor, themeColorIdToIconUri } from './issueColor'
 
 const DEFAULT_PROFILE_PATH = '/home/cruldra/Sources/cruldra-profile/claude-config/profiles/offical.json'
@@ -50,38 +50,6 @@ const DEFAULT_PROFILE_PATH = '/home/cruldra/Sources/cruldra-profile/claude-confi
 /** PR 变更摘要等后台内容生成任务用的 profile：DeepSeek（自带 token + base_url，
  * headless 稳定，不依赖订阅 OAuth，避免 403 Request not allowed）。 */
 const PR_DIFF_SUMMARY_PROFILE_PATH = '/home/cruldra/Sources/cruldra-profile/claude-config/profiles/deepseek.json'
-
-/**
- * Minimal subset of the built-in `vscode.git` extension's public API that we
- * consume. The official typings live in the VS Code repo's extension source
- * (not on npm), so we inline just the fields needed to observe working-tree
- * state and unregister our listener.
- *
- * Reference: microsoft/vscode → extensions/git/src/api/git.d.ts
- */
-interface GitExtensionApiRepositoryStateChange {
-  (listener: () => unknown): { dispose: () => void }
-}
-
-interface GitExtensionApiRepositoryState {
-  readonly workingTreeChanges: ReadonlyArray<{ uri: Uri }>
-  readonly indexChanges: ReadonlyArray<{ uri: Uri }>
-  readonly untrackedChanges?: ReadonlyArray<{ uri: Uri }>
-  readonly onDidChange: GitExtensionApiRepositoryStateChange
-}
-
-interface GitExtensionApiRepository {
-  readonly rootUri: Uri
-  readonly state: GitExtensionApiRepositoryState
-}
-
-interface GitExtensionApi {
-  readonly repositories: ReadonlyArray<GitExtensionApiRepository>
-}
-
-interface GitExtensionExports {
-  getAPI: (version: 1) => GitExtensionApi
-}
 
 export class KanbanWebviewPanel {
   static readonly viewType = 'superpowers.kanbanPanel'
@@ -186,7 +154,8 @@ export class KanbanWebviewPanel {
    * disables the button while `commit/state running=true` is in flight, but
    * we keep a server-side lock as defense against duplicate messages.
    */
-  private commitRunning = false
+  // internal: handler 模块访问
+  commitRunning = false
 
   /**
    * Whether the workspace git working tree currently has any uncommitted
@@ -197,7 +166,8 @@ export class KanbanWebviewPanel {
    * in flight, so users can still see the spinner). Defaults to `false` so
    * the button stays hidden until we've actually observed the repo state.
    */
-  private hasGitChanges = false
+  // internal: handler 模块访问
+  hasGitChanges = false
 
   /**
    * Disposable returned by `repository.state.onDidChange` while we're
@@ -205,7 +175,8 @@ export class KanbanWebviewPanel {
    * the panel is disposed (otherwise the git extension would keep a strong
    * reference to our callback closure for the lifetime of the editor).
    */
-  private gitStateDisposable: { dispose: () => void } | undefined
+  // internal: handler 模块访问
+  gitStateDisposable: { dispose: () => void } | undefined
 
   /**
    * 最近一次 onDidChangeActiveTerminal 触发反选 webview 的时间戳（ms epoch）。
@@ -223,7 +194,8 @@ export class KanbanWebviewPanel {
    */
   private lastActiveTerminalRef: Terminal | undefined
 
-  private constructor(private readonly context: ExtensionContext, panel: WebviewPanel) {
+  // internal: context 供 handler 模块访问
+  private constructor(public readonly context: ExtensionContext, panel: WebviewPanel) {
     this.panel = panel
 
     this.panel.webview.options = {
@@ -317,7 +289,7 @@ export class KanbanWebviewPanel {
     // Start observing the workspace repo so we can hide the "提交代码"
     // toolbar button whenever the working tree is clean. Fire-and-forget —
     // `setupGitWatcher` handles its own activation + retry logic.
-    this.setupGitWatcher()
+    toolbar.setupGitWatcher(this)
   }
 
   static createOrShow(context: ExtensionContext): void {
@@ -432,7 +404,7 @@ export class KanbanWebviewPanel {
       return
     }
     if (msg.type === 'commit/run') {
-      void this.handleCommitRun()
+      void toolbar.handleCommitRun(this)
       return
     }
     if (msg.type === 'session/close-tab') {
@@ -444,7 +416,7 @@ export class KanbanWebviewPanel {
       return
     }
     if (msg.type === 'branch-sync/run') {
-      void this.handleBranchSyncRun()
+      void toolbar.handleBranchSyncRun(this)
       return
     }
     if (msg.type === 'env-lock/check') {
@@ -452,7 +424,7 @@ export class KanbanWebviewPanel {
       return
     }
     if (msg.type === 'env-lock/toggle') {
-      void this.handleEnvLockToggle()
+      void toolbar.handleEnvLockToggle(this)
       return
     }
     if (msg.type === 'issue/delete') {
@@ -4548,74 +4520,6 @@ export class KanbanWebviewPanel {
       this.postMessage({ type: 'profiles/update', profiles: [] })
     }
   }
-
-
-  private async handleCommitRun(): Promise<void> {
-    if (this.commitRunning)
-      return
-
-    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
-    if (!workspaceRoot) {
-      this.postMessage({
-        type: 'toast/show',
-        id: makeNonce(),
-        level: 'error',
-        message: '请先打开一个工作区文件夹',
-        dismissOnTimer: 5000,
-      })
-      return
-    }
-
-    const profiles = await listClaudeProfiles()
-    const deepseek = profiles.find(p => p.name === 'deepseek')
-    if (!deepseek) {
-      this.postMessage({
-        type: 'toast/show',
-        id: makeNonce(),
-        level: 'error',
-        message: '未找到 deepseek profile，请在 /home/cruldra/Sources/cruldra-profile/claude-config/profiles/ 下创建 deepseek.json',
-        dismissOnTimer: 8000,
-      })
-      return
-    }
-
-    this.commitRunning = true
-    this.postMessage({ type: 'commit/state', running: true })
-
-    try {
-      // claude -p 提交流程可能跑得比较久（要 git add / 编 commit message / git
-      // commit），所以给一个比较宽松的超时（30 min）。
-      await spawnClaude({
-        prompt: '提交下代码',
-        cwd: workspaceRoot,
-        profilePath: deepseek.path,
-        timeoutMs: 30 * 60 * 1000,
-        bare: true,
-      })
-      this.postMessage({
-        type: 'toast/show',
-        id: makeNonce(),
-        level: 'success',
-        message: '提交完成',
-        dismissOnTimer: 5000,
-      })
-    }
-    catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      this.postMessage({
-        type: 'toast/show',
-        id: makeNonce(),
-        level: 'error',
-        message: `提交失败: ${msg}`,
-        dismissOnTimer: 8000,
-      })
-    }
-    finally {
-      this.commitRunning = false
-      this.postMessage({ type: 'commit/state', running: false })
-    }
-  }
-
   /**
    * Compute how far the remote auto-build branch is behind the remote dev
    * branch, then push a `branch-sync/status` to the webview. Called on
@@ -4624,90 +4528,8 @@ export class KanbanWebviewPanel {
    * Empty `autoBuildBranch` setting means "use devBranch" — collapsing to
    * the equal-branch case in `checkBranchSync`, which marks it unavailable.
    */
-  private async handleBranchSyncCheck(): Promise<void> {
-    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
-    const s = getSettings(this.context)
-    const devBranch = s.devBranch
-    // Empty string in storage means "follow devBranch" — resolve to
-    // devBranch so the check naturally hits the "same branch" disabled
-    // branch.
-    const autoBuildBranch = s.autoBuildBranch.length > 0 ? s.autoBuildBranch : devBranch
-
-    if (!workspaceRoot) {
-      this.postMessage({
-        type: 'branch-sync/status',
-        behind: 0,
-        devBranch,
-        autoBuildBranch,
-        unavailable: true,
-        reason: '请先打开一个工作区文件夹',
-      })
-      return
-    }
-
-    const status = await checkBranchSync({ workspaceRoot, devBranch, autoBuildBranch })
-    this.postMessage({ type: 'branch-sync/status', ...status })
-  }
-
-  /**
-   * Fast-forward push remote dev to remote autoBuild. Toasts on
-   * success/failure and re-emits status so the button updates.
-   */
-  private async handleBranchSyncRun(): Promise<void> {
-    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
-    const s = getSettings(this.context)
-    const devBranch = s.devBranch
-    const autoBuildBranch = s.autoBuildBranch.length > 0 ? s.autoBuildBranch : devBranch
-
-    if (!workspaceRoot) {
-      this.postMessage({
-        type: 'toast/show',
-        id: makeNonce(),
-        level: 'error',
-        message: '请先打开一个工作区文件夹',
-        dismissOnTimer: 5000,
-      })
-      void this.handleBranchSyncCheck()
-      return
-    }
-
-    if (devBranch === autoBuildBranch) {
-      this.postMessage({
-        type: 'toast/show',
-        id: makeNonce(),
-        level: 'info',
-        message: '开发分支与自动化构建分支相同，无需同步',
-        dismissOnTimer: 5000,
-      })
-      void this.handleBranchSyncCheck()
-      return
-    }
-
-    try {
-      await runBranchSync({ workspaceRoot, devBranch, autoBuildBranch })
-      this.postMessage({
-        type: 'toast/show',
-        id: makeNonce(),
-        level: 'success',
-        message: `已同步 ${devBranch} → ${autoBuildBranch}`,
-        dismissOnTimer: 5000,
-      })
-    }
-    catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      this.postMessage({
-        type: 'toast/show',
-        id: makeNonce(),
-        level: 'error',
-        message: `分支同步失败：${message}`,
-        dismissOnTimer: 8000,
-      })
-    }
-    finally {
-      // Re-emit status regardless of success/failure so the button reflects
-      // the new behind count (0 on success, unchanged on failure).
-      void this.handleBranchSyncCheck()
-    }
+  private handleBranchSyncCheck(): Promise<void> {
+    return toolbar.handleBranchSyncCheck(this)
   }
 
   /**
@@ -4718,216 +4540,8 @@ export class KanbanWebviewPanel {
    * The file count is recomputed via a fresh scan each time so the toolbar
    * reflects what the next toggle will actually act on.
    */
-  private async handleEnvLockCheck(): Promise<void> {
-    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
-    // 用底层 get 不传默认值，能区分"从未设过"(undefined) 和"用户主动选 false"。
-    const stored = this.context.workspaceState.get<boolean>('envLocked')
-    if (!workspaceRoot) {
-      // 无工作区时无文件可锁，UI 默认显示锁定状态但 fileCount=0 等价于无操作。
-      this.postMessage({ type: 'env-lock/status', locked: stored ?? true, fileCount: 0 })
-      return
-    }
-
-    if (stored === undefined) {
-      // 首次启动：默认锁定 + 真正 chmod 0o444 + 持久化，避免 UI 与 fs 不一致。
-      const result = await lockEnvFiles(workspaceRoot)
-      await this.context.workspaceState.update('envLocked', true)
-      if (result.total === 0) {
-        logger.add({
-          level: 'info',
-          source: 'panel',
-          message: '首次启动：工作区无 .env 文件，跳过自动锁定',
-        })
-      }
-      else if (result.failed.length === 0) {
-        logger.add({
-          level: 'info',
-          source: 'panel',
-          message: `首次启动自动锁定 ${result.ok.length} 个 .env 文件`,
-        })
-      }
-      else {
-        logger.add({
-          level: 'warn',
-          source: 'panel',
-          message: `首次启动自动锁定：成功 ${result.ok.length} 个，失败 ${result.failed.length} 个`,
-        })
-      }
-      this.postMessage({
-        type: 'env-lock/status',
-        locked: true,
-        fileCount: result.total,
-        failedCount: result.failed.length > 0 ? result.failed.length : undefined,
-      })
-      return
-    }
-
-    const files = await findEnvFiles(workspaceRoot)
-    this.postMessage({ type: 'env-lock/status', locked: stored, fileCount: files.length })
-  }
-
-  /**
-   * Flip the env-lock state: chmod every `.env*` file to 0o444 (lock) or
-   * 0o644 (unlock), then persist the new state and re-emit status. Failures
-   * surface as a toast but don't block the state flip — partially-locked
-   * trees are visible via the failedCount in the next `env-lock/status`.
-   */
-  private async handleEnvLockToggle(): Promise<void> {
-    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
-    if (!workspaceRoot) {
-      this.postMessage({
-        type: 'toast/show',
-        id: makeNonce(),
-        level: 'error',
-        message: '请先打开一个工作区文件夹',
-        dismissOnTimer: 5000,
-      })
-      void this.handleEnvLockCheck()
-      return
-    }
-
-    const prevLocked = this.context.workspaceState.get<boolean>('envLocked', false)
-    const nextLocked = !prevLocked
-    const result = nextLocked
-      ? await lockEnvFiles(workspaceRoot)
-      : await unlockEnvFiles(workspaceRoot)
-
-    await this.context.workspaceState.update('envLocked', nextLocked)
-
-    if (result.total === 0) {
-      this.postMessage({
-        type: 'toast/show',
-        id: makeNonce(),
-        level: 'info',
-        message: '工作区无 .env 文件',
-        dismissOnTimer: 5000,
-      })
-    }
-    else if (result.failed.length === 0) {
-      const verb = nextLocked ? '锁定' : '解锁'
-      this.postMessage({
-        type: 'toast/show',
-        id: makeNonce(),
-        level: 'success',
-        message: `已${verb} ${result.ok.length} 个 .env 文件`,
-        dismissOnTimer: 4000,
-      })
-    }
-    else {
-      const verb = nextLocked ? '锁定' : '解锁'
-      this.postMessage({
-        type: 'toast/show',
-        id: makeNonce(),
-        level: 'error',
-        message: `${verb}完成：成功 ${result.ok.length} 个，失败 ${result.failed.length} 个`,
-        dismissOnTimer: 8000,
-      })
-    }
-
-    this.postMessage({
-      type: 'env-lock/status',
-      locked: nextLocked,
-      fileCount: result.total,
-      failedCount: result.failed.length > 0 ? result.failed.length : undefined,
-    })
-  }
-
-  /**
-   * Subscribes to the built-in `vscode.git` extension so the webview can hide
-   * the "提交代码" toolbar button while the working tree is clean. Called
-   * once from the constructor.
-   *
-   * Failure modes:
-   *  - `vscode.git` extension not installed (rare; the user can disable
-   *    built-ins). We log a warning and force `hasGitChanges = true` so the
-   *    button stays visible — better to show a button that's a no-op than
-   *    to hide functionality the user can't recover.
-   *  - The repo for `workspaceFolders[0]` isn't in `api.repositories` yet
-   *    (git extension initializes asynchronously). We retry once after 1s
-   *    before giving up; on retry failure we leave `hasGitChanges = false`
-   *    (no repo means nothing to commit anyway).
-   */
-  private setupGitWatcher(): void {
-    const wsRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
-    if (!wsRoot)
-      return
-
-    const gitExt = extensions.getExtension<GitExtensionExports>('vscode.git')
-    if (!gitExt) {
-      logger.add({
-        level: 'warn',
-        source: 'panel',
-        message: 'vscode.git 扩展未找到，提交按钮将持续显示',
-      })
-      // Fallback: keep the button visible so users can at least trigger
-      // commits manually even though we can't observe state.
-      this.updateHasChanges(true)
-      return
-    }
-
-    const activation = gitExt.isActive
-      ? Promise.resolve(gitExt.exports)
-      : Promise.resolve(gitExt.activate())
-
-    void activation.then((exports) => {
-      const api = exports.getAPI(1)
-      const findRepo = (): GitExtensionApiRepository | undefined =>
-        api.repositories.find(r => r.rootUri.fsPath === wsRoot)
-
-      const updateState = (): void => {
-        const repo = findRepo()
-        if (!repo) {
-          this.updateHasChanges(false)
-          return
-        }
-        const total
-          = repo.state.workingTreeChanges.length
-            + repo.state.indexChanges.length
-            + (repo.state.untrackedChanges?.length ?? 0)
-        this.updateHasChanges(total > 0)
-      }
-
-      const subscribe = (repo: GitExtensionApiRepository): void => {
-        this.gitStateDisposable = repo.state.onDidChange(updateState)
-      }
-
-      updateState()
-      const repo = findRepo()
-      if (repo) {
-        subscribe(repo)
-        return
-      }
-      // vscode.git activation can resolve before its `repositories` array
-      // has populated for the freshly opened workspace. Retry once after a
-      // short delay; if still missing we just leave the button hidden.
-      setTimeout(() => {
-        const retried = findRepo()
-        if (retried)
-          subscribe(retried)
-        updateState()
-      }, 1000)
-    }).catch((err: unknown) => {
-      const msg = err instanceof Error ? err.message : String(err)
-      logger.add({
-        level: 'warn',
-        source: 'panel',
-        message: '激活 vscode.git 扩展失败，提交按钮将持续显示',
-        details: msg,
-      })
-      this.updateHasChanges(true)
-    })
-  }
-
-  /**
-   * Updates the cached `hasGitChanges` flag and (when it changed) notifies
-   * the webview. Idempotent — calling with the current value is a no-op, so
-   * `onDidChange` bursts from the git extension don't spam the webview.
-   */
-  private updateHasChanges(value: boolean): void {
-    if (this.hasGitChanges === value)
-      return
-    this.hasGitChanges = value
-    this.postMessage({ type: 'commit/has-changes', value })
+  private handleEnvLockCheck(): Promise<void> {
+    return toolbar.handleEnvLockCheck(this)
   }
 
   /** Forces the open panel (if any) into the setup-auth state. */
@@ -5107,6 +4721,7 @@ export class KanbanWebviewPanel {
   }
 }
 
-function makeNonce(): string {
+// internal: handler 模块访问
+export function makeNonce(): string {
   return randomBytes(16).toString('base64').replace(/[+/=]/g, '')
 }
