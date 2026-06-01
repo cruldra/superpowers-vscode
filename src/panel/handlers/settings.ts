@@ -1,5 +1,6 @@
 import type { ProfilesData } from '../../profiles/store'
 import type { KanbanWebviewPanel } from '../KanbanPanel'
+import { execFile } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -219,6 +220,56 @@ export async function handleProfilesList(panel: KanbanWebviewPanel): Promise<voi
  *   - 是文件 → vscode.open
  *   - 不存在 → toast 报错
  */
+/**
+ * Lower-cased extensions (with leading dot) that should open inside the
+ * VS Code editor. Anything not in this set — and files with no extension
+ * are treated as text too — is handed to the OS default application.
+ */
+const TEXT_OPEN_EXTENSIONS = new Set([
+  '.md', '.markdown', '.txt', '.text', '.csv', '.tsv', '.json', '.jsonc',
+  '.yaml', '.yml', '.toml', '.ini', '.conf', '.cfg', '.log', '.xml', '.html',
+  '.htm', '.css', '.scss', '.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx',
+  '.vue', '.py', '.go', '.rs', '.java', '.kt', '.c', '.h', '.cpp', '.hpp',
+  '.cc', '.sh', '.bash', '.zsh', '.sql', '.env', '.properties', '.gradle',
+  '.dockerfile', '.gitignore',
+])
+
+/**
+ * Open a file with the OS default application (fire-and-forget).
+ *
+ * Dispatches per platform without a shell so the path cannot be
+ * interpreted as a command. On Windows the first empty `start` argument is
+ * the window-title placeholder required by `cmd`'s `start` builtin.
+ */
+function openWithSystemDefault(absPath: string): void {
+  let command: string
+  let args: string[]
+  switch (process.platform) {
+    case 'darwin':
+      command = 'open'
+      args = [absPath]
+      break
+    case 'win32':
+      command = 'cmd'
+      args = ['/c', 'start', '', absPath]
+      break
+    default:
+      command = 'xdg-open'
+      args = [absPath]
+      break
+  }
+  execFile(command, args, (err) => {
+    if (err) {
+      logger.add({
+        level: 'error',
+        source: 'profiles',
+        message: `系统默认程序打开失败: ${absPath}`,
+        details: err.message,
+      })
+    }
+  })
+}
+
 export async function handleProfilesOpen(panel: KanbanWebviewPanel, value: string): Promise<void> {
   const trimmed = value.trim()
   if (!trimmed) {
@@ -303,7 +354,17 @@ export async function handleProfilesOpen(panel: KanbanWebviewPanel, value: strin
       await commands.executeCommand('revealFileInOS', Uri.file(abs))
     }
     else if (stat.isFile()) {
-      await commands.executeCommand('vscode.open', Uri.file(abs))
+      const ext = path.extname(abs).toLowerCase()
+      // No extension counts as text. Text/code extensions open in the
+      // editor; everything else (archives, office docs, media, …) is
+      // handed to the OS default application so binary content is not
+      // garbled by VS Code's text viewer.
+      if (ext === '' || TEXT_OPEN_EXTENSIONS.has(ext)) {
+        await commands.executeCommand('vscode.open', Uri.file(abs))
+      }
+      else {
+        openWithSystemDefault(abs)
+      }
     }
     else {
       panel.postMessage({
