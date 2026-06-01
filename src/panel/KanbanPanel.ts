@@ -22,7 +22,7 @@ import { spawnClaude } from '../cc/spawnClaude'
 import { deleteLocalBranch, gitFetch } from '../git/branchSync'
 import { detectRepo } from '../git/remote'
 import { createWorktree } from '../git/worktree'
-import { runImplTabPostCloseHook, runImplTabPreCreateHook, runPostCreateHook, runPreRemoveHook, type HookContext } from '../git/worktreeHooks'
+import type { HookContext } from '../git/worktreeHooks'
 import {
   addDependency,
   closeIssue,
@@ -42,6 +42,7 @@ import { getSettings } from '../settings/store'
 import { webhookCoordinator } from '../webhook/coordinator'
 import * as settings from './handlers/settings'
 import * as toolbar from './handlers/toolbar'
+import * as worktree from './handlers/worktree'
 import { PALETTE, pickRandomIssueColor, resolveIssueColor, themeColorIdToIconUri } from './issueColor'
 
 const DEFAULT_PROFILE_PATH = '/home/cruldra/Sources/cruldra-profile/claude-config/profiles/offical.json'
@@ -370,11 +371,11 @@ export class KanbanWebviewPanel {
       return
     }
     if (msg.type === 'worktree/open') {
-      void this.handleOpenWorktree(msg.path)
+      void worktree.handleOpenWorktree(this, msg.path)
       return
     }
     if (msg.type === 'worktree/delete') {
-      void this.handleDeleteWorktree(msg.issueNumber, msg.path)
+      void worktree.handleDeleteWorktree(this, msg.issueNumber, msg.path)
       return
     }
     if (msg.type === 'column/change') {
@@ -1949,233 +1950,17 @@ export class KanbanWebviewPanel {
     }
   }
 
-  /**
-   * Open the worktree directory in a **new** VS Code window. The Boolean
-   * third arg to `vscode.openFolder` is "forceNewWindow"; we always force
-   * a new window so the user keeps the kanban window open in parallel.
-   */
-  private async handleOpenWorktree(relPath: string): Promise<void> {
-    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
-    if (!workspaceRoot) {
-      void window.showErrorMessage('请先打开一个工作区文件夹')
-      return
-    }
-    const abs = path.isAbsolute(relPath) ? relPath : path.join(workspaceRoot, relPath)
-    try {
-      await commands.executeCommand('vscode.openFolder', Uri.file(abs), true)
-    }
-    catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      void window.showErrorMessage(`打开 worktree 失败: ${message}`)
-    }
-  }
-
-  /**
-   * Confirm + run `git worktree remove <abs>` (no --force), then clear
-   * `worktreePath`/`branch` from the issue's state JSON and refresh the
-   * board. If `git` rejects due to uncommitted changes we surface stderr
-   * verbatim — the user can resolve manually and re-try.
-   */
-  private async handleDeleteWorktree(issueNumber: number, relPath: string): Promise<void> {
-    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
-    if (!workspaceRoot) {
-      void window.showErrorMessage('请先打开一个工作区文件夹')
-      return
-    }
-    const choice = await window.showWarningMessage(
-      `确认删除 worktree ${relPath}?`,
-      { modal: true },
-      '删除',
-    )
-    if (choice !== '删除')
-      return
-
-    const abs = path.isAbsolute(relPath) ? relPath : path.join(workspaceRoot, relPath)
-
-    // Run the pre-remove lifecycle hook so the user can tear down resources
-    // (close IDE windows, etc.) before the worktree dir vanishes. Best-effort
-    // — never blocks the removal.
-    const settingsForHook = getSettings(this.context)
-    await this.dispatchWorktreeHook('pre-remove', {
-      workspaceRoot,
-      worktreePath: abs,
-      branch: '',
-      issueNumber,
-      mainBranch: settingsForHook.devBranch || 'main',
-      customScriptPath: settingsForHook.worktreePreRemoveScript,
-    })
-
-    try {
-      await new Promise<void>((resolve, reject) => {
-        execFile(
-          'git',
-          ['-C', workspaceRoot, 'worktree', 'remove', abs],
-          { timeout: 30_000 },
-          (err, _stdout, stderr) => {
-            if (err) {
-              const detail = (stderr ?? '').trim() || err.message
-              reject(new Error(detail))
-              return
-            }
-            resolve()
-          },
-        )
-      })
-    }
-    catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      void window.showErrorMessage(`git worktree remove 失败: ${message}`)
-      return
-    }
-
-    // Best-effort: clear worktreePath + branch from the state JSON so the
-    // detail panel reflects reality on the next refresh. Failures here are
-    // non-fatal (worktree is already gone on disk).
-    try {
-      const remote = await detectRepo(workspaceRoot)
-      if (remote) {
-        const token = await getToken(this.context, remote.host)
-        if (token) {
-          await mergeStateJsonComment({
-            host: remote.host,
-            owner: remote.owner,
-            repo: remote.repo,
-            token,
-            issueNumber,
-            extra: { worktreePath: '', branch: '' },
-          })
-        }
-      }
-    }
-    catch (err) {
-      console.warn('[superpowers] failed to clear worktree state JSON:', err)
-    }
-
-    this.postMessage({
-      type: 'issue/patch',
-      issueNumber,
-      patch: {
-        worktreePath: undefined,
-        branch: undefined,
-        worktreeExists: false,
-      },
-    })
-    void window.showInformationMessage(`已删除 worktree #${issueNumber}`)
-  }
-
-
-  /**
-   * Run a user-provided shell script (post-create / pre-remove) and surface
-   * the outcome via logger + a toast. Always returns — failures of any
-   * kind never abort the calling flow, per the lifecycle-hook contract:
-   * worktree creation / removal is the source of truth, user scripts are
-   * best-effort sidecars.
-   */
-  private async dispatchWorktreeHook(
+  // internal: handler 模块多处调用，保留薄委派
+  private dispatchWorktreeHook(
     phase: 'post-create' | 'pre-remove' | 'impl-tab-pre-create' | 'impl-tab-post-close',
     ctx: HookContext,
   ): Promise<void> {
-    let result
-    switch (phase) {
-      case 'post-create': result = await runPostCreateHook(ctx); break
-      case 'pre-remove': result = await runPreRemoveHook(ctx); break
-      case 'impl-tab-pre-create': result = await runImplTabPreCreateHook(ctx); break
-      case 'impl-tab-post-close': result = await runImplTabPostCloseHook(ctx); break
-    }
-
-    // 'skipped' = the script simply isn't on disk. That's the intended
-    // default state — stay silent, don't pester the user.
-    if (result.status === 'skipped')
-      return
-
-    if (result.status === 'ok') {
-      logger.add({
-        level: 'info',
-        source: 'panel',
-        message: `worktree ${phase} 钩子完成 #${ctx.issueNumber}`,
-        details: `path=${result.scriptPath}\nstdout=${result.stdout ?? ''}\nstderr=${result.stderr ?? ''}`,
-      })
-      return
-    }
-
-    // Anything else (failed / timeout / enoent) — warn-level log + a
-    // toast. ToastLevel only has 'info' | 'success' | 'error'; we use
-    // 'info' to keep it non-blocking, matching the "doesn't affect main
-    // flow" semantics. Detailed stdout/stderr stays in the log to avoid
-    // spamming the toast surface.
-    const label = {
-      'post-create': '创建后',
-      'pre-remove': '删除前',
-      'impl-tab-pre-create': '实施 tab 创建前',
-      'impl-tab-post-close': '实施 tab 关闭后',
-    }[phase]
-    logger.add({
-      level: 'warn',
-      source: 'panel',
-      message: `worktree ${phase} 钩子失败 #${ctx.issueNumber}: ${result.status}`,
-      details: [
-        `path=${result.scriptPath ?? '(unresolved)'}`,
-        result.exitCode !== undefined ? `exitCode=${result.exitCode}` : null,
-        result.errorMessage ? `err=${result.errorMessage}` : null,
-        result.stdout ? `stdout=${result.stdout}` : null,
-        result.stderr ? `stderr=${result.stderr}` : null,
-      ].filter((line): line is string => line !== null).join('\n'),
-    })
-    this.postMessage({
-      type: 'toast/show',
-      id: makeNonce(),
-      level: 'info',
-      message: `worktree ${label}钩子失败 #${ctx.issueNumber}（不影响后续流程，详情见日志）`,
-      dismissOnTimer: 5000,
-    })
+    return worktree.dispatchWorktreeHook(this, phase, ctx)
   }
 
-  /**
-   * 实施 cc tab 被关闭后异步触发 impl-tab-post-close 钩子。
-   * 由 onDidCloseTerminal 同步回调里 fire-and-forget 调用，所以这里把整个
-   * 错误 catch 进 log，不向上抛。需要从 state JSON 读 worktreePath / branch。
-   */
-  private async dispatchImplTabPostCloseAsync(issueNumber: number): Promise<void> {
-    try {
-      const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
-      if (!workspaceRoot)
-        return
-      const remote = await detectRepo(workspaceRoot)
-      if (!remote)
-        return
-      const token = await getToken(this.context, remote.host)
-      if (!token)
-        return
-      const stateObj = await readStateJsonComment({
-        host: remote.host,
-        owner: remote.owner,
-        repo: remote.repo,
-        token,
-        issueNumber,
-      })
-      const branch = typeof stateObj.branch === 'string' ? stateObj.branch : ''
-      const wt = typeof stateObj.worktreePath === 'string' ? stateObj.worktreePath : ''
-      if (!wt)
-        return
-      const absWorktree = path.isAbsolute(wt) ? wt : path.join(workspaceRoot, wt)
-      const settings = getSettings(this.context)
-      await this.dispatchWorktreeHook('impl-tab-post-close', {
-        workspaceRoot,
-        worktreePath: absWorktree,
-        branch,
-        issueNumber,
-        mainBranch: settings.devBranch || 'main',
-        customScriptPath: settings.implTabPostCloseScript,
-      })
-    }
-    catch (err) {
-      logger.add({
-        level: 'warn',
-        source: 'panel',
-        message: `impl-tab-post-close 钩子调度失败 #${issueNumber}`,
-        details: err instanceof Error ? err.message : String(err),
-      })
-    }
+  // internal: onDidCloseTerminal fire-and-forget 调用，保留薄委派
+  private dispatchImplTabPostCloseAsync(issueNumber: number): Promise<void> {
+    return worktree.dispatchImplTabPostCloseAsync(this, issueNumber)
   }
 
 
