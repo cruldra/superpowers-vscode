@@ -18,6 +18,12 @@ interface IssueDetailPanelProps {
   /** Open a new terminal that runs `codex resume <id>` for the auto-review
    * conversation associated with this issue. */
   onResumeReviewSession: (sessionId: string, issueNumber: number, cwd?: string) => void
+  /** Open a new terminal that runs `claude --resume <id>` for the test
+   * conversation associated with this issue. */
+  onResumeTestSession: (sessionId: string, issueNumber: number, cwd?: string) => void
+  /** Spawn a fresh "测试" cc tab for an issue whose PR has merged. Bound to the
+   * Play button next to the "测试会话 id" row (only shown when `issue.pr` exists). */
+  onStartTestSession: (issueNumber: number) => void
   /** Open a workspace-relative file in the editor. */
   onOpenFile: (path: string) => void
   /** Kick off the end-to-end implementation flow for the given plan file. */
@@ -40,7 +46,7 @@ interface IssueDetailPanelProps {
   /** Close the matching session terminal tab. The extension watches
    * onDidCloseTerminal and clears the corresponding `*TabOpen` flag, which
    * makes the X button vanish on its own. */
-  onCloseSessionTab: (issueNumber: number, kind: 'brainstorm' | 'implement' | 'review') => void
+  onCloseSessionTab: (issueNumber: number, kind: 'brainstorm' | 'implement' | 'review' | 'test') => void
   /** Spawn a fresh "规划" cc tab for an issue whose sessionId is still empty
    * (created out-of-band via spx without webhook linking). Bound to the Play
    * button next to the "头脑风暴会话 id" row. */
@@ -66,6 +72,8 @@ export function IssueDetailPanel({
   onOpenInBrowser,
   onResumeSession,
   onResumeReviewSession,
+  onResumeTestSession,
+  onStartTestSession,
   onOpenFile,
   onImplement,
   onOpenPr,
@@ -238,6 +246,53 @@ export function IssueDetailPanel({
                 readOnly: true,
                 description: 'worktree 已清理，无法 resume；仅保留 id 文本',
               },
+          (() => {
+            // 测试会话 id 行有三种状态（照搬头脑风暴行的三态）：
+            //  1. testSessionId 已存在 + testTabOpen=true → 显示 id + X 关闭 tab
+            //  2. testSessionId 已存在 + testTabOpen=false → 显示 id，点击 resume
+            //  3. testSessionId 为空 + issue.pr 存在 → 显示 Play 启动新测试 cc tab
+            //     （prompt 依赖已合并的 PR 号，没有 PR 不显示启动按钮）
+            const hasSession = !!(issue?.testSessionId && issue.testSessionId.length > 0)
+            const canStart = !hasSession && !!issue?.pr
+            let secondaryActionIcon: ReactNode | undefined
+            let secondaryActionTitle: string | undefined
+            let onSecondaryAction: (() => void) | undefined
+            if (hasSession && issue?.testTabOpen) {
+              secondaryActionIcon = <X className="size-3.5" />
+              secondaryActionTitle = '关闭测试 tab'
+              onSecondaryAction = () => {
+                if (issue)
+                  onCloseSessionTab(issue.number, 'test')
+              }
+            }
+            else if (canStart) {
+              secondaryActionIcon = <Play className="size-3.5" />
+              secondaryActionTitle = '启动测试会话'
+              onSecondaryAction = () => {
+                if (issue)
+                  onStartTestSession(issue.number)
+              }
+            }
+            return {
+              key: 'testSessionId',
+              label: '测试会话id',
+              type: 'action' as const,
+              description: hasSession
+                ? '点击在新终端运行 claude --resume <id> 恢复测试对话（cwd 优先用 worktree）'
+                : '工单 PR 合并后点击右侧 ▶ 启动一个测试 cc tab（让 cc 了解代码后告诉你怎么测试）',
+              actionIcon: <Terminal className="size-3.5" />,
+              onAction: (v: unknown) => {
+                if (typeof v !== 'string' || v.length === 0 || !issue)
+                  return
+                if (!throttleBySessionId(v))
+                  return
+                onResumeTestSession(v, issue.number, issue?.worktreePath)
+              },
+              secondaryActionIcon,
+              secondaryActionTitle,
+              onSecondaryAction,
+            }
+          })(),
           {
             key: 'autoReview',
             label: '自动审查',
@@ -353,7 +408,7 @@ export function IssueDetailPanel({
         ],
       },
     ],
-    [onResumeSession, onResumeReviewSession, onOpenFile, onImplement, onOpenPr, onGeneratePrDiffSummary, onOpenWorktree, onDeleteWorktree, onCloseSessionTab, onStartBrainstormSession, onOpenLogs, issue, locked, lockTitle, globalAutoReview, prDiffSummaryRunning],
+    [onResumeSession, onResumeReviewSession, onResumeTestSession, onStartTestSession, onOpenFile, onImplement, onOpenPr, onGeneratePrDiffSummary, onOpenWorktree, onDeleteWorktree, onCloseSessionTab, onStartBrainstormSession, onOpenLogs, issue, locked, lockTitle, globalAutoReview, prDiffSummaryRunning],
   )
 
   if (!issue) {
@@ -369,6 +424,7 @@ export function IssueDetailPanel({
     sessionId: issue.sessionId ?? null,
     implementSessionId: issue.implementSessionId ?? null,
     reviewSessionId: issue.reviewSessionId ?? null,
+    testSessionId: issue.testSessionId ?? null,
     autoReview: issue.autoReview ?? globalAutoReview,
     color: issue.color ?? null,
     profilePath: issue.profilePath ?? null,

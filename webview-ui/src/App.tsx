@@ -29,6 +29,8 @@ export function App() {
     openUrl,
     resumeSession,
     resumeReviewSession,
+    startTestSession,
+    resumeTestSession,
     focusSession,
     openFile,
     implement,
@@ -302,6 +304,8 @@ export function App() {
                 onOpenInBrowser={openUrl}
                 onResumeSession={resumeSession}
                 onResumeReviewSession={resumeReviewSession}
+                onStartTestSession={startTestSession}
+                onResumeTestSession={resumeTestSession}
                 onOpenFile={openFile}
                 onImplement={implement}
                 onOpenPr={openPr}

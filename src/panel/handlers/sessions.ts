@@ -1065,6 +1065,296 @@ export async function handleStartBrainstormSession(panel: KanbanWebviewPanel, is
 }
 
 /**
+ * 手动启动一个"测试"cc 会话：工单 PR 合并后，用户在详情面板点测试会话行的
+ * 启动按钮，开一个 claude tab 让 cc 先了解代码、再告诉用户怎么测试。
+ *
+ * 与 handleStartBrainstormSession 的差异：
+ *   - 首条 prompt 依赖 state JSON 里的 `pr`（合并的 PR 号）；没有 PR 直接 toast 拒绝。
+ *   - cwd 优先用 worktree（存在时），否则退回 workspaceRoot——测试本质要读真实代码，
+ *     与实施会话同 profile（走 resolveImplementProfilePath）。
+ *   - 捕获到的 session id 写进 state JSON 的 `testSessionId`。
+ *
+ * in-flight 锁 key `${issueNumber}:test`，防 createTerminal 期间用户重复点击。
+ */
+export async function handleStartTestSession(panel: KanbanWebviewPanel, issueNumber: number): Promise<void> {
+  const lockKey = `${issueNumber}:test`
+  if (panel.resumeInFlight.has(lockKey)) {
+    logger.add({
+      level: 'info',
+      source: 'panel',
+      message: `start-test #${issueNumber} 已在进行中，忽略重入`,
+    })
+    return
+  }
+  panel.resumeInFlight.add(lockKey)
+
+  try {
+    const terminalName = `issue-${issueNumber}-测试`
+    const existing = panel.findExistingTerminal(terminalName)
+    if (existing) {
+      panel.trackSessionTerminal(existing, issueNumber, 'test')
+      existing.show(false)
+      logger.add({
+        level: 'info',
+        source: 'panel',
+        message: `复用已有测试终端 #${issueNumber}，跳过 cc 启动`,
+      })
+      return
+    }
+
+    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    if (!workspaceRoot) {
+      void window.showErrorMessage('请先打开一个工作区文件夹')
+      return
+    }
+    const remote = await detectRepo(workspaceRoot)
+    if (!remote) {
+      void window.showErrorMessage('当前工作区没有 Gitea 远程仓库')
+      return
+    }
+    const token = await getToken(panel.context, remote.host)
+    if (!token) {
+      void window.showErrorMessage('请先完成 Gitea 配置')
+      return
+    }
+
+    // 从 state JSON 读 pr / worktreePath / profilePath。pr 是测试会话的前提
+    // （prompt 依赖 PR 号），读不到就 toast 拒绝。
+    let pr: string | undefined
+    let relWorktreePath: string | undefined
+    let profilePath: string | undefined
+    try {
+      const stateObj = await readStateJsonComment({
+        host: remote.host,
+        owner: remote.owner,
+        repo: remote.repo,
+        token,
+        issueNumber,
+      })
+      if (stateObj) {
+        if (typeof stateObj.pr === 'string' && stateObj.pr.length > 0)
+          pr = stateObj.pr
+        if (typeof stateObj.worktreePath === 'string' && stateObj.worktreePath.length > 0)
+          relWorktreePath = stateObj.worktreePath
+        if (typeof stateObj.profilePath === 'string' && stateObj.profilePath.length > 0)
+          profilePath = stateObj.profilePath
+      }
+    }
+    catch (err) {
+      logger.add({
+        level: 'warn',
+        source: 'panel',
+        message: `读取 #${issueNumber} state JSON 失败，无法启动测试会话`,
+        details: err instanceof Error ? err.message : String(err),
+      })
+    }
+
+    if (!pr) {
+      void window.showWarningMessage('该工单无已合并 PR，无法启动测试会话')
+      return
+    }
+
+    // cwd：worktree 存在则用，否则退回 workspaceRoot（worktree 合并后常被清理）。
+    let effectiveCwd = workspaceRoot
+    if (relWorktreePath) {
+      const abs = path.isAbsolute(relWorktreePath)
+        ? relWorktreePath
+        : path.join(workspaceRoot, relWorktreePath)
+      if (fs.existsSync(abs))
+        effectiveCwd = abs
+    }
+
+    // 测试会话本质要读真实代码，走实施 profile 优先级。
+    const effectiveProfilePath = panel.resolveImplementProfilePath(profilePath)
+    if (effectiveProfilePath.includes('\'')) {
+      void window.showErrorMessage(
+        `启动测试失败：profilePath 含单引号，拒绝执行 (${effectiveProfilePath})`,
+      )
+      return
+    }
+
+    const prompt = `我已经合并了 #${pr} 号 PR，你先了解下代码，然后告诉我应该怎么测试`
+    if (prompt.includes('\'')) {
+      void window.showErrorMessage('启动测试失败：prompt 含单引号，拒绝执行')
+      return
+    }
+
+    // Ensure the projects dir exists so the watcher can't miss the create
+    // event. cwd 决定 claude session jsonl 落在哪个 projects 子目录下。
+    const projDir = projectsDirFor(effectiveCwd)
+    try {
+      await fsp.mkdir(projDir, { recursive: true })
+    }
+    catch (err) {
+      console.warn('[superpowers] failed to mkdir claude projects dir:', err)
+    }
+
+    // Kick off the watcher before spawning the terminal so we don't race.
+    const watchPromise = watchForNewSession({ projectsDir: projDir, timeoutMs: 120_000 })
+
+    const { themeColor, iconUri } = await panel.resolveIssueIcon(issueNumber)
+    const terminal = window.createTerminal({
+      name: terminalName,
+      cwd: effectiveCwd,
+      location: panel.resolveTerminalLocation(false),
+      iconPath: iconUri,
+      color: themeColor,
+    })
+    panel.trackSessionTerminal(terminal, issueNumber, 'test')
+    terminal.show(false)
+    logger.add({
+      level: 'info',
+      source: 'terminal',
+      message: `已创建终端 "${terminal.name}"`,
+    })
+
+    const cmd = `claude --dangerously-skip-permissions --settings '${effectiveProfilePath}' --system-prompt="$(serena prompts print-cc-system-prompt-override)" '${prompt}'`
+    terminal.sendText(cmd)
+    logger.add({
+      level: 'info',
+      source: 'panel',
+      message: `已发送测试 prompt 到终端 #${issueNumber}`,
+    })
+
+    // Fire-and-forget: when the session jsonl materializes, persist the id as
+    // the issue's `testSessionId` so the X / resume button toggles.
+    watchPromise.then(async (sid) => {
+      if (!sid) {
+        logger.add({
+          level: 'warn',
+          source: 'panel',
+          message: '测试会话监听超时 (120s)',
+        })
+        return
+      }
+      logger.add({
+        level: 'info',
+        source: 'panel',
+        message: `已捕获测试会话 ${sid}`,
+      })
+      try {
+        await mergeStateJsonComment({
+          host: remote.host,
+          owner: remote.owner,
+          repo: remote.repo,
+          token,
+          issueNumber,
+          extra: { testSessionId: sid },
+        })
+        panel.postMessage({
+          type: 'issue/patch',
+          issueNumber,
+          patch: { testSessionId: sid },
+        })
+      }
+      catch (err) {
+        console.warn('[superpowers] failed to persist testSessionId:', err)
+      }
+    }).catch((err) => {
+      console.warn('[superpowers] test session watch failed:', err)
+    })
+
+    void window.showInformationMessage(`已启动 #${issueNumber} 测试会话`)
+  }
+  finally {
+    panel.resumeInFlight.delete(lockKey)
+  }
+}
+
+/**
+ * 恢复一个已存在的测试 cc 会话：详情面板点测试会话行（testTabOpen=false 时）
+ * 触发，照搬 handleResumeSession 的 implement 分支，但 kind='test'、终端名
+ * `issue-${N}-测试`、命令 `claude ... --resume ${sessionId}`。
+ *
+ * cwd 优先用 worktree（relCwd 存在且在磁盘上），否则退回 workspaceRoot。
+ * in-flight 锁 key `${issueNumber}:test`。
+ */
+export async function handleResumeTestSession(panel: KanbanWebviewPanel, sessionId: string, issueNumber: number, relCwd?: string): Promise<void> {
+  const lockKey = `${issueNumber}:test`
+  if (panel.resumeInFlight.has(lockKey)) {
+    logger.add({
+      level: 'info',
+      source: 'panel',
+      message: `resume #${issueNumber}/test 已在进行中，忽略重入`,
+    })
+    return
+  }
+  panel.resumeInFlight.add(lockKey)
+
+  try {
+    // 与实施会话不同，profile 不影响 --resume（claude 从 jsonl 重建会话），
+    // 但仍用实施 profile 保持一致。
+    const effectiveProfilePath = panel.resolveImplementProfilePath(undefined)
+    if (effectiveProfilePath.includes('\'')) {
+      void window.showErrorMessage(
+        `resume 失败：profilePath 含单引号，拒绝执行 (${effectiveProfilePath})`,
+      )
+      return
+    }
+
+    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    // cwd 优先用 worktree（合并后可能已清理），退回 workspaceRoot。
+    let effectiveCwd: string | undefined = workspaceRoot
+    let cwdFallback = false
+    if (relCwd && workspaceRoot) {
+      const resolved = path.isAbsolute(relCwd) ? relCwd : path.join(workspaceRoot, relCwd)
+      if (fs.existsSync(resolved)) {
+        effectiveCwd = resolved
+      }
+      else {
+        cwdFallback = true
+        effectiveCwd = workspaceRoot
+        logger.add({
+          level: 'warn',
+          source: 'panel',
+          message: `测试会话 worktree 不存在，退回工作区根目录 (#${issueNumber}): ${relCwd}`,
+        })
+      }
+    }
+
+    const terminalName = `issue-${issueNumber}-测试`
+    const existingByName = panel.findExistingTerminal(terminalName)
+    if (existingByName) {
+      panel.trackSessionTerminal(existingByName, issueNumber, 'test')
+      existingByName.show(false)
+      return
+    }
+
+    const { themeColor, iconUri } = await panel.resolveIssueIcon(issueNumber)
+    const terminal = window.createTerminal({
+      name: terminalName,
+      cwd: effectiveCwd,
+      location: panel.resolveTerminalLocation(false),
+      iconPath: iconUri,
+      color: themeColor,
+    })
+    panel.trackSessionTerminal(terminal, issueNumber, 'test')
+    terminal.show(false)
+    logger.add({
+      level: 'info',
+      source: 'terminal',
+      message: `已创建测试会话终端 #${issueNumber} cwd=${effectiveCwd}`,
+    })
+
+    if (cwdFallback) {
+      panel.postMessage({
+        type: 'toast/show',
+        id: makeNonce(),
+        level: 'info',
+        message: `工单 #${issueNumber} 的 worktree 已清理，测试会话将在工作区根目录恢复`,
+        dismissOnTimer: 5000,
+      })
+    }
+
+    const cmd = `claude --dangerously-skip-permissions --settings '${effectiveProfilePath}' --system-prompt="$(serena prompts print-cc-system-prompt-override)" --resume ${sessionId}`
+    terminal.sendText(cmd)
+  }
+  finally {
+    panel.resumeInFlight.delete(lockKey)
+  }
+}
+
+/**
  * 当 done 列的 PR merge 因冲突失败时调用：在主 workspace 检出 feature 分支
  * 并 merge dev 让冲突落地到 working tree，然后启一个临时 cc 会话让 cc 解决
  * 冲突 + commit + push。这个临时会话**不**进 state JSON、不进任何 map，

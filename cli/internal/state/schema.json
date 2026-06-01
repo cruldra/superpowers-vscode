@@ -26,6 +26,11 @@
       "description": "审查阶段的会话 id（v1 存 codex thread id），用于 webhook synchronize 时 resume。",
       "minLength": 1
     },
+    "testSessionId": {
+      "type": "string",
+      "description": "测试阶段的 Claude Code session id；PR 合并后手动启动的测试会话，用于 resume。",
+      "minLength": 1
+    },
     "profilePath": {
       "type": "string",
       "description": "创建工单时使用的 Claude settings 配置文件绝对路径，resume 时作为 --settings 传入。",

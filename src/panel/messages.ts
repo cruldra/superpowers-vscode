@@ -16,7 +16,7 @@ export type ExtensionToWebview
   = | { type: 'issues/loading' }
     | { type: 'issues/update', issues: Issue[], globalAutoReview: boolean }
     | { type: 'issues/error', message: string }
-    | { type: 'issue/patch', issueNumber: number, patch: { autoReview?: boolean, specFile?: string, planFile?: string, prDiffFile?: string, sessionId?: string, implementSessionId?: string, reviewSessionId?: string, pr?: string, implementStatus?: 'running' | 'done' | 'failed', column?: IssueColumn, worktreePath?: string, prMerged?: boolean, branch?: string, color?: string, worktreeExists?: boolean, brainstormTabOpen?: boolean, implementTabOpen?: boolean, reviewTabOpen?: boolean } }
+    | { type: 'issue/patch', issueNumber: number, patch: { autoReview?: boolean, specFile?: string, planFile?: string, prDiffFile?: string, sessionId?: string, implementSessionId?: string, reviewSessionId?: string, testSessionId?: string, pr?: string, implementStatus?: 'running' | 'done' | 'failed', column?: IssueColumn, worktreePath?: string, prMerged?: boolean, branch?: string, color?: string, worktreeExists?: boolean, brainstormTabOpen?: boolean, implementTabOpen?: boolean, reviewTabOpen?: boolean, testTabOpen?: boolean } }
     | { type: 'issue/pr-diff-summary-done', issueNumber: number }
     | { type: 'issue/append', issue: Issue, select?: boolean }
     | { type: 'issue/select-by-number', issueNumber: number }
@@ -92,6 +92,8 @@ export type WebviewToExtension
     | { type: 'session/resume', sessionId: string, profilePath?: string, cwd?: string, issueNumber?: number }
     | { type: 'session/focus', issueNumber: number }
     | { type: 'session/resume-review', sessionId: string, issueNumber: number, cwd?: string }
+    | { type: 'session/resume-test', sessionId: string, issueNumber: number, cwd?: string }
+    | { type: 'session/start-test', issueNumber: number }
     | { type: 'editor/open-file', path: string }
     | { type: 'profiles/list' }
     | { type: 'issue/implement', issueNumber: number, planFile: string, profilePath?: string, sessionId?: string }
@@ -106,7 +108,7 @@ export type WebviewToExtension
     | { type: 'logs/fetch' }
     | { type: 'logs/clear' }
     | { type: 'commit/run' }
-    | { type: 'session/close-tab', issueNumber: number, kind: 'brainstorm' | 'implement' | 'review' }
+    | { type: 'session/close-tab', issueNumber: number, kind: 'brainstorm' | 'implement' | 'review' | 'test' }
     | { type: 'branch-sync/check' }
     | { type: 'branch-sync/run' }
     | { type: 'env-lock/check' }

@@ -124,7 +124,7 @@ export class KanbanWebviewPanel {
    * Map 更易于 inspect / debug。条目数顶天就是当前活跃 tab 数，无压力。
    */
   // internal: handler 模块访问
-  readonly terminalOrigin = new Map<Terminal, { issueNumber: number, kind: 'brainstorm' | 'implement' | 'review' }>()
+  readonly terminalOrigin = new Map<Terminal, { issueNumber: number, kind: 'brainstorm' | 'implement' | 'review' | 'test' }>()
 
   /**
    * 防 handleResumeSession/handleResumeReviewSession 在 await 钩子/终端创建期间被重入触发，
@@ -347,6 +347,14 @@ export class KanbanWebviewPanel {
     }
     if (msg.type === 'session/resume-review') {
       void sessions.handleResumeReviewSession(this, msg.sessionId, msg.issueNumber, msg.cwd)
+      return
+    }
+    if (msg.type === 'session/start-test') {
+      void sessions.handleStartTestSession(this, msg.issueNumber)
+      return
+    }
+    if (msg.type === 'session/resume-test') {
+      void sessions.handleResumeTestSession(this, msg.sessionId, msg.issueNumber, msg.cwd)
       return
     }
     if (msg.type === 'editor/open-file') {
@@ -846,7 +854,7 @@ export class KanbanWebviewPanel {
   trackSessionTerminal(
     terminal: Terminal,
     issueNumber: number,
-    kind: 'brainstorm' | 'implement' | 'review',
+    kind: 'brainstorm' | 'implement' | 'review' | 'test',
   ): void {
     terminals.trackSessionTerminal(this, terminal, issueNumber, kind)
   }

@@ -38,6 +38,9 @@ export interface Issue {
   implementSessionId?: string
   /** Backend-agnostic review session id (v1 stores a codex thread id). */
   reviewSessionId?: string
+  /** Claude Code session id of the test conversation; manually started after
+   * the PR is merged, resumable from the detail panel. */
+  testSessionId?: string
   htmlUrl: string
   /** 前置任务 issue number (Gitea dependencies 取第一个) */
   prerequisite?: number
@@ -51,6 +54,7 @@ export interface Issue {
   brainstormTabOpen?: boolean
   implementTabOpen?: boolean
   reviewTabOpen?: boolean
+  testTabOpen?: boolean
 }
 
 export const COLUMN_ORDER: IssueColumn[] = ['todo', 'in-progress', 'review', 'done']

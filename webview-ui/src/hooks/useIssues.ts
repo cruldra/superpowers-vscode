@@ -88,6 +88,8 @@ export interface UseIssuesResult {
   openUrl: (url: string) => void
   resumeSession: (sessionId: string, profilePath?: string, cwd?: string, issueNumber?: number) => void
   resumeReviewSession: (sessionId: string, issueNumber: number, cwd?: string) => void
+  startTestSession: (issueNumber: number) => void
+  resumeTestSession: (sessionId: string, issueNumber: number, cwd?: string) => void
   focusSession: (issueNumber: number) => void
   openFile: (path: string) => void
   implement: (issueNumber: number, planFile: string, profilePath?: string, sessionId?: string) => void
@@ -104,7 +106,7 @@ export interface UseIssuesResult {
   closeIssue: (issueNumber: number) => void
   /** Dispose the matching session terminal tab. Extension reacts via
    * onDidCloseTerminal and clears `*TabOpen` so the X button disappears. */
-  closeSessionTab: (issueNumber: number, kind: 'brainstorm' | 'implement' | 'review') => void
+  closeSessionTab: (issueNumber: number, kind: 'brainstorm' | 'implement' | 'review' | 'test') => void
   /** Spawn a fresh "规划" cc tab for an existing issue whose sessionId is
    * still empty. The extension picks up profilePath from the issue's state
    * JSON, watches `~/.claude/projects/<encoded-workspaceRoot>` for the new
@@ -271,6 +273,14 @@ export function useIssues(): UseIssuesResult {
     postMessage({ type: 'session/resume-review', sessionId, issueNumber, cwd })
   }, [])
 
+  const startTestSession = useCallback((issueNumber: number): void => {
+    postMessage({ type: 'session/start-test', issueNumber })
+  }, [])
+
+  const resumeTestSession = useCallback((sessionId: string, issueNumber: number, cwd?: string): void => {
+    postMessage({ type: 'session/resume-test', sessionId, issueNumber, cwd })
+  }, [])
+
   const openFile = useCallback((path: string): void => {
     postMessage({ type: 'editor/open-file', path })
   }, [])
@@ -317,7 +327,7 @@ export function useIssues(): UseIssuesResult {
   }, [])
 
   const closeSessionTab = useCallback(
-    (issueNumber: number, kind: 'brainstorm' | 'implement' | 'review'): void => {
+    (issueNumber: number, kind: 'brainstorm' | 'implement' | 'review' | 'test'): void => {
       postMessage({ type: 'session/close-tab', issueNumber, kind })
     },
     [],
@@ -585,5 +595,5 @@ export function useIssues(): UseIssuesResult {
     return cleanup
   }, [clearPrDiffSummaryRunning])
 
-  return { state, settings, globalAutoReview, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, focusSession, openFile, implement, generatePrDiffSummary, isPrDiffSummaryRunning, openPr, openWorktree, deleteWorktree, deleteIssue, closeIssue, closeSessionTab, startBrainstormSession, changeColumn, setDependency, clearDependency, updateIssueAutoReview, logs, fetchLogs, clearLogs, pendingSelectId, clearPendingSelect, commitRunning, runCommit, hasChanges, branchSyncBehind, branchSyncRunning, branchSyncDisabled, branchSyncTitle, runBranchSync, envLocked, envFileCount, envLockRunning, envLockTitle, toggleEnvLock }
+  return { state, settings, globalAutoReview, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, startTestSession, resumeTestSession, focusSession, openFile, implement, generatePrDiffSummary, isPrDiffSummaryRunning, openPr, openWorktree, deleteWorktree, deleteIssue, closeIssue, closeSessionTab, startBrainstormSession, changeColumn, setDependency, clearDependency, updateIssueAutoReview, logs, fetchLogs, clearLogs, pendingSelectId, clearPendingSelect, commitRunning, runCommit, hasChanges, branchSyncBehind, branchSyncRunning, branchSyncDisabled, branchSyncTitle, runBranchSync, envLocked, envFileCount, envLockRunning, envLockTitle, toggleEnvLock }
 }

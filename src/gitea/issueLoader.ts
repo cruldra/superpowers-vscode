@@ -80,6 +80,7 @@ function parseColumnFromComments(comments: GiteaComment[]): {
   implementStatus?: 'running' | 'done' | 'failed'
   implementSessionId?: string
   reviewSessionId?: string
+  testSessionId?: string
   color?: string
   autoReview?: boolean
 } {
@@ -106,6 +107,7 @@ function parseColumnFromComments(comments: GiteaComment[]): {
         implementStatus?: unknown
         implementSessionId?: unknown
         reviewSessionId?: unknown
+        testSessionId?: unknown
         color?: unknown
         autoReview?: unknown
       }
@@ -140,6 +142,9 @@ function parseColumnFromComments(comments: GiteaComment[]): {
         const reviewSessionId = typeof obj.reviewSessionId === 'string' && obj.reviewSessionId.length > 0
           ? obj.reviewSessionId
           : undefined
+        const testSessionId = typeof obj.testSessionId === 'string' && obj.testSessionId.length > 0
+          ? obj.testSessionId
+          : undefined
         const color = typeof obj.color === 'string' && obj.color.length > 0
           ? obj.color
           : undefined
@@ -158,6 +163,7 @@ function parseColumnFromComments(comments: GiteaComment[]): {
           implementStatus,
           implementSessionId,
           reviewSessionId,
+          testSessionId,
           color,
           autoReview,
         }
@@ -276,6 +282,7 @@ async function buildIssue(opts: {
     implementStatus,
     implementSessionId,
     reviewSessionId,
+    testSessionId,
     color,
     autoReview,
   } = parseColumnFromComments(comments)
@@ -336,6 +343,7 @@ async function buildIssue(opts: {
     ...(implementStatus ? { implementStatus } : {}),
     ...(implementSessionId ? { implementSessionId } : {}),
     ...(reviewSessionId ? { reviewSessionId } : {}),
+    ...(testSessionId ? { testSessionId } : {}),
     ...(prerequisite !== undefined ? { prerequisite } : {}),
     ...(color ? { color } : {}),
     ...(autoReview !== undefined ? { autoReview } : {}),

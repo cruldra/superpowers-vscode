@@ -51,6 +51,10 @@ export interface Issue {
    * the first time auto-review runs; reused for subsequent `synchronize`
    * webhook callbacks via `codex exec resume`. */
   reviewSessionId?: string
+  /** Session id of the test conversation (a Claude Code session id). Set the
+   * first time the user manually starts a test session after the issue's PR
+   * is merged; reused for resume from the detail panel. */
+  testSessionId?: string
   /** Browser URL to the Gitea issue page (escape hatch button in the UI). */
   htmlUrl: string
   /** 前置任务 issue number (Gitea dependencies 取第一个) */
@@ -69,4 +73,6 @@ export interface Issue {
   implementTabOpen?: boolean
   /** Whether the review terminal tab is currently alive in this VS Code window. */
   reviewTabOpen?: boolean
+  /** Whether the test terminal tab is currently alive in this VS Code window. */
+  testTabOpen?: boolean
 }

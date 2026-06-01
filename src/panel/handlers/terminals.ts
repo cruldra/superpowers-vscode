@@ -111,12 +111,13 @@ export function handleSessionFocus(panel: KanbanWebviewPanel, issueNumber: numbe
     newIssueTerm.show(true)
     return
   }
-  // Priority 1-3: 实施 > 规划 > 审查. Match by terminal.name since we know the
-  // convention (issue-${N}-实施 / issue-${N}-规划 / issue-${N}-审查).
+  // Priority 1-4: 实施 > 规划 > 审查 > 测试. Match by terminal.name since we know
+  // the convention (issue-${N}-实施 / issue-${N}-规划 / issue-${N}-审查 / issue-${N}-测试).
   const namePriority = [
     `issue-${issueNumber}-实施`,
     `issue-${issueNumber}-规划`,
     `issue-${issueNumber}-审查`,
+    `issue-${issueNumber}-测试`,
   ]
   for (const name of namePriority) {
     const term = findExistingTerminal(panel, name)
@@ -142,8 +143,8 @@ export function handleActiveTerminalChanged(panel: KanbanWebviewPanel, terminal:
   if (terminal === panel.lastActiveTerminalRef)
     return
   panel.lastActiveTerminalRef = terminal
-  // Primary: `issue-${N}-(规划|实施|审查)` — the steady-state naming.
-  const m = terminal.name.match(/^issue-(\d+)-(规划|实施|审查)/)
+  // Primary: `issue-${N}-(规划|实施|审查|测试)` — the steady-state naming.
+  const m = terminal.name.match(/^issue-(\d+)-(规划|实施|审查|测试)/)
   if (m) {
     const issueNumber = Number.parseInt(m[1], 10)
     if (Number.isFinite(issueNumber)) {
@@ -177,15 +178,17 @@ export function handleActiveTerminalChanged(panel: KanbanWebviewPanel, terminal:
  * 按钮能找到对应 terminal。
  */
 export function withLiveTerminalTabState(panel: KanbanWebviewPanel, issues: Issue[]): Issue[] {
-  const liveByIssue = new Map<number, Partial<Pick<Issue, 'brainstormTabOpen' | 'implementTabOpen' | 'reviewTabOpen'>>>()
-  const mark = (issueNumber: number, kind: 'brainstorm' | 'implement' | 'review'): void => {
+  const liveByIssue = new Map<number, Partial<Pick<Issue, 'brainstormTabOpen' | 'implementTabOpen' | 'reviewTabOpen' | 'testTabOpen'>>>()
+  const mark = (issueNumber: number, kind: 'brainstorm' | 'implement' | 'review' | 'test'): void => {
     const patch = liveByIssue.get(issueNumber) ?? {}
     if (kind === 'brainstorm')
       patch.brainstormTabOpen = true
     else if (kind === 'implement')
       patch.implementTabOpen = true
-    else
+    else if (kind === 'review')
       patch.reviewTabOpen = true
+    else
+      patch.testTabOpen = true
     liveByIssue.set(issueNumber, patch)
   }
 
@@ -197,7 +200,7 @@ export function withLiveTerminalTabState(panel: KanbanWebviewPanel, issues: Issu
   for (const terminal of window.terminals) {
     if (terminal.exitStatus !== undefined)
       continue
-    const match = terminal.name.match(/^issue-(\d+)-(规划|实施|审查)(?:\s|$)/)
+    const match = terminal.name.match(/^issue-(\d+)-(规划|实施|审查|测试)(?:\s|$)/)
     if (!match)
       continue
     const issueNumber = Number.parseInt(match[1], 10)
@@ -207,7 +210,9 @@ export function withLiveTerminalTabState(panel: KanbanWebviewPanel, issues: Issu
       ? 'brainstorm'
       : match[2] === '实施'
         ? 'implement'
-        : 'review'
+        : match[2] === '审查'
+          ? 'review'
+          : 'test'
     panel.terminalOrigin.set(terminal, { issueNumber, kind })
     mark(issueNumber, kind)
   }
@@ -233,7 +238,7 @@ export function trackSessionTerminal(
   panel: KanbanWebviewPanel,
   terminal: Terminal,
   issueNumber: number,
-  kind: 'brainstorm' | 'implement' | 'review',
+  kind: 'brainstorm' | 'implement' | 'review' | 'test',
 ): void {
   panel.terminalOrigin.set(terminal, { issueNumber, kind })
   panel.postMessage({
@@ -244,7 +249,9 @@ export function trackSessionTerminal(
         ? { brainstormTabOpen: true }
         : kind === 'implement'
           ? { implementTabOpen: true }
-          : { reviewTabOpen: true },
+          : kind === 'review'
+            ? { reviewTabOpen: true }
+            : { testTabOpen: true },
   })
 }
 
@@ -268,7 +275,9 @@ export function untrackClosedTerminal(panel: KanbanWebviewPanel, closed: Termina
         ? { brainstormTabOpen: false }
         : origin.kind === 'implement'
           ? { implementTabOpen: false }
-          : { reviewTabOpen: false },
+          : origin.kind === 'review'
+            ? { reviewTabOpen: false }
+            : { testTabOpen: false },
   })
 }
 
@@ -283,7 +292,7 @@ export function untrackClosedTerminal(panel: KanbanWebviewPanel, closed: Termina
  * thread_id 索引，此路径还没 thread_id），但会被登记到 terminalOrigin，
  * 所以用它做单一真相源最稳。
  */
-export function handleCloseSessionTab(panel: KanbanWebviewPanel, issueNumber: number, kind: 'brainstorm' | 'implement' | 'review'): void {
+export function handleCloseSessionTab(panel: KanbanWebviewPanel, issueNumber: number, kind: 'brainstorm' | 'implement' | 'review' | 'test'): void {
   let terminal: Terminal | undefined
   for (const [t, origin] of panel.terminalOrigin) {
     if (origin.issueNumber === issueNumber && origin.kind === kind) {

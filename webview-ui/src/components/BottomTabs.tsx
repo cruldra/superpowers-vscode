@@ -24,6 +24,8 @@ interface BottomTabsProps {
   onOpenInBrowser: (url: string) => void
   onResumeSession: (sessionId: string, profilePath?: string, cwd?: string, issueNumber?: number) => void
   onResumeReviewSession: (sessionId: string, issueNumber: number, cwd?: string) => void
+  onStartTestSession: (issueNumber: number) => void
+  onResumeTestSession: (sessionId: string, issueNumber: number, cwd?: string) => void
   onOpenFile: (path: string) => void
   onImplement: (issueNumber: number, planFile: string, profilePath?: string, sessionId?: string) => void
   onOpenPr: (pr: string) => void
@@ -33,7 +35,7 @@ interface BottomTabsProps {
   onDeleteWorktree: (issueNumber: number, path: string) => void
   onDeleteIssue?: (issueNumber: number) => void
   onCloseIssue: (issueNumber: number) => void
-  onCloseSessionTab: (issueNumber: number, kind: 'brainstorm' | 'implement' | 'review') => void
+  onCloseSessionTab: (issueNumber: number, kind: 'brainstorm' | 'implement' | 'review' | 'test') => void
   onStartBrainstormSession: (issueNumber: number) => void
   onUpdateAutoReview: (issueNumber: number, value: boolean) => void
   onOpenLogs: () => void
@@ -76,6 +78,8 @@ export function BottomTabs(props: BottomTabsProps) {
                 onOpenInBrowser={props.onOpenInBrowser}
                 onResumeSession={props.onResumeSession}
                 onResumeReviewSession={props.onResumeReviewSession}
+                onStartTestSession={props.onStartTestSession}
+                onResumeTestSession={props.onResumeTestSession}
                 onOpenFile={props.onOpenFile}
                 onImplement={props.onImplement}
                 onOpenPr={props.onOpenPr}
