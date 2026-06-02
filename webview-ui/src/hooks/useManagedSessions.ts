@@ -14,7 +14,7 @@ import { onMessage, postMessage } from '../lib/vscode'
 
 export interface UseManagedSessionsResult {
   managedSessions: ManagedSessionsData
-  createManagedSession: (profilePath: string, prompt?: string) => void
+  createManagedSession: (profilePath: string, name?: string, prompt?: string) => void
   renameManagedSession: (id: string, name: string) => void
   resumeManagedSession: (id: string) => void
   deleteManagedSession: (id: string) => void
@@ -32,8 +32,8 @@ export function useManagedSessions(): UseManagedSessionsResult {
     return cleanup
   }, [])
 
-  const createManagedSession = useCallback((profilePath: string, prompt?: string): void => {
-    postMessage({ type: 'managed-sessions/create', profilePath, prompt })
+  const createManagedSession = useCallback((profilePath: string, name?: string, prompt?: string): void => {
+    postMessage({ type: 'managed-sessions/create', profilePath, name, prompt })
   }, [])
 
   const renameManagedSession = useCallback((id: string, name: string): void => {

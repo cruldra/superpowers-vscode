@@ -50,7 +50,7 @@ interface BottomTabsProps {
   // 会话管理 tab props
   managedSessions: ManagedSessionsData
   profiles: ClaudeProfile[]
-  onManagedSessionCreate: (profilePath: string, prompt?: string) => void
+  onManagedSessionCreate: (profilePath: string, name?: string, prompt?: string) => void
   onManagedSessionRename: (id: string, name: string) => void
   onManagedSessionResume: (id: string) => void
   onManagedSessionDelete: (id: string) => void

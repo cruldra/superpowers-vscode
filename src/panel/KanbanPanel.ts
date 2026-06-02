@@ -460,7 +460,7 @@ export class KanbanWebviewPanel {
       return
     }
     if (msg.type === 'managed-sessions/create') {
-      void managedSessions.handleManagedSessionsCreate(this, msg.profilePath, msg.prompt)
+      void managedSessions.handleManagedSessionsCreate(this, msg.profilePath, msg.name, msg.prompt)
       return
     }
     if (msg.type === 'managed-sessions/rename') {

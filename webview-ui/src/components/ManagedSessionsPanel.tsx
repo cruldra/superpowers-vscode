@@ -15,7 +15,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 interface ManagedSessionsPanelProps {
   data: ManagedSessionsData
   profiles: ClaudeProfile[]
-  onCreate: (profilePath: string, prompt?: string) => void
+  onCreate: (profilePath: string, name?: string, prompt?: string) => void
   onRename: (id: string, name: string) => void
   onResume: (id: string) => void
   onDelete: (id: string) => void
@@ -46,6 +46,7 @@ function formatTime(ts: number): string {
 
 export function ManagedSessionsPanel({ data, profiles, onCreate, onRename, onResume, onDelete }: ManagedSessionsPanelProps) {
   const [selectedProfile, setSelectedProfile] = useState<string>('')
+  const [name, setName] = useState<string>('')
   const [prompt, setPrompt] = useState<string>('')
 
   // 默认选中第一个 profile（profiles 异步到达后）。
@@ -64,10 +65,12 @@ export function ManagedSessionsPanel({ data, profiles, onCreate, onRename, onRes
   const handleCreate = useCallback((): void => {
     if (!canCreate)
       return
-    const trimmed = prompt.trim()
-    onCreate(selectedProfile, trimmed || undefined)
+    const trimmedName = name.trim()
+    const trimmedPrompt = prompt.trim()
+    onCreate(selectedProfile, trimmedName || undefined, trimmedPrompt || undefined)
+    setName('')
     setPrompt('')
-  }, [canCreate, prompt, selectedProfile, onCreate])
+  }, [canCreate, name, prompt, selectedProfile, onCreate])
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-[var(--vscode-editor-background)] text-[var(--vscode-foreground)]">
@@ -88,6 +91,16 @@ export function ManagedSessionsPanel({ data, profiles, onCreate, onRename, onRes
                 <option key={p.path} value={p.path}>{p.name}</option>
               ))}
             </select>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-12 shrink-0 text-xs text-[var(--vscode-descriptionForeground)]">名字</span>
+            <input
+              type="text"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="会话名字（可选）"
+              className="min-w-0 flex-1 rounded border border-[var(--vscode-input-border,var(--vscode-panel-border))] bg-[var(--vscode-input-background)] px-2 py-1 text-xs text-[var(--vscode-input-foreground)] outline-none placeholder:text-[var(--vscode-input-placeholderForeground)] focus:ring-1 focus:ring-inset focus:ring-[var(--vscode-focusBorder)]"
+            />
           </div>
           <div className="flex items-start gap-2">
             <span className="w-12 shrink-0 pt-1 text-xs text-[var(--vscode-descriptionForeground)]">提示词</span>

@@ -150,7 +150,7 @@ export type WebviewToExtension
     | { type: 'profiles/save', data: ProfilesData }
     | { type: 'profiles/open', value: string }
     | { type: 'managed-sessions/get' }
-    | { type: 'managed-sessions/create', profilePath: string, prompt?: string }
+    | { type: 'managed-sessions/create', profilePath: string, name?: string, prompt?: string }
     | { type: 'managed-sessions/rename', sessionId: string, name: string }
     | { type: 'managed-sessions/resume', sessionId: string }
     | { type: 'managed-sessions/delete', sessionId: string }

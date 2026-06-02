@@ -1,7 +1,7 @@
 import type { KanbanWebviewPanel } from '../KanbanPanel'
 import { promises as fsp } from 'node:fs'
 import { window, workspace } from 'vscode'
-import { projectsDirFor, watchForNewSession } from '../../cc/sessionWatcher'
+import { pollForNewSession, projectsDirFor } from '../../cc/sessionWatcher'
 import { logger } from '../../logging/logger'
 import { readManagedSessions, writeManagedSessions } from '../../sessions/managedStore'
 import { DEFAULT_PROFILE_PATH } from '../KanbanPanel'
@@ -33,10 +33,10 @@ export async function handleManagedSessionsGet(panel: KanbanWebviewPanel): Promi
  *   - 启动命令照搬头脑风暴风格（claude --dangerously-skip-permissions --settings
  *     '<profilePath>' --system-prompt="$(serena prompts ...)"），prompt 非空时
  *     再追加 ' <prompt>'。
- *   - 用 watchForNewSession 捕获新 sessionId，落进 .spx/session-names.json 后
- *     推全量列表。
+ *   - 用 pollForNewSession 捕获新 sessionId（共享 projects 目录用轮询更可靠），
+ *     落进 .spx/session-names.json 后推全量列表。
  */
-export async function handleManagedSessionsCreate(panel: KanbanWebviewPanel, profilePath: string, prompt?: string): Promise<void> {
+export async function handleManagedSessionsCreate(panel: KanbanWebviewPanel, profilePath: string, name?: string, prompt?: string): Promise<void> {
   const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
   if (!workspaceRoot) {
     void window.showErrorMessage('请先打开一个工作区文件夹')
@@ -53,11 +53,24 @@ export async function handleManagedSessionsCreate(panel: KanbanWebviewPanel, pro
     return
   }
 
+  const trimmedName = (name ?? '').trim()
+  if (trimmedName.includes('\'')) {
+    void window.showErrorMessage('创建会话失败：会话名字含单引号，拒绝执行')
+    return
+  }
+
   const trimmedPrompt = (prompt ?? '').trim()
   if (trimmedPrompt.includes('\'')) {
     void window.showErrorMessage('创建会话失败：首个提示词含单引号，拒绝执行')
     return
   }
+
+  // 首个提示词：填了 prompt 用 prompt；否则填了 name 用 /rename <name>；否则交互式无提示词。
+  let effectivePrompt = ''
+  if (trimmedPrompt)
+    effectivePrompt = trimmedPrompt
+  else if (trimmedName)
+    effectivePrompt = `/rename ${trimmedName}`
 
   // 项目根的 claude projects 子目录；先 mkdir 让 watcher 不会错过 create 事件。
   const projDir = projectsDirFor(workspaceRoot)
@@ -68,8 +81,8 @@ export async function handleManagedSessionsCreate(panel: KanbanWebviewPanel, pro
     console.warn('[superpowers] failed to mkdir claude projects dir:', err)
   }
 
-  // 先起 watcher 再 sendText，避免与 rollout-*.jsonl 创建竞争。
-  const watchPromise = watchForNewSession({ projectsDir: projDir, timeoutMs: 120_000 })
+  // managed 会话的 projects 目录是繁忙共享目录，fs.watch 会漏 rename；改用轮询 diff。
+  const watchPromise = pollForNewSession({ projectsDir: projDir, timeoutMs: 120_000 })
 
   // 友好的终端名，避免与 issue 终端 `issue-N-xxx` 命名冲突。
   const terminal = window.createTerminal({
@@ -85,8 +98,8 @@ export async function handleManagedSessionsCreate(panel: KanbanWebviewPanel, pro
   })
 
   let cmd = `claude --dangerously-skip-permissions --settings '${effectiveProfilePath}' --system-prompt="$(serena prompts print-cc-system-prompt-override)"`
-  if (trimmedPrompt)
-    cmd += ` '${trimmedPrompt}'`
+  if (effectivePrompt)
+    cmd += ` '${effectivePrompt}'`
   terminal.sendText(cmd)
   logger.add({
     level: 'info',
@@ -115,7 +128,7 @@ export async function handleManagedSessionsCreate(panel: KanbanWebviewPanel, pro
       const data = await readManagedSessions(workspaceRoot)
       data.sessions.push({
         id: sid,
-        name: defaultSessionName(sid, trimmedPrompt || undefined),
+        name: trimmedName || defaultSessionName(sid, trimmedPrompt || undefined),
         profilePath: effectiveProfilePath,
         createdAt: Date.now(),
       })
