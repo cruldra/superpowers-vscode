@@ -1118,10 +1118,9 @@ export async function handleStartTestSession(panel: KanbanWebviewPanel, issueNum
       return
     }
 
-    // 从 state JSON 读 pr / worktreePath / profilePath。pr 是测试会话的前提
+    // 从 state JSON 读 pr / profilePath。pr 是测试会话的前提
     // （prompt 依赖 PR 号），读不到就 toast 拒绝。
     let pr: string | undefined
-    let relWorktreePath: string | undefined
     let profilePath: string | undefined
     try {
       const stateObj = await readStateJsonComment({
@@ -1134,8 +1133,6 @@ export async function handleStartTestSession(panel: KanbanWebviewPanel, issueNum
       if (stateObj) {
         if (typeof stateObj.pr === 'string' && stateObj.pr.length > 0)
           pr = stateObj.pr
-        if (typeof stateObj.worktreePath === 'string' && stateObj.worktreePath.length > 0)
-          relWorktreePath = stateObj.worktreePath
         if (typeof stateObj.profilePath === 'string' && stateObj.profilePath.length > 0)
           profilePath = stateObj.profilePath
       }
@@ -1154,15 +1151,9 @@ export async function handleStartTestSession(panel: KanbanWebviewPanel, issueNum
       return
     }
 
-    // cwd：worktree 存在则用，否则退回 workspaceRoot（worktree 合并后常被清理）。
-    let effectiveCwd = workspaceRoot
-    if (relWorktreePath) {
-      const abs = path.isAbsolute(relWorktreePath)
-        ? relWorktreePath
-        : path.join(workspaceRoot, relWorktreePath)
-      if (fs.existsSync(abs))
-        effectiveCwd = abs
-    }
+    // 测试在 PR 合并后于工作区根（main）进行，与工单 worktree 无关
+    // （worktree 合并后通常已删）。
+    const effectiveCwd = workspaceRoot
 
     // 测试会话本质要读真实代码，走实施 profile 优先级。
     const effectiveProfilePath = panel.resolveImplementProfilePath(profilePath)
@@ -1269,7 +1260,7 @@ export async function handleStartTestSession(panel: KanbanWebviewPanel, issueNum
  * cwd 优先用 worktree（relCwd 存在且在磁盘上），否则退回 workspaceRoot。
  * in-flight 锁 key `${issueNumber}:test`。
  */
-export async function handleResumeTestSession(panel: KanbanWebviewPanel, sessionId: string, issueNumber: number, relCwd?: string): Promise<void> {
+export async function handleResumeTestSession(panel: KanbanWebviewPanel, sessionId: string, issueNumber: number, _relCwd?: string): Promise<void> {
   const lockKey = `${issueNumber}:test`
   if (panel.resumeInFlight.has(lockKey)) {
     logger.add({
@@ -1292,25 +1283,8 @@ export async function handleResumeTestSession(panel: KanbanWebviewPanel, session
       return
     }
 
-    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
-    // cwd 优先用 worktree（合并后可能已清理），退回 workspaceRoot。
-    let effectiveCwd: string | undefined = workspaceRoot
-    let cwdFallback = false
-    if (relCwd && workspaceRoot) {
-      const resolved = path.isAbsolute(relCwd) ? relCwd : path.join(workspaceRoot, relCwd)
-      if (fs.existsSync(resolved)) {
-        effectiveCwd = resolved
-      }
-      else {
-        cwdFallback = true
-        effectiveCwd = workspaceRoot
-        logger.add({
-          level: 'warn',
-          source: 'panel',
-          message: `测试会话 worktree 不存在，退回工作区根目录 (#${issueNumber}): ${relCwd}`,
-        })
-      }
-    }
+    // 测试会话在工作区根（main）恢复，与工单 worktree 无关。
+    const effectiveCwd = workspace.workspaceFolders?.[0]?.uri.fsPath
 
     const terminalName = `issue-${issueNumber}-测试`
     const existingByName = panel.findExistingTerminal(terminalName)
@@ -1335,16 +1309,6 @@ export async function handleResumeTestSession(panel: KanbanWebviewPanel, session
       source: 'terminal',
       message: `已创建测试会话终端 #${issueNumber} cwd=${effectiveCwd}`,
     })
-
-    if (cwdFallback) {
-      panel.postMessage({
-        type: 'toast/show',
-        id: makeNonce(),
-        level: 'info',
-        message: `工单 #${issueNumber} 的 worktree 已清理，测试会话将在工作区根目录恢复`,
-        dismissOnTimer: 5000,
-      })
-    }
 
     const cmd = `claude --dangerously-skip-permissions --settings '${effectiveProfilePath}' --system-prompt="$(serena prompts print-cc-system-prompt-override)" --resume ${sessionId}`
     terminal.sendText(cmd)

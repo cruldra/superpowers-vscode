@@ -278,15 +278,15 @@ export function IssueDetailPanel({
               label: '测试会话id',
               type: 'action' as const,
               description: hasSession
-                ? '点击在新终端运行 claude --resume <id> 恢复测试对话（cwd 优先用 worktree）'
-                : '工单 PR 合并后点击右侧 ▶ 启动一个测试 cc tab（让 cc 了解代码后告诉你怎么测试）',
+                ? '点击在新终端运行 claude --resume <id> 在工作区根（main）恢复测试对话'
+                : '工单 PR 合并后点击右侧 ▶ 在工作区根（main）启动一个测试 cc tab（让 cc 了解代码后告诉你怎么测试）',
               actionIcon: <Terminal className="size-3.5" />,
               onAction: (v: unknown) => {
                 if (typeof v !== 'string' || v.length === 0 || !issue)
                   return
                 if (!throttleBySessionId(v))
                   return
-                onResumeTestSession(v, issue.number, issue?.worktreePath)
+                onResumeTestSession(v, issue.number)
               },
               secondaryActionIcon,
               secondaryActionTitle,
