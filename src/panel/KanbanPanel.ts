@@ -23,6 +23,7 @@ import { logger } from '../logging/logger'
 import { getSettings } from '../settings/store'
 import { webhookCoordinator } from '../webhook/coordinator'
 import * as issues from './handlers/issues'
+import * as managedSessions from './handlers/managedSessions'
 import * as sessions from './handlers/sessions'
 import * as settings from './handlers/settings'
 import * as terminals from './handlers/terminals'
@@ -452,6 +453,26 @@ export class KanbanWebviewPanel {
     }
     if (msg.type === 'profiles/open') {
       void settings.handleProfilesOpen(this, msg.value)
+      return
+    }
+    if (msg.type === 'managed-sessions/get') {
+      void managedSessions.handleManagedSessionsGet(this)
+      return
+    }
+    if (msg.type === 'managed-sessions/create') {
+      void managedSessions.handleManagedSessionsCreate(this, msg.profilePath, msg.prompt)
+      return
+    }
+    if (msg.type === 'managed-sessions/rename') {
+      void managedSessions.handleManagedSessionsRename(this, msg.sessionId, msg.name)
+      return
+    }
+    if (msg.type === 'managed-sessions/resume') {
+      void managedSessions.handleManagedSessionsResume(this, msg.sessionId)
+      return
+    }
+    if (msg.type === 'managed-sessions/delete') {
+      void managedSessions.handleManagedSessionsDelete(this, msg.sessionId)
     }
   }
 

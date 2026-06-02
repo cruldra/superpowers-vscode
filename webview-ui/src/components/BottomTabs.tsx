@@ -7,14 +7,16 @@
  * tab 状态用 useState，无持久化；激活态加左侧 2px 高亮条。
  */
 
+import type { ClaudeProfile } from '../hooks/useIssues'
 import type { ProfilesData } from '../lib/messages'
-import type { Issue } from '../types'
-import { ClipboardList, Layers } from 'lucide-react'
+import type { Issue, ManagedSessionsData } from '../types'
+import { ClipboardList, Layers, MessagesSquare } from 'lucide-react'
 import { useState } from 'react'
 import { IssueDetailPanel } from './IssueDetailPanel'
+import { ManagedSessionsPanel } from './ManagedSessionsPanel'
 import { ProfileGrid } from './ProfileGrid'
 
-type TabKey = 'issue' | 'profile'
+type TabKey = 'issue' | 'profile' | 'sessions'
 
 interface BottomTabsProps {
   // Issue tab props (pass-through to IssueDetailPanel)
@@ -44,6 +46,14 @@ interface BottomTabsProps {
   profileData: ProfilesData
   onProfileSave: (next: ProfilesData) => void
   onProfileOpen: (value: string) => void
+
+  // 会话管理 tab props
+  managedSessions: ManagedSessionsData
+  profiles: ClaudeProfile[]
+  onManagedSessionCreate: (profilePath: string, prompt?: string) => void
+  onManagedSessionRename: (id: string, name: string) => void
+  onManagedSessionResume: (id: string) => void
+  onManagedSessionDelete: (id: string) => void
 }
 
 export function BottomTabs(props: BottomTabsProps) {
@@ -65,43 +75,58 @@ export function BottomTabs(props: BottomTabsProps) {
           icon={<Layers className="size-4" />}
           title="Profile"
         />
+        <TabButton
+          active={tab === 'sessions'}
+          onClick={() => setTab('sessions')}
+          icon={<MessagesSquare className="size-4" />}
+          title="会话"
+        />
       </div>
 
       {/* 右侧内容 */}
       <div className="min-w-0 flex-1 overflow-hidden">
-        {tab === 'issue'
-          ? (
-              <IssueDetailPanel
-                issue={props.issue}
-                allIssues={props.allIssues}
-                globalAutoReview={props.globalAutoReview}
-                onOpenInBrowser={props.onOpenInBrowser}
-                onResumeSession={props.onResumeSession}
-                onResumeReviewSession={props.onResumeReviewSession}
-                onStartTestSession={props.onStartTestSession}
-                onResumeTestSession={props.onResumeTestSession}
-                onOpenFile={props.onOpenFile}
-                onImplement={props.onImplement}
-                onOpenPr={props.onOpenPr}
-                onGeneratePrDiffSummary={props.onGeneratePrDiffSummary}
-                isPrDiffSummaryRunning={props.isPrDiffSummaryRunning}
-                onOpenWorktree={props.onOpenWorktree}
-                onDeleteWorktree={props.onDeleteWorktree}
-                onDeleteIssue={props.onDeleteIssue}
-                onCloseIssue={props.onCloseIssue}
-                onCloseSessionTab={props.onCloseSessionTab}
-                onStartBrainstormSession={props.onStartBrainstormSession}
-                onUpdateAutoReview={props.onUpdateAutoReview}
-                onOpenLogs={props.onOpenLogs}
-              />
-            )
-          : (
-              <ProfileGrid
-                data={props.profileData}
-                onSave={props.onProfileSave}
-                onOpen={props.onProfileOpen}
-              />
-            )}
+        {tab === 'issue' && (
+          <IssueDetailPanel
+            issue={props.issue}
+            allIssues={props.allIssues}
+            globalAutoReview={props.globalAutoReview}
+            onOpenInBrowser={props.onOpenInBrowser}
+            onResumeSession={props.onResumeSession}
+            onResumeReviewSession={props.onResumeReviewSession}
+            onStartTestSession={props.onStartTestSession}
+            onResumeTestSession={props.onResumeTestSession}
+            onOpenFile={props.onOpenFile}
+            onImplement={props.onImplement}
+            onOpenPr={props.onOpenPr}
+            onGeneratePrDiffSummary={props.onGeneratePrDiffSummary}
+            isPrDiffSummaryRunning={props.isPrDiffSummaryRunning}
+            onOpenWorktree={props.onOpenWorktree}
+            onDeleteWorktree={props.onDeleteWorktree}
+            onDeleteIssue={props.onDeleteIssue}
+            onCloseIssue={props.onCloseIssue}
+            onCloseSessionTab={props.onCloseSessionTab}
+            onStartBrainstormSession={props.onStartBrainstormSession}
+            onUpdateAutoReview={props.onUpdateAutoReview}
+            onOpenLogs={props.onOpenLogs}
+          />
+        )}
+        {tab === 'profile' && (
+          <ProfileGrid
+            data={props.profileData}
+            onSave={props.onProfileSave}
+            onOpen={props.onProfileOpen}
+          />
+        )}
+        {tab === 'sessions' && (
+          <ManagedSessionsPanel
+            data={props.managedSessions}
+            profiles={props.profiles}
+            onCreate={props.onManagedSessionCreate}
+            onRename={props.onManagedSessionRename}
+            onResume={props.onManagedSessionResume}
+            onDelete={props.onManagedSessionDelete}
+          />
+        )}
       </div>
     </div>
   )

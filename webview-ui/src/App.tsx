@@ -8,6 +8,7 @@ import { PanelHeader } from './components/PanelHeader'
 import { SettingsModal } from './components/SettingsModal'
 import { ToastStack } from './components/ToastStack'
 import { useIssues } from './hooks/useIssues'
+import { useManagedSessions } from './hooks/useManagedSessions'
 import { useProfiles } from './hooks/useProfiles'
 import type { Issue } from './types'
 import { COLUMN_ORDER } from './types'
@@ -66,6 +67,13 @@ export function App() {
     toggleEnvLock,
   } = useIssues()
   const { profiles: profileData, saveProfiles, openProfileValue } = useProfiles()
+  const {
+    managedSessions,
+    createManagedSession,
+    renameManagedSession,
+    resumeManagedSession,
+    deleteManagedSession,
+  } = useManagedSessions()
   const [showNewIssueModal, setShowNewIssueModal] = useState(false)
   const [showLogs, setShowLogs] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -322,6 +330,12 @@ export function App() {
                 profileData={profileData}
                 onProfileSave={saveProfiles}
                 onProfileOpen={openProfileValue}
+                managedSessions={managedSessions}
+                profiles={profiles}
+                onManagedSessionCreate={createManagedSession}
+                onManagedSessionRename={renameManagedSession}
+                onManagedSessionResume={resumeManagedSession}
+                onManagedSessionDelete={deleteManagedSession}
               />
             </div>
           </div>

@@ -4,7 +4,7 @@
  * Kept in sync manually; if the two ever diverge that's a step-3+ concern.
  */
 
-import type { Issue, IssueColumn } from '../types'
+import type { Issue, IssueColumn, ManagedSessionsData } from '../types'
 
 export interface ToastLink {
   label: string
@@ -95,6 +95,7 @@ export type ExtensionToWebview
     | { type: 'env-lock/status', locked: boolean, fileCount: number, failedCount?: number }
     | { type: 'issue/remove', issueNumber: number }
     | { type: 'profiles/show', data: ProfilesData }
+    | { type: 'managed-sessions/show', data: ManagedSessionsData }
 
 export type WebviewToExtension
   = | { type: 'issues/refresh' }
@@ -148,3 +149,8 @@ export type WebviewToExtension
     | { type: 'profiles/get' }
     | { type: 'profiles/save', data: ProfilesData }
     | { type: 'profiles/open', value: string }
+    | { type: 'managed-sessions/get' }
+    | { type: 'managed-sessions/create', profilePath: string, prompt?: string }
+    | { type: 'managed-sessions/rename', sessionId: string, name: string }
+    | { type: 'managed-sessions/resume', sessionId: string }
+    | { type: 'managed-sessions/delete', sessionId: string }

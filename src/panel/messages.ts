@@ -1,6 +1,7 @@
 import type { Issue, IssueColumn } from '../gitea/types'
 import type { LogEntry } from '../logging/logger'
 import type { ProfilesData } from '../profiles/store'
+import type { ManagedSessionsData } from '../sessions/managedStore'
 
 export type { LogEntry } from '../logging/logger'
 export type { ProfileRow, ProfilesData } from '../profiles/store'
@@ -66,6 +67,7 @@ export type ExtensionToWebview
     | { type: 'env-lock/status', locked: boolean, fileCount: number, failedCount?: number }
     | { type: 'issue/remove', issueNumber: number }
     | { type: 'profiles/show', data: ProfilesData }
+    | { type: 'managed-sessions/show', data: ManagedSessionsData }
 
 export type WebviewToExtension
   = | { type: 'issues/refresh' }
@@ -119,3 +121,8 @@ export type WebviewToExtension
     | { type: 'profiles/get' }
     | { type: 'profiles/save', data: ProfilesData }
     | { type: 'profiles/open', value: string }
+    | { type: 'managed-sessions/get' }
+    | { type: 'managed-sessions/create', profilePath: string, prompt?: string }
+    | { type: 'managed-sessions/rename', sessionId: string, name: string }
+    | { type: 'managed-sessions/resume', sessionId: string }
+    | { type: 'managed-sessions/delete', sessionId: string }

@@ -65,3 +65,18 @@ export const COLUMN_LABELS: Record<IssueColumn, string> = {
   'review': '审查',
   'done': '完成',
 }
+
+/**
+ * Mirror of the extension-side ManagedSession in src/sessions/managedStore.ts.
+ * 从会话管理 tab 创建过的 cc 会话的本地记录。
+ */
+export interface ManagedSession {
+  id: string
+  name: string
+  profilePath?: string
+  createdAt: number
+}
+
+export interface ManagedSessionsData {
+  sessions: ManagedSession[]
+}
