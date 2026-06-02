@@ -154,3 +154,4 @@ export type WebviewToExtension
     | { type: 'managed-sessions/rename', sessionId: string, name: string }
     | { type: 'managed-sessions/resume', sessionId: string }
     | { type: 'managed-sessions/delete', sessionId: string }
+    | { type: 'managed-sessions/close-tab', sessionId: string }

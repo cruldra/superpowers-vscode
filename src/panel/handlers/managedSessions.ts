@@ -15,16 +15,39 @@ function defaultSessionName(sessionId: string, prompt?: string): string {
 }
 
 /**
- * 推送全量受管理会话列表给 webview。
+ * 读取受管理会话列表，给每条附加 transient 字段 `tabOpen`
+ * （= panel.managedTerminals 里有该 id 的存活终端），再推全量列表给 webview。
+ *
+ * `tabOpen` 只在构造 show payload 时附加，不写进 .spx/session-names.json。
  */
-export async function handleManagedSessionsGet(panel: KanbanWebviewPanel): Promise<void> {
+export async function pushManagedSessions(panel: KanbanWebviewPanel): Promise<void> {
   const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
   if (!workspaceRoot) {
     panel.postMessage({ type: 'managed-sessions/show', data: { sessions: [] } })
     return
   }
   const data = await readManagedSessions(workspaceRoot)
-  panel.postMessage({ type: 'managed-sessions/show', data })
+  panel.postMessage({
+    type: 'managed-sessions/show',
+    data: {
+      sessions: data.sessions.map(s => ({ ...s, tabOpen: panel.managedTerminals.has(s.id) })),
+    },
+  })
+}
+
+/**
+ * 从列表关闭一个受管理会话的终端 tab（不删 store 记录）。
+ * dispose 会触发 onDidCloseTerminal，由它清理 managedTerminals 并重推列表。
+ */
+export function handleManagedSessionsCloseTab(panel: KanbanWebviewPanel, sessionId: string): void {
+  panel.managedTerminals.get(sessionId)?.dispose()
+}
+
+/**
+ * 推送全量受管理会话列表给 webview。
+ */
+export async function handleManagedSessionsGet(panel: KanbanWebviewPanel): Promise<void> {
+  await pushManagedSessions(panel)
 }
 
 /**
@@ -84,9 +107,10 @@ export async function handleManagedSessionsCreate(panel: KanbanWebviewPanel, pro
   // managed 会话的 projects 目录是繁忙共享目录，fs.watch 会漏 rename；改用轮询 diff。
   const watchPromise = pollForNewSession({ projectsDir: projDir, timeoutMs: 120_000 })
 
-  // 友好的终端名，避免与 issue 终端 `issue-N-xxx` 命名冲突。
+  // 终端名：用户填了会话名字就用它，否则用默认 cc-会话。
+  // （VS Code 终端创建后不能改名，所以只在 createTerminal 时设定。）
   const terminal = window.createTerminal({
-    name: 'cc-会话',
+    name: trimmedName || 'cc-会话',
     cwd: workspaceRoot,
     location: panel.resolveTerminalLocation(false),
   })
@@ -109,7 +133,7 @@ export async function handleManagedSessionsCreate(panel: KanbanWebviewPanel, pro
 
   void window.showInformationMessage('已创建 cc 会话')
 
-  // Fire-and-forget：会话 jsonl 出现后写进 store 并推全量列表。
+  // Fire-and-forget：会话 jsonl 出现后写进 store、登记终端并推全量列表。
   watchPromise.then(async (sid) => {
     if (!sid) {
       logger.add({
@@ -133,7 +157,9 @@ export async function handleManagedSessionsCreate(panel: KanbanWebviewPanel, pro
         createdAt: Date.now(),
       })
       await writeManagedSessions(workspaceRoot, data)
-      panel.postMessage({ type: 'managed-sessions/show', data })
+      // 捕获到 sid 后登记终端，再推 show，让列表的 tabOpen 立即为 true。
+      panel.managedTerminals.set(sid, terminal)
+      await pushManagedSessions(panel)
     }
     catch (err) {
       console.warn('[superpowers] failed to persist managed session:', err)
@@ -159,7 +185,7 @@ export async function handleManagedSessionsRename(panel: KanbanWebviewPanel, ses
     return
   target.name = trimmed
   await writeManagedSessions(workspaceRoot, data)
-  panel.postMessage({ type: 'managed-sessions/show', data })
+  await pushManagedSessions(panel)
 }
 
 /**
@@ -185,6 +211,13 @@ export async function handleManagedSessionsResume(panel: KanbanWebviewPanel, ses
       return
     }
 
+    // 已有该会话的存活终端，直接聚焦、不再开新的（防重复）。
+    const existing = panel.managedTerminals.get(sessionId)
+    if (existing) {
+      existing.show(false)
+      return
+    }
+
     const data = await readManagedSessions(workspaceRoot)
     const target = data.sessions.find(s => s.id === sessionId)
 
@@ -197,8 +230,9 @@ export async function handleManagedSessionsResume(panel: KanbanWebviewPanel, ses
       return
     }
 
+    // 终端名用 store 里记录的会话名（缺省回落到 cc-会话）。
     const terminal = window.createTerminal({
-      name: 'cc-会话',
+      name: target?.name?.trim() || 'cc-会话',
       cwd: workspaceRoot,
       location: panel.resolveTerminalLocation(false),
     })
@@ -211,6 +245,10 @@ export async function handleManagedSessionsResume(panel: KanbanWebviewPanel, ses
 
     const cmd = `claude --dangerously-skip-permissions --settings '${effectiveProfilePath}' --system-prompt="$(serena prompts print-cc-system-prompt-override)" --resume ${sessionId}`
     terminal.sendText(cmd)
+
+    // 登记终端并推 show，让列表的 tabOpen 立即为 true。
+    panel.managedTerminals.set(sessionId, terminal)
+    await pushManagedSessions(panel)
   }
   finally {
     panel.resumeInFlight.delete(lockKey)
@@ -224,8 +262,11 @@ export async function handleManagedSessionsDelete(panel: KanbanWebviewPanel, ses
   const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
   if (!workspaceRoot)
     return
+  // 删除前先关掉该会话的终端 tab。
+  panel.managedTerminals.get(sessionId)?.dispose()
   const data = await readManagedSessions(workspaceRoot)
   const next = { sessions: data.sessions.filter(s => s.id !== sessionId) }
   await writeManagedSessions(workspaceRoot, next)
-  panel.postMessage({ type: 'managed-sessions/show', data: next })
+  panel.managedTerminals.delete(sessionId)
+  await pushManagedSessions(panel)
 }

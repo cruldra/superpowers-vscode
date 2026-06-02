@@ -1,10 +1,23 @@
 import type { Issue, IssueColumn } from '../gitea/types'
 import type { LogEntry } from '../logging/logger'
 import type { ProfilesData } from '../profiles/store'
-import type { ManagedSessionsData } from '../sessions/managedStore'
+import type { ManagedSession } from '../sessions/managedStore'
 
 export type { LogEntry } from '../logging/logger'
 export type { ProfileRow, ProfilesData } from '../profiles/store'
+
+/**
+ * `managed-sessions/show` 的 payload 类型：在持久化的 ManagedSession 基础上
+ * 附加 transient 字段 `tabOpen`（该会话的终端是否正开着）。
+ * `tabOpen` 只在构造 show payload 时附加，不写进 .spx/session-names.json。
+ */
+export interface ManagedSessionShowItem extends ManagedSession {
+  tabOpen?: boolean
+}
+
+export interface ManagedSessionsShowData {
+  sessions: ManagedSessionShowItem[]
+}
 
 export interface ToastLink {
   label: string
@@ -67,7 +80,7 @@ export type ExtensionToWebview
     | { type: 'env-lock/status', locked: boolean, fileCount: number, failedCount?: number }
     | { type: 'issue/remove', issueNumber: number }
     | { type: 'profiles/show', data: ProfilesData }
-    | { type: 'managed-sessions/show', data: ManagedSessionsData }
+    | { type: 'managed-sessions/show', data: ManagedSessionsShowData }
 
 export type WebviewToExtension
   = | { type: 'issues/refresh' }
@@ -126,3 +139,4 @@ export type WebviewToExtension
     | { type: 'managed-sessions/rename', sessionId: string, name: string }
     | { type: 'managed-sessions/resume', sessionId: string }
     | { type: 'managed-sessions/delete', sessionId: string }
+    | { type: 'managed-sessions/close-tab', sessionId: string }

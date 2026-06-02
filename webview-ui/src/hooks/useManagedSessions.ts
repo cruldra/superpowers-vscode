@@ -18,6 +18,7 @@ export interface UseManagedSessionsResult {
   renameManagedSession: (id: string, name: string) => void
   resumeManagedSession: (id: string) => void
   deleteManagedSession: (id: string) => void
+  closeManagedSessionTab: (id: string) => void
 }
 
 export function useManagedSessions(): UseManagedSessionsResult {
@@ -48,11 +49,16 @@ export function useManagedSessions(): UseManagedSessionsResult {
     postMessage({ type: 'managed-sessions/delete', sessionId: id })
   }, [])
 
+  const closeManagedSessionTab = useCallback((id: string): void => {
+    postMessage({ type: 'managed-sessions/close-tab', sessionId: id })
+  }, [])
+
   return {
     managedSessions,
     createManagedSession,
     renameManagedSession,
     resumeManagedSession,
     deleteManagedSession,
+    closeManagedSessionTab,
   }
 }

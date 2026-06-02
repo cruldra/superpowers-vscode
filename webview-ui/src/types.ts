@@ -75,6 +75,8 @@ export interface ManagedSession {
   name: string
   profilePath?: string
   createdAt: number
+  /** Transient：该会话的终端 tab 是否正开着（仅 show payload 附带，不持久化）。 */
+  tabOpen?: boolean
 }
 
 export interface ManagedSessionsData {

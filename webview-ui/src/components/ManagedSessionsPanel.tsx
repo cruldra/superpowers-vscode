@@ -9,7 +9,7 @@
 
 import type { ClaudeProfile } from '../hooks/useIssues'
 import type { ManagedSession, ManagedSessionsData } from '../types'
-import { Plus, Terminal, Trash2 } from 'lucide-react'
+import { Plus, Terminal, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 interface ManagedSessionsPanelProps {
@@ -19,6 +19,7 @@ interface ManagedSessionsPanelProps {
   onRename: (id: string, name: string) => void
   onResume: (id: string) => void
   onDelete: (id: string) => void
+  onCloseTab: (id: string) => void
 }
 
 function basename(p?: string): string {
@@ -44,7 +45,7 @@ function formatTime(ts: number): string {
   }
 }
 
-export function ManagedSessionsPanel({ data, profiles, onCreate, onRename, onResume, onDelete }: ManagedSessionsPanelProps) {
+export function ManagedSessionsPanel({ data, profiles, onCreate, onRename, onResume, onDelete, onCloseTab }: ManagedSessionsPanelProps) {
   const [selectedProfile, setSelectedProfile] = useState<string>('')
   const [name, setName] = useState<string>('')
   const [prompt, setPrompt] = useState<string>('')
@@ -143,6 +144,7 @@ export function ManagedSessionsPanel({ data, profiles, onCreate, onRename, onRes
                     onRename={onRename}
                     onResume={onResume}
                     onDelete={onDelete}
+                    onCloseTab={onCloseTab}
                   />
                 ))}
               </ul>
@@ -157,9 +159,10 @@ interface SessionRowProps {
   onRename: (id: string, name: string) => void
   onResume: (id: string) => void
   onDelete: (id: string) => void
+  onCloseTab: (id: string) => void
 }
 
-function SessionRow({ session, onRename, onResume, onDelete }: SessionRowProps) {
+function SessionRow({ session, onRename, onResume, onDelete, onCloseTab }: SessionRowProps) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(session.name)
   const inputRef = useRef<HTMLInputElement | null>(null)
@@ -255,6 +258,21 @@ function SessionRow({ session, onRename, onResume, onDelete }: SessionRowProps) 
               </div>
             )}
       </div>
+
+      {session.tabOpen && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            onCloseTab(session.id)
+          }}
+          title="关闭会话 tab"
+          aria-label="关闭会话 tab"
+          className="grid size-6 shrink-0 place-items-center rounded text-[var(--vscode-descriptionForeground)] opacity-70 transition-opacity hover:bg-[var(--vscode-toolbar-hoverBackground,var(--vscode-list-hoverBackground))] hover:text-[var(--vscode-foreground)]"
+        >
+          <X className="size-3.5" />
+        </button>
+      )}
 
       <button
         type="button"

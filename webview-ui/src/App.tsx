@@ -73,6 +73,7 @@ export function App() {
     renameManagedSession,
     resumeManagedSession,
     deleteManagedSession,
+    closeManagedSessionTab,
   } = useManagedSessions()
   const [showNewIssueModal, setShowNewIssueModal] = useState(false)
   const [showLogs, setShowLogs] = useState(false)
@@ -336,6 +337,7 @@ export function App() {
                 onManagedSessionRename={renameManagedSession}
                 onManagedSessionResume={resumeManagedSession}
                 onManagedSessionDelete={deleteManagedSession}
+                onManagedSessionCloseTab={closeManagedSessionTab}
               />
             </div>
           </div>

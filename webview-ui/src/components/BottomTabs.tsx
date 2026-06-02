@@ -54,6 +54,7 @@ interface BottomTabsProps {
   onManagedSessionRename: (id: string, name: string) => void
   onManagedSessionResume: (id: string) => void
   onManagedSessionDelete: (id: string) => void
+  onManagedSessionCloseTab: (id: string) => void
 }
 
 export function BottomTabs(props: BottomTabsProps) {
@@ -125,6 +126,7 @@ export function BottomTabs(props: BottomTabsProps) {
             onRename={props.onManagedSessionRename}
             onResume={props.onManagedSessionResume}
             onDelete={props.onManagedSessionDelete}
+            onCloseTab={props.onManagedSessionCloseTab}
           />
         )}
       </div>

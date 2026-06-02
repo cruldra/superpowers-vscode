@@ -73,6 +73,14 @@ export class KanbanWebviewPanel {
   readonly reviewTerminals = new Map<string, Terminal>()
 
   /**
+   * 会话管理 tab 里 resume / create 出来的 cc 终端，keyed by managed sessionId。
+   * 让列表行知道某会话的 tab 是否正开着（tabOpen），并支持「关闭 tab」与删除时
+   * dispose 终端。onDidCloseTerminal 命中后按值反查删除条目。
+   */
+  // internal: handler 模块访问
+  readonly managedTerminals = new Map<string, Terminal>()
+
+  /**
    * Tracks in-flight "create issue" runs keyed by the nonce embedded in the
    * cc prompt. Populated synchronously in `handleIssueCreate` before the
    * terminal is shown; the session watcher fills in `sessionId` once cc
@@ -237,6 +245,14 @@ export class KanbanWebviewPanel {
         for (const [n, t] of this.newIssueTerminals) {
           if (t === closed) {
             this.newIssueTerminals.delete(n)
+            break
+          }
+        }
+        // 会话管理 tab 的终端：按值反查删条目，再重推列表让 tabOpen 变 false。
+        for (const [sid, t] of this.managedTerminals) {
+          if (t === closed) {
+            this.managedTerminals.delete(sid)
+            void managedSessions.pushManagedSessions(this)
             break
           }
         }
@@ -473,6 +489,10 @@ export class KanbanWebviewPanel {
     }
     if (msg.type === 'managed-sessions/delete') {
       void managedSessions.handleManagedSessionsDelete(this, msg.sessionId)
+      return
+    }
+    if (msg.type === 'managed-sessions/close-tab') {
+      managedSessions.handleManagedSessionsCloseTab(this, msg.sessionId)
     }
   }
 
