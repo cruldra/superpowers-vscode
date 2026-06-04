@@ -50,10 +50,12 @@ export function ManagedSessionsPanel({ data, profiles, onCreate, onRename, onRes
   const [name, setName] = useState<string>('')
   const [prompt, setPrompt] = useState<string>('')
 
-  // 默认选中第一个 profile（profiles 异步到达后）。
+  // 默认选中官方 profile（profiles 异步到达后；用户手动改选后不覆盖）。
   useEffect(() => {
-    if (!selectedProfile && profiles.length > 0)
-      setSelectedProfile(profiles[0].path)
+    if (selectedProfile || profiles.length === 0)
+      return
+    const official = profiles.find(p => p.name.toLowerCase() === 'offical')
+    setSelectedProfile((official ?? profiles[0]).path)
   }, [profiles, selectedProfile])
 
   const sessions = useMemo(
