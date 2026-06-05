@@ -1164,7 +1164,7 @@ export async function handleStartTestSession(panel: KanbanWebviewPanel, issueNum
       return
     }
 
-    const prompt = `我已经合并了 #${pr} 号 PR，你先用tea命令看下这个pr改了哪些代码，然后告诉我应该怎么测试`
+    const prompt = `我已经合并了#${pr}号pr,你先通过tea熟悉本次pr改动的代码,然后，怎么在本地测试以确保改动符合预期?`
     if (prompt.includes('\'')) {
       void window.showErrorMessage('启动测试失败：prompt 含单引号，拒绝执行')
       return
