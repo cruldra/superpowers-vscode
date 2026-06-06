@@ -109,6 +109,65 @@ describe('mergeStateJsonCommentGuarded', () => {
   })
 })
 
+describe('state JSON 尾部普通评论不丢状态', () => {
+  beforeEach(() => {
+    listIssueComments.mockReset()
+    postIssueComment.mockReset()
+  })
+
+  it('merge 时跳过尾部普通文本评论，保留完整历史 state', async () => {
+    const { mergeStateJsonComment } = await import('../../src/gitea/stateJson.js')
+    const fullState = {
+      color: 'terminal.ansiCyan',
+      column: 'in-progress',
+      planFile: 'docs/superpowers/plans/x/plan.md',
+      sessionId: '5cf217c2',
+      branch: 'feature/be3beabc',
+      worktreePath: '.claude/worktrees/be3beabc',
+      implementStatus: 'running',
+    }
+    listIssueComments.mockResolvedValue([
+      { body: JSON.stringify(fullState) },
+      { body: '这是一条普通评论，不是 state JSON' },
+      { body: JSON.stringify({ note: '像 JSON 但没有任何已知 state 字段' }) },
+    ])
+
+    await mergeStateJsonComment({
+      host: 'https://gitea.example',
+      owner: 'owner',
+      repo: 'repo',
+      token: 'token',
+      issueNumber: 182,
+      extra: { pr: '182', implementStatus: 'done' },
+    })
+
+    expect(postIssueComment).toHaveBeenCalledOnce()
+    expect(JSON.parse(postIssueComment.mock.calls[0][0].body)).toEqual({
+      ...fullState,
+      pr: '182',
+      implementStatus: 'done',
+    })
+  })
+
+  it('read 时跳过尾部普通评论返回最近一条 state JSON', async () => {
+    const { readStateJsonComment } = await import('../../src/gitea/stateJson.js')
+    listIssueComments.mockResolvedValue([
+      { body: JSON.stringify({ column: 'review', pr: '9' }) },
+      { body: 'PR 已关联（Gitea 自动评论）' },
+    ])
+
+    const state = await readStateJsonComment({
+      host: 'https://gitea.example',
+      owner: 'owner',
+      repo: 'repo',
+      token: 'token',
+      issueNumber: 9,
+    })
+
+    expect(state).toEqual({ column: 'review', pr: '9' })
+  })
+})
+
 describe('spawnClaude', () => {
   beforeEach(() => {
     execFile.mockReset()

@@ -261,9 +261,10 @@ func buildIssueCmd() *cobra.Command {
 
 // buildIssueStateCmd assembles the `spx issue state` subtree (get + merge).
 //
-// The state JSON convention: the LAST comment on an issue holds a single JSON
-// blob (see schemas/state-json.schema.json). `get` reads it, `merge` does a
-// shallow-merge write of new keys on top of the existing blob.
+// The state JSON convention: the most recent state-JSON comment on an issue
+// holds a single JSON blob (see schemas/state-json.schema.json), located by
+// scanning comments from the tail for the first one carrying a known state
+// field. `get` reads it, `merge` does a shallow-merge write of new keys on top.
 func buildIssueStateCmd() *cobra.Command {
 	stateCmd := &cobra.Command{
 		Use:   "state",
@@ -369,27 +370,65 @@ func mergeAndPostState(rc *runtimeContext, issueNumber int, patch map[string]any
 	return cur, nil
 }
 
-// lastStateMap fetches all comments on an issue, parses the LAST one as JSON
-// and returns it as a map. Empty issue, empty comment, or non-JSON last
-// comment all yield an empty (non-nil) map — never an error.
+// knownStateFields is the set of keys that mark a comment as a state JSON blob
+// rather than ordinary chatter. A comment counts as state only if it parses to
+// an object carrying at least one of these — mirrors the TypeScript loader so
+// the two stay in lockstep.
+var knownStateFields = map[string]struct{}{
+	"column":             {},
+	"sessionId":          {},
+	"implementSessionId": {},
+	"reviewSessionId":    {},
+	"testSessionId":      {},
+	"profilePath":        {},
+	"specFile":           {},
+	"planFile":           {},
+	"prDiffFile":         {},
+	"pr":                 {},
+	"prMerged":           {},
+	"branch":             {},
+	"worktreePath":       {},
+	"implementStatus":    {},
+	"color":              {},
+	"autoReview":         {},
+}
+
+// parseStateComment returns the parsed map when body is a JSON object carrying
+// at least one known state field, or (nil, false) otherwise.
+func parseStateComment(body string) (map[string]any, bool) {
+	trimmed := strings.TrimSpace(body)
+	if trimmed == "" {
+		return nil, false
+	}
+	var m map[string]any
+	if err := json.Unmarshal([]byte(trimmed), &m); err != nil {
+		return nil, false
+	}
+	for k := range m {
+		if _, ok := knownStateFields[k]; ok {
+			return m, true
+		}
+	}
+	return nil, false
+}
+
+// lastStateMap fetches all comments on an issue and returns the most recent
+// state JSON blob, found by scanning from the tail for the first comment that
+// parses as an object carrying a known state field. Ordinary text/JSON comments
+// inserted afterwards (cc chatter, review notes, Gitea's PR auto-link) are
+// skipped so they can't shadow real state and wipe history on the next merge.
+// Empty issue or no state comment yields an empty (non-nil) map — never an error.
 func lastStateMap(c *gitea.Client, owner, repo string, number int) (map[string]any, error) {
 	comments, err := c.ListIssueComments(owner, repo, number)
 	if err != nil {
 		return nil, err
 	}
-	out := map[string]any{}
-	if len(comments) == 0 {
-		return out, nil
+	for i := len(comments) - 1; i >= 0; i-- {
+		if m, ok := parseStateComment(comments[i].Body); ok {
+			return m, nil
+		}
 	}
-	last := strings.TrimSpace(comments[len(comments)-1].Body)
-	if last == "" {
-		return out, nil
-	}
-	if err := json.Unmarshal([]byte(last), &out); err != nil {
-		// Not JSON — treat as empty so callers can still merge cleanly.
-		return map[string]any{}, nil
-	}
-	return out, nil
+	return map[string]any{}, nil
 }
 
 // resolveStatePayload picks the state JSON bytes from --state-json /

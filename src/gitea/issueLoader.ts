@@ -63,8 +63,10 @@ function defaultColumnForState(state: string): IssueColumn {
 }
 
 /**
- * Inspects the literal last comment for a JSON state payload like
- * `{ "column": "todo" }`. Returns null if no valid payload is present.
+ * Scans comments from the tail for the most recent JSON state payload like
+ * `{ "column": "todo", ... }`, skipping ordinary text/JSON comments that lack
+ * a `column` field so they can't shadow the real state. Returns
+ * `{ column: null }` if no valid payload is present.
  */
 function parseColumnFromComments(comments: GiteaComment[]): {
   column: IssueColumn | null
@@ -86,92 +88,102 @@ function parseColumnFromComments(comments: GiteaComment[]): {
 } {
   if (comments.length === 0)
     return { column: null }
-  const last = comments[comments.length - 1]
-  const body = (last.body ?? '').trim()
-  if (!body)
-    return { column: null }
-  try {
-    const parsed = JSON.parse(body) as unknown
-    if (parsed && typeof parsed === 'object' && 'column' in parsed) {
-      const obj = parsed as {
-        column: unknown
-        sessionId?: unknown
-        profilePath?: unknown
-        specFile?: unknown
-        planFile?: unknown
-        prDiffFile?: unknown
-        pr?: unknown
-        prMerged?: unknown
-        branch?: unknown
-        worktreePath?: unknown
-        implementStatus?: unknown
-        implementSessionId?: unknown
-        reviewSessionId?: unknown
-        testSessionId?: unknown
-        color?: unknown
-        autoReview?: unknown
-      }
-      if (isIssueColumn(obj.column)) {
-        const sessionId = typeof obj.sessionId === 'string' && obj.sessionId.length > 0
-          ? obj.sessionId
-          : undefined
-        const profilePath = typeof obj.profilePath === 'string' && obj.profilePath.length > 0
-          ? obj.profilePath
-          : undefined
-        const specFile = isValidSpxFilePath(obj.specFile) ? obj.specFile : undefined
-        const planFile = isValidSpxFilePath(obj.planFile) ? obj.planFile : undefined
-        const prDiffFile = isValidPrDiffFilePath(obj.prDiffFile) ? obj.prDiffFile : undefined
-        const pr = typeof obj.pr === 'string' && obj.pr.length > 0
-          ? obj.pr
-          : undefined
-        const prMerged = typeof obj.prMerged === 'boolean' ? obj.prMerged : undefined
-        const branch = typeof obj.branch === 'string' && obj.branch.length > 0
-          ? obj.branch
-          : undefined
-        const worktreePath = typeof obj.worktreePath === 'string' && obj.worktreePath.length > 0
-          ? obj.worktreePath
-          : undefined
-        const implementStatus = obj.implementStatus === 'running'
-          || obj.implementStatus === 'done'
-          || obj.implementStatus === 'failed'
-          ? obj.implementStatus
-          : undefined
-        const implementSessionId = typeof obj.implementSessionId === 'string' && obj.implementSessionId.length > 0
-          ? obj.implementSessionId
-          : undefined
-        const reviewSessionId = typeof obj.reviewSessionId === 'string' && obj.reviewSessionId.length > 0
-          ? obj.reviewSessionId
-          : undefined
-        const testSessionId = typeof obj.testSessionId === 'string' && obj.testSessionId.length > 0
-          ? obj.testSessionId
-          : undefined
-        const color = typeof obj.color === 'string' && obj.color.length > 0
-          ? obj.color
-          : undefined
-        const autoReview = typeof obj.autoReview === 'boolean' ? obj.autoReview : undefined
-        return {
-          column: obj.column,
-          sessionId,
-          profilePath,
-          specFile,
-          planFile,
-          prDiffFile,
-          pr,
-          prMerged,
-          branch,
-          worktreePath,
-          implementStatus,
-          implementSessionId,
-          reviewSessionId,
-          testSessionId,
-          color,
-          autoReview,
-        }
-      }
+  // 从尾往前找第一条「parse 成功 && 是 object && 含 column」的 comment。
+  // 中途插入的普通文本/JSON 内容评论不带 column，被跳过——否则它们会
+  // 顶替真正的 state comment，导致整张卡片的列与元数据全部丢失。
+  let parsed: unknown
+  for (let i = comments.length - 1; i >= 0; i--) {
+    const body = (comments[i].body ?? '').trim()
+    if (!body)
+      continue
+    let candidate: unknown
+    try {
+      candidate = JSON.parse(body)
+    }
+    catch {
+      continue
+    }
+    if (candidate && typeof candidate === 'object' && 'column' in candidate) {
+      parsed = candidate
+      break
     }
   }
-  catch {
-    // Non-JSON last comment is the common case; fall through to the default.
+  if (parsed && typeof parsed === 'object' && 'column' in parsed) {
+    const obj = parsed as {
+      column: unknown
+      sessionId?: unknown
+      profilePath?: unknown
+      specFile?: unknown
+      planFile?: unknown
+      prDiffFile?: unknown
+      pr?: unknown
+      prMerged?: unknown
+      branch?: unknown
+      worktreePath?: unknown
+      implementStatus?: unknown
+      implementSessionId?: unknown
+      reviewSessionId?: unknown
+      testSessionId?: unknown
+      color?: unknown
+      autoReview?: unknown
+    }
+    if (isIssueColumn(obj.column)) {
+      const sessionId = typeof obj.sessionId === 'string' && obj.sessionId.length > 0
+        ? obj.sessionId
+        : undefined
+      const profilePath = typeof obj.profilePath === 'string' && obj.profilePath.length > 0
+        ? obj.profilePath
+        : undefined
+      const specFile = isValidSpxFilePath(obj.specFile) ? obj.specFile : undefined
+      const planFile = isValidSpxFilePath(obj.planFile) ? obj.planFile : undefined
+      const prDiffFile = isValidPrDiffFilePath(obj.prDiffFile) ? obj.prDiffFile : undefined
+      const pr = typeof obj.pr === 'string' && obj.pr.length > 0
+        ? obj.pr
+        : undefined
+      const prMerged = typeof obj.prMerged === 'boolean' ? obj.prMerged : undefined
+      const branch = typeof obj.branch === 'string' && obj.branch.length > 0
+        ? obj.branch
+        : undefined
+      const worktreePath = typeof obj.worktreePath === 'string' && obj.worktreePath.length > 0
+        ? obj.worktreePath
+        : undefined
+      const implementStatus = obj.implementStatus === 'running'
+        || obj.implementStatus === 'done'
+        || obj.implementStatus === 'failed'
+        ? obj.implementStatus
+        : undefined
+      const implementSessionId = typeof obj.implementSessionId === 'string' && obj.implementSessionId.length > 0
+        ? obj.implementSessionId
+        : undefined
+      const reviewSessionId = typeof obj.reviewSessionId === 'string' && obj.reviewSessionId.length > 0
+        ? obj.reviewSessionId
+        : undefined
+      const testSessionId = typeof obj.testSessionId === 'string' && obj.testSessionId.length > 0
+        ? obj.testSessionId
+        : undefined
+      const color = typeof obj.color === 'string' && obj.color.length > 0
+        ? obj.color
+        : undefined
+      const autoReview = typeof obj.autoReview === 'boolean' ? obj.autoReview : undefined
+      return {
+        column: obj.column,
+        sessionId,
+        profilePath,
+        specFile,
+        planFile,
+        prDiffFile,
+        pr,
+        prMerged,
+        branch,
+        worktreePath,
+        implementStatus,
+        implementSessionId,
+        reviewSessionId,
+        testSessionId,
+        color,
+        autoReview,
+      }
+    }
   }
   return { column: null }
 }
