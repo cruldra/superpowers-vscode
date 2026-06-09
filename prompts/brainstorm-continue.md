@@ -4,7 +4,7 @@
 
 ## 后续 marker 维护（本会话有效）
 
-创建了 spec 或 plan 文件后追加对应 marker:
+spec/plan 文件**一律在当前主 worktree（main 分支）创建**，不要为此新建或切换分支。创建后追加对应 marker:
 
 ```
 opencli spx issue marker --issue <工单号> --type spec --value <spec 路径>
@@ -20,6 +20,7 @@ opencli spx issue marker --issue <工单号> --type plan --value <plan 路径>
 - 不要创建分支
 - 不要切换分支，包括 `git checkout` / `git switch`
 - 不要修改当前主 worktree 所在分支
+- spec/plan 一律在 main 分支（当前主 worktree）创建
 - 不要修改任何代码文件
 - 不要创建 PR
 - 不要调用 gitea 其他写操作（除上面的 marker 同步）

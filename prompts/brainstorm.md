@@ -27,7 +27,7 @@ spx 返回工单号 + html_url。记下工单号，后续命令用。
 
 ## 后续 marker 维护（本会话有效）
 
-**只有**当你真正创建了 spec 或 plan 文件后才追加对应 marker。路径形如 `docs/superpowers/specs/<slug>/spec.md` 或 `docs/superpowers/plans/<slug>/plan.md`：
+**只有**当你真正创建了 spec 或 plan 文件后才追加对应 marker。路径形如 `docs/superpowers/specs/<slug>/spec.md` 或 `docs/superpowers/plans/<slug>/plan.md`。spec/plan 文件**一律在当前主 worktree（main 分支）创建**，不要为此新建或切换分支：
 
 ```
 opencli spx issue marker --issue <工单号> --type spec --value <spec 路径>
@@ -45,3 +45,4 @@ spx 自动找到对应行替换或追加，保留所有其他 marker。**不要�
 - 不要创建分支
 - 不要切换分支
 - 不要修改当前主 worktree 所在分支
+- spec/plan 一律在 main 分支（当前主 worktree）创建
