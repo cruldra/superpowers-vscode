@@ -1122,6 +1122,7 @@ export async function handleStartTestSession(panel: KanbanWebviewPanel, issueNum
     // （prompt 依赖 PR 号），读不到就 toast 拒绝。
     let pr: string | undefined
     let profilePath: string | undefined
+    let worktreePathRel: string | undefined
     try {
       const stateObj = await readStateJsonComment({
         host: remote.host,
@@ -1135,6 +1136,8 @@ export async function handleStartTestSession(panel: KanbanWebviewPanel, issueNum
           pr = stateObj.pr
         if (typeof stateObj.profilePath === 'string' && stateObj.profilePath.length > 0)
           profilePath = stateObj.profilePath
+        if (typeof stateObj.worktreePath === 'string' && stateObj.worktreePath.length > 0)
+          worktreePathRel = stateObj.worktreePath
       }
     }
     catch (err) {
@@ -1151,9 +1154,8 @@ export async function handleStartTestSession(panel: KanbanWebviewPanel, issueNum
       return
     }
 
-    // 测试在 PR 合并后于工作区根（main）进行，与工单 worktree 无关
-    // （worktree 合并后通常已删）。
-    const effectiveCwd = workspaceRoot
+    // worktree 还在（PR 未合并/未清理）就进 worktree 测，已清理则回退主 worktree（main）。
+    const effectiveCwd = await resolveTestSessionCwd(workspaceRoot, worktreePathRel)
 
     // 测试会话本质要读真实代码，走实施 profile 优先级。
     const effectiveProfilePath = panel.resolveImplementProfilePath(profilePath)
@@ -1283,8 +1285,35 @@ export async function handleResumeTestSession(panel: KanbanWebviewPanel, session
       return
     }
 
-    // 测试会话在工作区根（main）恢复，与工单 worktree 无关。
-    const effectiveCwd = workspace.workspaceFolders?.[0]?.uri.fsPath
+    // claude 的 session jsonl 落在「cwd 派生的 projects 目录」下：start 时进了 worktree，
+    // resume 也必须在 worktree 才找得到这条会话；worktree 已清理才回退主 worktree（main）。
+    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    let effectiveCwd = workspaceRoot
+    if (workspaceRoot) {
+      const remote = await detectRepo(workspaceRoot)
+      const token = remote ? await getToken(panel.context, remote.host) : undefined
+      if (remote && token) {
+        try {
+          const stateObj = await readStateJsonComment({
+            host: remote.host,
+            owner: remote.owner,
+            repo: remote.repo,
+            token,
+            issueNumber,
+          })
+          const worktreePathRel = typeof stateObj?.worktreePath === 'string' ? stateObj.worktreePath : undefined
+          effectiveCwd = await resolveTestSessionCwd(workspaceRoot, worktreePathRel)
+        }
+        catch (err) {
+          logger.add({
+            level: 'warn',
+            source: 'panel',
+            message: `读取 #${issueNumber} state JSON 失败，测试会话回退主 worktree 恢复`,
+            details: err instanceof Error ? err.message : String(err),
+          })
+        }
+      }
+    }
 
     const terminalName = `issue-${issueNumber}-测试`
     const existingByName = panel.findExistingTerminal(terminalName)
@@ -1545,4 +1574,25 @@ export function resolveImplementProfilePath(panel: KanbanWebviewPanel, issueLeve
   if (issueLevel)
     return issueLevel
   return DEFAULT_PROFILE_PATH
+}
+
+/**
+ * 测试会话的工作目录：worktree 还在就用 worktree，已清理则回退主 worktree。
+ *
+ * @param workspaceRoot 主 worktree 绝对路径
+ * @param worktreePathRel state JSON 里的 worktree 相对路径（可空）
+ * @returns 实际用作终端 cwd 的绝对路径
+ */
+async function resolveTestSessionCwd(workspaceRoot: string, worktreePathRel?: string): Promise<string> {
+  if (worktreePathRel) {
+    const abs = path.join(workspaceRoot, worktreePathRel)
+    try {
+      await fsp.stat(abs)
+      return abs
+    }
+    catch {
+      // worktree 已清理，回退主 worktree
+    }
+  }
+  return workspaceRoot
 }
