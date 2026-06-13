@@ -996,11 +996,21 @@ export class KanbanWebviewPanel {
     const nonce = makeNonce()
     const cspSource = this.panel.webview.cspSource
 
-    // 重写 src 和 href 的相对路径为 webview URI
+    // 重写 src 和 href 的相对路径为 webview URI。vite 产物是固定名（无 hash），
+    // webview 按 URL 缓存资源——必须按文件 mtime 加 ?v= 版本号，否则 reload 后
+    // 仍会跑缓存里的旧 index.js / index.css。
     html = html.replace(/(src|href)="(\/[^"]+|\.\/[^"]+|[^"/][^"]*)"/g, (_m, attr, p) => {
       const cleaned = p.replace(/^\.?\//, '')
-      const uri = this.panel.webview.asWebviewUri(Uri.joinPath(distRoot, cleaned))
-      return `${attr}="${uri}"`
+      const fileUri = Uri.joinPath(distRoot, cleaned)
+      let version = ''
+      try {
+        version = `?v=${fs.statSync(fileUri.fsPath).mtimeMs}`
+      }
+      catch {
+        // 资源文件不存在则不加版本号
+      }
+      const uri = this.panel.webview.asWebviewUri(fileUri)
+      return `${attr}="${uri}${version}"`
     })
 
     // 给所有 <script> 标签注入 nonce
