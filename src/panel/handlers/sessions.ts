@@ -1117,8 +1117,9 @@ export async function handleStartTestSession(panel: KanbanWebviewPanel, issueNum
       return
     }
 
-    // 从 state JSON 读 pr / profilePath。pr 是测试会话的前提
-    // （prompt 依赖 PR 号），读不到就 toast 拒绝。
+    // 从 state JSON 读 pr / profile / worktree。pr 仅在主 worktree（已合并）
+    // 测试时必需——那条路径要靠 tea 了解合并进来的改动；worktree 内测试代码
+    // 本就在工作目录，不依赖 PR。
     let pr: string | undefined
     let profilePath: string | undefined
     let testProfilePath: string | undefined
@@ -1151,13 +1152,16 @@ export async function handleStartTestSession(panel: KanbanWebviewPanel, issueNum
       })
     }
 
-    if (!pr) {
-      void window.showWarningMessage('该工单无已合并 PR，无法启动测试会话')
-      return
-    }
-
     // worktree 还在（PR 未合并/未清理）就进 worktree 测，已清理则回退主 worktree（main）。
     const effectiveCwd = await resolveTestSessionCwd(workspaceRoot, worktreePathRel)
+    const inWorktree = effectiveCwd !== workspaceRoot
+
+    // 主 worktree（已合并）测试要靠 tea 了解合并进来的改动，故必须有 PR；
+    // 在工单 worktree 里测时代码本就在工作目录，无需 PR。
+    if (!inWorktree && !pr) {
+      void window.showWarningMessage('该工单无已合并 PR，无法在主分支启动测试会话')
+      return
+    }
 
     // 测试会话优先用专用 testProfilePath，未设置时回退实施 profile，再回退默认。
     const effectiveProfilePath = resolveTestProfilePath(panel, testProfilePath, profilePath)
@@ -1168,7 +1172,11 @@ export async function handleStartTestSession(panel: KanbanWebviewPanel, issueNum
       return
     }
 
-    const prompt = `我已经合并了#${pr}号pr,你先通过tea熟悉本次pr改动的代码,然后，怎么在本地测试以确保改动符合预期?`
+    // worktree 里：代码就在当前工作目录，不用 tea 拉取，直接测；
+    // 主 worktree：PR 已合并，先用 tea 熟悉改动再测。
+    const prompt = inWorktree
+      ? `当前工单的改动代码就在这个 worktree 工作目录里，无需用 tea 拉取，直接开始：怎么在本地测试以确保本次改动符合预期?`
+      : `我已经合并了#${pr}号pr,你先通过tea熟悉本次pr改动的代码,然后，怎么在本地测试以确保改动符合预期?`
     if (prompt.includes('\'')) {
       void window.showErrorMessage('启动测试失败：prompt 含单引号，拒绝执行')
       return
