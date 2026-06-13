@@ -17,6 +17,7 @@ import {
 import { IssueCard } from './IssueCard'
 import { KanbanColumn } from './KanbanColumn'
 import { isIssueLocked } from '../lib/dependencies'
+import { compareIssuesInColumn } from '../lib/issueSort'
 import type { Issue, IssueColumn } from '../types'
 import { COLUMN_ORDER } from '../types'
 
@@ -127,12 +128,11 @@ export function KanbanBoard({
     }
     for (const issue of issues)
       map[issue.column].push(issue)
-    // Sort each column by issue.number descending so newer issues stay on top.
-    // For the todo column this is the input order into `buildTodoTree`, which
-    // pushes roots in input order — keeping the descending sort here makes
-    // the visible roots match number order too.
+    // 各列排序：完成列按 PR 合并时间降序（最近合并在最前），其余列按 issue.number
+    // 降序让新工单置顶。todo 列的降序顺序同时是 `buildTodoTree` 的输入顺序——它按
+    // 输入顺序 push 根节点，所以可见根节点也跟着 number 降序。
     for (const col of Object.keys(map) as IssueColumn[])
-      map[col].sort((a, b) => b.number - a.number)
+      map[col].sort((a, b) => compareIssuesInColumn(col, a, b))
     return map
   }, [issues])
 

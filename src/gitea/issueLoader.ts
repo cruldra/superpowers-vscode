@@ -244,25 +244,31 @@ function groupCommentsByIssue(comments: GiteaComment[]): Map<number, GiteaCommen
  * boolean on success and `undefined` on any failure (network, 404, non-numeric
  * index, etc.) so callers can fall back to whatever they had cached.
  */
-async function fetchPrMerged(opts: {
+/**
+ * Resolves the live PR status by querying gitea. Returns `{ merged, mergedAt }`
+ * on success and `{}` on any failure (no pr, non-numeric index, network, 404,
+ * parse error) so callers can fall back to whatever they had cached. `mergedAt`
+ * is the PR's `merged_at` (ISO 8601) and powers the 完成 列's merge-time sort.
+ */
+async function fetchPrStatus(opts: {
   host: string
   token: string
   owner: string
   repo: string
   pr: string | undefined
-}): Promise<boolean | undefined> {
+}): Promise<{ merged?: boolean, mergedAt?: string }> {
   const { host, token, owner, repo, pr } = opts
   if (!pr)
-    return undefined
+    return {}
   const index = Number.parseInt(pr, 10)
   if (!Number.isFinite(index) || index <= 0)
-    return undefined
+    return {}
   try {
     const data = await getPullRequest({ host, token, owner, repo, index })
-    return data.merged === true
+    return { merged: data.merged === true, mergedAt: data.merged_at ?? undefined }
   }
   catch {
-    return undefined
+    return {}
   }
 }
 
@@ -277,8 +283,10 @@ async function buildIssue(opts: {
   prerequisite: number | undefined
   /** 实时 PR merged 状态（由 loader 并发查询后传入）；undefined 表示查询失败或无 PR，回退 state JSON。 */
   liveMerged?: boolean
+  /** PR 的 merged_at（来自 PR API），仅用于完成列排序；查询失败/无 PR 为 undefined。 */
+  liveMergedAt?: string
 }): Promise<Issue> {
-  const { host, token, owner, repo, workspaceRoot, issue, comments, prerequisite, liveMerged } = opts
+  const { host, token, owner, repo, workspaceRoot, issue, comments, prerequisite, liveMerged, liveMergedAt } = opts
   const id = `${owner}/${repo}#${issue.number}`
   const {
     column: fromComment,
@@ -349,6 +357,7 @@ async function buildIssue(opts: {
     ...(prDiffFile ? { prDiffFile } : {}),
     ...(pr ? { pr } : {}),
     ...(prMerged !== undefined ? { prMerged } : {}),
+    ...(liveMergedAt ? { prMergedAt: liveMergedAt } : {}),
     ...(branch ? { branch } : {}),
     ...(worktreePath ? { worktreePath } : {}),
     ...(worktreeExists !== undefined ? { worktreeExists } : {}),
@@ -408,7 +417,7 @@ export async function loadIssues(opts: {
     Promise.all(merged.map(async (issue) => {
       const bucket = buckets.get(issue.number) ?? []
       const { pr } = parseColumnFromComments(bucket)
-      return fetchPrMerged({ host, token, owner, repo, pr })
+      return fetchPrStatus({ host, token, owner, repo, pr })
     })),
   ])
 
@@ -416,7 +425,7 @@ export async function loadIssues(opts: {
   for (let i = 0; i < merged.length; i++) {
     const issue = merged[i]
     const prerequisite = prerequisites[i]
-    const liveMerged = liveMergedList[i]
+    const { merged: liveMerged, mergedAt: liveMergedAt } = liveMergedList[i] ?? {}
     const bucket = buckets.get(issue.number) ?? []
     resolved.push(await buildIssue({
       host,
@@ -428,6 +437,7 @@ export async function loadIssues(opts: {
       comments: bucket,
       prerequisite,
       liveMerged,
+      liveMergedAt,
     }))
   }
 
@@ -469,7 +479,7 @@ export async function loadSingleIssue(opts: {
 
   // 解析 state JSON 拿到 pr 字段后实时查 merged 状态；失败 fallback undefined。
   const { pr } = parseColumnFromComments(comments)
-  const liveMerged = await fetchPrMerged({ host, token, owner, repo, pr })
+  const { merged: liveMerged, mergedAt: liveMergedAt } = await fetchPrStatus({ host, token, owner, repo, pr })
 
   return buildIssue({
     host,
@@ -481,5 +491,6 @@ export async function loadSingleIssue(opts: {
     comments,
     prerequisite,
     liveMerged,
+    liveMergedAt,
   })
 }

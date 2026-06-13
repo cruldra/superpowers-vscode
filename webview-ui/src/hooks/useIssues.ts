@@ -20,6 +20,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Issue, IssueColumn } from '../types'
 import type { ToastItem } from '../components/ToastStack'
 import type { LogEntry } from '../lib/messages'
+import { compareIssuesInColumn } from '../lib/issueSort'
 import { onMessage, postMessage } from '../lib/vscode'
 
 export interface SettingsValues {
@@ -446,7 +447,7 @@ export function useIssues(): UseIssuesResult {
             if (removed) {
               const sameCol = remaining
                 .filter(i => i.column === removed.column)
-                .sort((a, b) => b.number - a.number)
+                .sort((a, b) => compareIssuesInColumn(removed.column, a, b))
               const next = sameCol[0]
               if (next)
                 setPendingSelectId(next.id)

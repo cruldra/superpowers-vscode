@@ -10,6 +10,7 @@ import { ToastStack } from './components/ToastStack'
 import { useIssues } from './hooks/useIssues'
 import { useManagedSessions } from './hooks/useManagedSessions'
 import { useProfiles } from './hooks/useProfiles'
+import { compareIssuesInColumn } from './lib/issueSort'
 import type { Issue } from './types'
 import { COLUMN_ORDER } from './types'
 
@@ -109,12 +110,12 @@ export function App() {
   }, [pendingSelectId, readyIssues, clearPendingSelect])
 
   // Issues partitioned by column, in COLUMN_ORDER. Used for arrow navigation.
-  // Each column is sorted by issue number descending so newer issues appear on top.
+  // 排序与看板视觉一致：完成列按 PR 合并时间降序，其余列按工单号降序。
   const ordered = useMemo<Issue[][]>(() => {
     if (!readyIssues)
       return []
     return COLUMN_ORDER.map(col =>
-      readyIssues.filter(i => i.column === col).sort((a, b) => b.number - a.number),
+      readyIssues.filter(i => i.column === col).sort((a, b) => compareIssuesInColumn(col, a, b)),
     )
   }, [readyIssues])
 

@@ -25,6 +25,8 @@ export interface Issue {
   pr?: string
   /** Whether the associated PR has been merged. */
   prMerged?: boolean
+  /** PR 合并时间（ISO 8601，来自 merged_at）。完成列按它降序排序，未合并/查询失败为 undefined。不持久化进 state JSON。 */
+  prMergedAt?: string
   /** Branch name created for implementation, e.g. `feature/<hash>`. */
   branch?: string
   /** Workspace-relative path to the implementation worktree. */
