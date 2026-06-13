@@ -437,7 +437,7 @@ export function useIssues(): UseIssuesResult {
           break
         case 'issue/remove':
           // 工单被删除或关闭 — 从 open issues 数组移除。如果它是当前选中的，挑下一张
-          // 同列的卡片（按 number 降序近邻）；同列没有则交给 App.tsx 的
+          // 同列的卡片（按该列排序取首张近邻：完成列按合并时间，其余按 number 降序）；同列没有则交给 App.tsx 的
           // 现有 effect（selectedId 失效 → setSelectedId(null)）兜底。
           setState((prev) => {
             if (prev.status !== 'ready')
