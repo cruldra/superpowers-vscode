@@ -161,6 +161,9 @@ export function App() {
       // Editable elements (e.g. contenteditable divs).
       if (active && (active as HTMLElement).isContentEditable)
         return
+      // 焦点在提交列表（role=listbox）等自管键盘的区域时，让它自己处理方向键。
+      if (active && (active as HTMLElement).closest?.('[role="listbox"]'))
+        return
 
       if (e.key === 'Escape') {
         if (selectedId !== null) {

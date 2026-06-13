@@ -565,7 +565,7 @@ export async function listPullRequestCommits(opts: {
   }>
   if (!Array.isArray(data))
     return []
-  return data.map((c) => {
+  const result = data.map((c) => {
     const fullMessage = typeof c.commit?.message === 'string' ? c.commit.message : ''
     const message = fullMessage.split('\n', 1)[0] ?? ''
     const authorName = typeof c.commit?.author?.name === 'string' ? c.commit.author.name : ''
@@ -578,6 +578,9 @@ export async function listPullRequestCommits(opts: {
       date: commitDate || created,
     }
   })
+  // 按提交时间升序（最早在最前）。ISO 字符串字典序即时间序；date 为空者排前面。
+  result.sort((a, b) => a.date.localeCompare(b.date))
+  return result
 }
 
 /**

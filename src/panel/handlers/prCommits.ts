@@ -13,6 +13,7 @@ import { getToken } from '../../auth/secrets'
 import { detectRepo } from '../../git/remote'
 import { getGitCommit, getRawFile, listPullRequestCommits } from '../../gitea/api'
 import { readStateJsonComment } from '../../gitea/stateJson'
+import { readConfirmed, writeConfirmed } from '../../sessions/prReviewStore'
 
 /** diff 文件内容走的虚拟文档 scheme。 */
 const SPX_GITEA_SCHEME = 'spx-gitea'
@@ -95,7 +96,7 @@ export async function handleGetPrCommitFiles(
   try {
     const ctx = await resolveRepoContext(panel)
     if (!ctx) {
-      panel.postMessage({ type: 'pr-commit-files/show', issueNumber, sha, files: [] })
+      panel.postMessage({ type: 'pr-commit-files/show', issueNumber, sha, files: [], confirmed: [] })
       return
     }
 
@@ -106,12 +107,17 @@ export async function handleGetPrCommitFiles(
       token: ctx.token,
       sha,
     })
+    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    const confirmed = workspaceRoot
+      ? await readConfirmed(workspaceRoot, issueNumber, sha)
+      : []
     panel.postMessage({
       type: 'pr-commit-files/show',
       issueNumber,
       sha,
       parentSha: detail.parentSha,
       files: detail.files,
+      confirmed,
     })
   }
   catch (err) {
@@ -120,8 +126,28 @@ export async function handleGetPrCommitFiles(
       issueNumber,
       sha,
       files: [],
+      confirmed: [],
       error: err instanceof Error ? err.message : String(err),
     })
+  }
+}
+
+/**
+ * 持久化某提交里已确认（已审阅）的文件路径集合到 `.spx/pr-review-confirmed.json`。
+ * 拿不到工作区根则静默跳过；写盘失败兜底打日志、不抛——确认态丢失不该中断 UI。
+ */
+export async function handleSetPrReviewConfirmed(
+  panel: KanbanWebviewPanel,
+  args: { issueNumber: number, sha: string, confirmed: string[] },
+): Promise<void> {
+  try {
+    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    if (!workspaceRoot)
+      return
+    await writeConfirmed(workspaceRoot, args.issueNumber, args.sha, args.confirmed)
+  }
+  catch (err) {
+    console.warn('handleSetPrReviewConfirmed 写盘失败', err)
   }
 }
 

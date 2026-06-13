@@ -602,6 +602,10 @@ export function PropertyGrid({
     function handleKeyDown(e: KeyboardEvent): void {
       if (selectedKey == null)
         return
+      // 焦点在提交列表（role=listbox）等自管键盘的区域时，别截走它的方向键。
+      const active = document.activeElement
+      if (active && (active as HTMLElement).closest?.('[role="listbox"]'))
+        return
 
       if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
         const idx = visibleCellKeys.indexOf(selectedKey)

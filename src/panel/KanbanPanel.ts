@@ -520,6 +520,11 @@ export class KanbanWebviewPanel {
         path: msg.path,
         status: msg.status,
       })
+      return
+    }
+    if (msg.type === 'pr-review/set') {
+      void prCommits.handleSetPrReviewConfirmed(this, msg)
+      return
     }
   }
 

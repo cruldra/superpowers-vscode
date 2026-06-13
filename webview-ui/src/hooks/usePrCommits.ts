@@ -20,8 +20,10 @@ export interface UsePrCommitsResult {
   filesBySha: Record<string, PrCommitFile[]>
   parentShaBySha: Record<string, string | undefined>
   filesErrorBySha: Record<string, string | undefined>
+  confirmedBySha: Record<string, string[]>
   getFiles: (sha: string) => void
   openDiff: (sha: string, parentSha: string | undefined, path: string, status: string) => void
+  setConfirmed: (sha: string, paths: string[]) => void
 }
 
 export function usePrCommits(issueNumber: number | undefined): UsePrCommitsResult {
@@ -31,6 +33,7 @@ export function usePrCommits(issueNumber: number | undefined): UsePrCommitsResul
   const [filesBySha, setFilesBySha] = useState<Record<string, PrCommitFile[]>>({})
   const [parentShaBySha, setParentShaBySha] = useState<Record<string, string | undefined>>({})
   const [filesErrorBySha, setFilesErrorBySha] = useState<Record<string, string | undefined>>({})
+  const [confirmedBySha, setConfirmedBySha] = useState<Record<string, string[]>>({})
 
   // issueNumber 装进 ref，让订阅闭包始终读到当前值（订阅只在 mount 挂一次）。
   const issueRef = useRef<number | undefined>(issueNumber)
@@ -55,6 +58,7 @@ export function usePrCommits(issueNumber: number | undefined): UsePrCommitsResul
         setFilesBySha(prev => ({ ...prev, [msg.sha]: msg.files }))
         setParentShaBySha(prev => ({ ...prev, [msg.sha]: msg.parentSha }))
         setFilesErrorBySha(prev => ({ ...prev, [msg.sha]: msg.error }))
+        setConfirmedBySha(prev => ({ ...prev, [msg.sha]: msg.confirmed ?? [] }))
       }
     })
     return cleanup
@@ -67,6 +71,7 @@ export function usePrCommits(issueNumber: number | undefined): UsePrCommitsResul
     setFilesBySha({})
     setParentShaBySha({})
     setFilesErrorBySha({})
+    setConfirmedBySha({})
     requestedRef.current = new Set()
     if (issueNumber === undefined) {
       setLoadingCommits(false)
@@ -96,6 +101,15 @@ export function usePrCommits(issueNumber: number | undefined): UsePrCommitsResul
     [],
   )
 
+  // 乐观更新本地确认态并落盘到扩展侧；下次拉文件回包会以持久化值校正。
+  const setConfirmed = useCallback((sha: string, paths: string[]): void => {
+    const num = issueRef.current
+    if (num === undefined)
+      return
+    setConfirmedBySha(prev => ({ ...prev, [sha]: paths }))
+    postMessage({ type: 'pr-review/set', issueNumber: num, sha, confirmed: paths })
+  }, [])
+
   return {
     commits,
     commitsError,
@@ -103,7 +117,9 @@ export function usePrCommits(issueNumber: number | undefined): UsePrCommitsResul
     filesBySha,
     parentShaBySha,
     filesErrorBySha,
+    confirmedBySha,
     getFiles,
     openDiff,
+    setConfirmed,
   }
 }
