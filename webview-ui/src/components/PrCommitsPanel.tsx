@@ -422,7 +422,7 @@ export function PrCommitsPanel({ issue }: PrCommitsPanelProps) {
                                     className="size-3.5 shrink-0"
                                     style={{ color: 'var(--vscode-descriptionForeground)' }}
                                   />
-                                  <span className="min-w-0 flex-1 truncate">{row.name}</span>
+                                  <span className="min-w-0 truncate">{row.name}</span>
                                   <button
                                     type="button"
                                     onClick={(e) => {
@@ -466,7 +466,7 @@ export function PrCommitsPanel({ issue }: PrCommitsPanelProps) {
                                 >
                                   {statusBadge(row.status)}
                                 </span>
-                                <span className="min-w-0 flex-1 truncate text-xs">{row.name}</span>
+                                <span className="min-w-0 truncate text-xs">{row.name}</span>
                                 <button
                                   type="button"
                                   onClick={(e) => {
