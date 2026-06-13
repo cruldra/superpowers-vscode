@@ -192,6 +192,9 @@ export function PrCommitsPanel({ issue }: PrCommitsPanelProps) {
   const [selectedSha, setSelectedSha] = useState<string | undefined>(undefined)
   // 已折叠目录的完整路径集合；不在集合内即展开（默认全展开）。
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  // JS 驱动的悬停态：Tailwind v4 把 group-hover 包进 @media(hover:hover)，
+  // Wayland 下的 VS Code webview 不满足该条件，故改用鼠标事件控制按钮显隐。
+  const [hoveredPath, setHoveredPath] = useState<string | null>(null)
   // 提交列表 <ul>，用于方向键切换后把选中项滚进可视区。
   const commitListRef = useRef<HTMLUListElement | null>(null)
 
@@ -400,6 +403,8 @@ export function PrCommitsPanel({ issue }: PrCommitsPanelProps) {
                                 // 目录行：点击切换折叠态；左侧箭头随折叠态翻转，path 作为唯一 key。
                                 <li
                                   key={row.path}
+                                  onMouseEnter={() => setHoveredPath(row.path)}
+                                  onMouseLeave={() => setHoveredPath(p => (p === row.path ? null : p))}
                                   onClick={() => setCollapsed((prev) => {
                                     const n = new Set(prev)
                                     n.has(row.path) ? n.delete(row.path) : n.add(row.path)
@@ -428,10 +433,9 @@ export function PrCommitsPanel({ issue }: PrCommitsPanelProps) {
                                       setConfirmed(selectedSha, next)
                                     }}
                                     title={isConfirmed ? '已确认，点击取消' : '标记为已确认'}
-                                    className={`shrink-0 ${
-                                      isConfirmed ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-                                    }`}
+                                    className="shrink-0 transition-opacity"
                                     style={{
+                                      opacity: isConfirmed || hoveredPath === row.path ? 1 : 0,
                                       color: isConfirmed
                                         ? 'var(--vscode-gitDecoration-addedResourceForeground)'
                                         : 'var(--vscode-descriptionForeground)',
@@ -447,6 +451,8 @@ export function PrCommitsPanel({ issue }: PrCommitsPanelProps) {
                               // 文件行：点击触发 diff，title 用完整路径。
                               <li
                                 key={row.path}
+                                onMouseEnter={() => setHoveredPath(row.path)}
+                                onMouseLeave={() => setHoveredPath(p => (p === row.path ? null : p))}
                                 onClick={() => openDiff(selectedSha, selectedParentSha, row.path, row.status)}
                                 title={`${row.status} · ${row.path}`}
                                 className={`group flex cursor-pointer items-center gap-2 py-0.5 pr-2 hover:bg-[var(--vscode-list-hoverBackground)] ${
@@ -471,10 +477,9 @@ export function PrCommitsPanel({ issue }: PrCommitsPanelProps) {
                                     setConfirmed(selectedSha, next)
                                   }}
                                   title={isConfirmed ? '已确认，点击取消' : '标记为已确认'}
-                                  className={`shrink-0 ${
-                                    isConfirmed ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-                                  }`}
+                                  className="shrink-0 transition-opacity"
                                   style={{
+                                    opacity: isConfirmed || hoveredPath === row.path ? 1 : 0,
                                     color: isConfirmed
                                       ? 'var(--vscode-gitDecoration-addedResourceForeground)'
                                       : 'var(--vscode-descriptionForeground)',
