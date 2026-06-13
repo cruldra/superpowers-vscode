@@ -24,6 +24,7 @@ import { getSettings } from '../settings/store'
 import { webhookCoordinator } from '../webhook/coordinator'
 import * as issues from './handlers/issues'
 import * as managedSessions from './handlers/managedSessions'
+import * as prCommits from './handlers/prCommits'
 import * as sessions from './handlers/sessions'
 import * as settings from './handlers/settings'
 import * as terminals from './handlers/terminals'
@@ -493,6 +494,24 @@ export class KanbanWebviewPanel {
     }
     if (msg.type === 'managed-sessions/close-tab') {
       managedSessions.handleManagedSessionsCloseTab(this, msg.sessionId)
+      return
+    }
+    if (msg.type === 'pr-commits/get') {
+      void prCommits.handleGetPrCommits(this, msg.issueNumber)
+      return
+    }
+    if (msg.type === 'pr-commit-files/get') {
+      void prCommits.handleGetPrCommitFiles(this, msg.issueNumber, msg.sha)
+      return
+    }
+    if (msg.type === 'pr-commit-diff/open') {
+      void prCommits.handleOpenPrCommitDiff(this, {
+        issueNumber: msg.issueNumber,
+        sha: msg.sha,
+        parentSha: msg.parentSha,
+        path: msg.path,
+        status: msg.status,
+      })
     }
   }
 

@@ -19,6 +19,20 @@ export interface ManagedSessionsShowData {
   sessions: ManagedSessionShowItem[]
 }
 
+/** PR 提交的精简视图（webview 列表渲染用）。 */
+export interface PrCommit {
+  sha: string
+  message: string
+  authorName: string
+  date: string
+}
+
+/** 提交内单个文件改动：status 取 added/modified/deleted/renamed/copied 等。 */
+export interface PrCommitFile {
+  path: string
+  status: string
+}
+
 export interface ToastLink {
   label: string
   url: string
@@ -81,6 +95,8 @@ export type ExtensionToWebview
     | { type: 'issue/remove', issueNumber: number }
     | { type: 'profiles/show', data: ProfilesData }
     | { type: 'managed-sessions/show', data: ManagedSessionsShowData }
+    | { type: 'pr-commits/show', issueNumber: number, commits: PrCommit[], error?: string }
+    | { type: 'pr-commit-files/show', issueNumber: number, sha: string, parentSha?: string, files: PrCommitFile[], error?: string }
 
 export type WebviewToExtension
   = | { type: 'issues/refresh' }
@@ -140,3 +156,6 @@ export type WebviewToExtension
     | { type: 'managed-sessions/resume', sessionId: string }
     | { type: 'managed-sessions/delete', sessionId: string }
     | { type: 'managed-sessions/close-tab', sessionId: string }
+    | { type: 'pr-commits/get', issueNumber: number }
+    | { type: 'pr-commit-files/get', issueNumber: number, sha: string }
+    | { type: 'pr-commit-diff/open', issueNumber: number, sha: string, parentSha?: string, path: string, status: string }

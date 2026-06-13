@@ -512,3 +512,136 @@ export async function deleteWebhook(opts: {
     message: `已删除 hookId=${opts.hookId}`,
   })
 }
+
+/** PR 提交的精简视图：列表渲染只需 sha / 首行消息 / 作者 / 时间。 */
+export interface PrCommitDto {
+  sha: string
+  message: string
+  authorName: string
+  date: string
+}
+
+/** 单个提交内的一个文件改动：path 给 diff 用，status 决定徽标颜色。 */
+export interface GitCommitFileDto {
+  path: string
+  status: string
+}
+
+/** 一个提交的详情：parentSha 用作 diff 左侧 ref，files 是改动清单。 */
+export interface GitCommitDetailDto {
+  sha: string
+  parentSha: string | undefined
+  files: GitCommitFileDto[]
+}
+
+/**
+ * 列出某 PR 的提交。关掉 files/stat/verification 让响应尽量小，列表只用到
+ * 顶层字段。message 取首行（完整消息留给 commit 详情页，这里只做概览）。
+ */
+export async function listPullRequestCommits(opts: {
+  host: string
+  token: string
+  owner: string
+  repo: string
+  index: number
+  limit?: number
+}): Promise<PrCommitDto[]> {
+  const url = new URL(
+    `${baseUrl(opts.host)}/repos/${opts.owner}/${opts.repo}/pulls/${opts.index}/commits`,
+  )
+  url.searchParams.set('page', '1')
+  url.searchParams.set('limit', String(opts.limit ?? 50))
+  url.searchParams.set('files', 'false')
+  url.searchParams.set('stat', 'false')
+  url.searchParams.set('verification', 'false')
+
+  const res = await fetch(url.toString(), { headers: authHeaders(opts.token) })
+  await ensureOk(res)
+  const data = await res.json() as Array<{
+    sha?: unknown
+    created?: unknown
+    commit?: { message?: unknown, author?: { name?: unknown, date?: unknown } }
+    author?: { login?: unknown } | null
+  }>
+  if (!Array.isArray(data))
+    return []
+  return data.map((c) => {
+    const fullMessage = typeof c.commit?.message === 'string' ? c.commit.message : ''
+    const message = fullMessage.split('\n', 1)[0] ?? ''
+    const authorName = typeof c.commit?.author?.name === 'string' ? c.commit.author.name : ''
+    const commitDate = typeof c.commit?.author?.date === 'string' ? c.commit.author.date : ''
+    const created = typeof c.created === 'string' ? c.created : ''
+    return {
+      sha: typeof c.sha === 'string' ? c.sha : '',
+      message,
+      authorName,
+      date: commitDate || created,
+    }
+  })
+}
+
+/**
+ * 取单个提交详情，带文件清单。parentSha（首个父提交）作为 diff 左侧 ref；
+ * 根提交无 parent 时为 undefined，调用方据此把左侧当空内容处理（呈现全新增）。
+ */
+export async function getGitCommit(opts: {
+  host: string
+  token: string
+  owner: string
+  repo: string
+  sha: string
+}): Promise<GitCommitDetailDto> {
+  const url = new URL(
+    `${baseUrl(opts.host)}/repos/${opts.owner}/${opts.repo}/git/commits/${opts.sha}`,
+  )
+  url.searchParams.set('files', 'true')
+  url.searchParams.set('stat', 'false')
+  url.searchParams.set('verification', 'false')
+
+  const res = await fetch(url.toString(), { headers: authHeaders(opts.token) })
+  await ensureOk(res)
+  const data = await res.json() as {
+    sha?: unknown
+    parents?: Array<{ sha?: unknown }>
+    files?: Array<{ filename?: unknown, status?: unknown }>
+  }
+  const parentSha = typeof data.parents?.[0]?.sha === 'string' ? data.parents[0].sha : undefined
+  const files = Array.isArray(data.files)
+    ? data.files.map(f => ({
+        path: typeof f.filename === 'string' ? f.filename : '',
+        status: typeof f.status === 'string' ? f.status : '',
+      }))
+    : []
+  return {
+    sha: typeof data.sha === 'string' ? data.sha : opts.sha,
+    parentSha,
+    files,
+  }
+}
+
+/**
+ * 取某 ref 下文件的原始内容，用作 diff 的一侧。
+ *
+ * 文件在该 ref 不存在（404）是预期情况：新增文件在父 ref 缺席、删除文件在子
+ * ref 缺席。这类情况返回空串，让 diff 自然呈现新增/删除，而非报错。其它非 2xx
+ * 同样兜底返回空串——diff 视图容不下错误对话框。
+ */
+export async function getRawFile(opts: {
+  host: string
+  token: string
+  owner: string
+  repo: string
+  filepath: string
+  ref: string
+}): Promise<string> {
+  // encodeURI 保留路径分隔符 `/`，只转义路径段里的特殊字符。
+  const url = new URL(
+    `${baseUrl(opts.host)}/repos/${opts.owner}/${opts.repo}/raw/${encodeURI(opts.filepath)}`,
+  )
+  url.searchParams.set('ref', opts.ref)
+
+  const res = await fetch(url.toString(), { headers: authHeaders(opts.token) })
+  if (!res.ok)
+    return ''
+  return res.text()
+}

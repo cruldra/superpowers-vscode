@@ -10,13 +10,14 @@
 import type { ClaudeProfile } from '../hooks/useIssues'
 import type { ProfilesData } from '../lib/messages'
 import type { Issue, ManagedSessionsData } from '../types'
-import { ClipboardList, Layers, MessagesSquare } from 'lucide-react'
+import { ClipboardList, GitCommitHorizontal, Layers, MessagesSquare } from 'lucide-react'
 import { useState } from 'react'
 import { IssueDetailPanel } from './IssueDetailPanel'
 import { ManagedSessionsPanel } from './ManagedSessionsPanel'
+import { PrCommitsPanel } from './PrCommitsPanel'
 import { ProfileGrid } from './ProfileGrid'
 
-type TabKey = 'issue' | 'profile' | 'sessions'
+type TabKey = 'issue' | 'profile' | 'sessions' | 'commits'
 
 interface BottomTabsProps {
   // Issue tab props (pass-through to IssueDetailPanel)
@@ -82,6 +83,12 @@ export function BottomTabs(props: BottomTabsProps) {
           icon={<MessagesSquare className="size-4" />}
           title="会话"
         />
+        <TabButton
+          active={tab === 'commits'}
+          onClick={() => setTab('commits')}
+          icon={<GitCommitHorizontal className="size-4" />}
+          title="提交"
+        />
       </div>
 
       {/* 右侧内容 */}
@@ -128,6 +135,9 @@ export function BottomTabs(props: BottomTabsProps) {
             onDelete={props.onManagedSessionDelete}
             onCloseTab={props.onManagedSessionCloseTab}
           />
+        )}
+        {tab === 'commits' && (
+          <PrCommitsPanel issue={props.issue} />
         )}
       </div>
     </div>
