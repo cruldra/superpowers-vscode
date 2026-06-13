@@ -36,6 +36,8 @@ export async function runReview(opts: RunReviewOpts): Promise<void> {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const args: string[] = [
     'exec',
+    '-c',
+    'model_reasoning_effort=xhigh',
     'review',
     '--dangerously-bypass-approvals-and-sandbox',
     '--json',

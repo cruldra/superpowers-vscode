@@ -294,7 +294,7 @@ export async function handleResumeReviewSession(panel: KanbanWebviewPanel, sessi
     panel.reviewTerminals.set(sessionId, terminal)
     panel.trackSessionTerminal(terminal, issueNumber, 'review')
     terminal.show(false)
-    terminal.sendText(`codex resume --dangerously-bypass-approvals-and-sandbox ${sessionId}`)
+    terminal.sendText(`codex resume -c model_reasoning_effort=xhigh --dangerously-bypass-approvals-and-sandbox ${sessionId}`)
     logger.add({
       level: 'info',
       source: 'terminal',
@@ -433,7 +433,7 @@ export async function triggerAutoReviewTab(panel: KanbanWebviewPanel, opts: {
     panel.reviewTerminals.set(existingSessionId, terminal)
     panel.trackSessionTerminal(terminal, opts.issueNumber, 'review')
     terminal.show(false)
-    terminal.sendText(`codex resume --dangerously-bypass-approvals-and-sandbox ${existingSessionId}`)
+    terminal.sendText(`codex resume -c model_reasoning_effort=xhigh --dangerously-bypass-approvals-and-sandbox ${existingSessionId}`)
     // codex resume rebuilds the conversation from the jsonl rollout
     // before the TUI accepts input — empirically much slower than the
     // 250ms gap the reuse path uses. 8s is a conservative guess that
@@ -509,7 +509,7 @@ export async function triggerAutoReviewTab(panel: KanbanWebviewPanel, opts: {
   // the terminal alive after the run so users can follow up with codex,
   // mirroring how claude implementation/brainstorm sessions stay open.
   // 提示词模板自带 /review 前缀，不在这里再拼。
-  const cmd = `codex --dangerously-bypass-approvals-and-sandbox '${opts.prompt}'`
+  const cmd = `codex -c model_reasoning_effort=xhigh --dangerously-bypass-approvals-and-sandbox '${opts.prompt}'`
   terminal.sendText(cmd)
   logger.add({
     level: 'info',
