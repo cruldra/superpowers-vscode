@@ -10,7 +10,6 @@
 import type { ReactElement } from 'react'
 import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
-import type { ClaudeProfile } from './NewIssueModal'
 
 type GroupKey = 'auth' | 'network' | 'prompts' | 'hooks'
 
@@ -28,7 +27,6 @@ interface SubmitValues {
   worktreePreRemoveScript: string
   implTabPreCreateScript: string
   implTabPostCloseScript: string
-  implementProfilePath: string
 }
 
 export interface SettingsModalProps {
@@ -48,8 +46,6 @@ export interface SettingsModalProps {
   initialWorktreePreRemoveScript: string
   initialImplTabPreCreateScript: string
   initialImplTabPostCloseScript: string
-  initialImplementProfilePath: string
-  profiles: ClaudeProfile[]
   onSubmit: (values: SubmitValues) => void
   onCancel?: () => void
 }
@@ -112,8 +108,6 @@ export function SettingsModal({
   initialWorktreePreRemoveScript,
   initialImplTabPreCreateScript,
   initialImplTabPostCloseScript,
-  initialImplementProfilePath,
-  profiles,
   onSubmit,
   onCancel,
 }: SettingsModalProps): ReactElement | null {
@@ -131,7 +125,6 @@ export function SettingsModal({
   const [worktreePreRemoveScript, setWorktreePreRemoveScript] = useState(initialWorktreePreRemoveScript)
   const [implTabPreCreateScript, setImplTabPreCreateScript] = useState(initialImplTabPreCreateScript)
   const [implTabPostCloseScript, setImplTabPostCloseScript] = useState(initialImplTabPostCloseScript)
-  const [implementProfilePath, setImplementProfilePath] = useState(initialImplementProfilePath)
   const [errors, setErrors] = useState<Partial<Record<ErrorKey, string>>>({})
 
   // Reset local state whenever the modal opens with fresh server values.
@@ -154,7 +147,6 @@ export function SettingsModal({
     setWorktreePreRemoveScript(initialWorktreePreRemoveScript)
     setImplTabPreCreateScript(initialImplTabPreCreateScript)
     setImplTabPostCloseScript(initialImplTabPostCloseScript)
-    setImplementProfilePath(initialImplementProfilePath)
     setErrors({})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
@@ -180,8 +172,6 @@ export function SettingsModal({
   const tokenPageUrl = trimmedHost
     ? `https://${trimmedHost}/user/settings/applications`
     : ''
-  const hasImplementProfileOption = profiles.some(p => p.path === implementProfilePath)
-  const showCustomImplementProfilePath = implementProfilePath !== '' && !hasImplementProfileOption
 
   function handleSubmit(event: React.FormEvent): void {
     event.preventDefault()
@@ -229,8 +219,6 @@ export function SettingsModal({
       worktreePreRemoveScript: worktreePreRemoveScript.trim(),
       implTabPreCreateScript: implTabPreCreateScript.trim(),
       implTabPostCloseScript: implTabPostCloseScript.trim(),
-      // profile 路径同样 trim：前后空格无意义，空串 = 沿用工单级 / 默认 fallback
-      implementProfilePath: implementProfilePath.trim(),
     })
   }
 
@@ -575,29 +563,6 @@ export function SettingsModal({
                     placeholder=".spx/impl-tab-post-close.sh"
                     className={inputClass}
                   />
-                </Field>
-
-                <Field
-                  label="实施会话 Claude profile"
-                  hint={(
-                    <>
-                      留空则用工单创建时锁定的 profile，再没有就用硬编码默认。仅影响实施 / 实施 resume / 冲突解决 cc 会话；头脑风暴不受影响。
-                    </>
-                  )}
-                >
-                  <select
-                    value={implementProfilePath}
-                    onChange={e => setImplementProfilePath(e.target.value)}
-                    className={inputClass}
-                  >
-                    <option value="">留空：使用工单创建时锁定的 profile（再没有则默认）</option>
-                    {profiles.map(p => (
-                      <option key={`${p.name}:${p.path}`} value={p.path}>{p.name}</option>
-                    ))}
-                    {showCustomImplementProfilePath && (
-                      <option value={implementProfilePath}>{`自定义：${implementProfilePath}`}</option>
-                    )}
-                  </select>
                 </Field>
               </>
             )}

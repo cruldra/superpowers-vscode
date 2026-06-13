@@ -67,7 +67,7 @@ export async function handleResumeSession(panel: KanbanWebviewPanel, sessionId: 
       existing.show(false)
       return
     }
-    // 实施 resume 走全局 settings.implementProfilePath 优先级（同 handleImplement /
+    // 实施 resume 走工单级 profilePath > 默认 的优先级（同 handleImplement /
     // startConflictResolution）；头脑风暴 resume 保持现状，只看工单级 + 默认。
     const effectiveProfilePath
       = sessionKind === 'implement'
@@ -702,8 +702,7 @@ export async function handleImplement(
     return
   }
 
-  // 全局 settings.implementProfilePath > 工单级 profilePath > 默认 fallback。
-  // 让用户从设置里覆盖每个工单的 lock-in，而不必逐个改 state JSON。
+  // 工单级 profilePath > 默认 fallback。工单的 profile 锁定可在工单详情面板里覆盖。
   const effectiveProfilePath = panel.resolveImplementProfilePath(profilePath)
   // Same guard as handleResumeSession — we wrap with single quotes and
   // embedded quotes would break out of the wrap. Defensive only.
@@ -1514,8 +1513,8 @@ export async function startConflictResolution(panel: KanbanWebviewPanel, opts: {
     return
   }
   terminal.show(false)
-  // 与 handleImplement 保持一致：走全局 settings.implementProfilePath > 工单级
-  // profilePath > 默认 fallback 的优先级，让冲突解决会话和实施会话用同一份 profile。
+  // 与 handleImplement 保持一致：走工单级 profilePath > 默认 fallback 的优先级，
+  // 让冲突解决会话和实施会话用同一份 profile。
   const effectiveProfilePath = panel.resolveImplementProfilePath(profilePath)
   if (effectiveProfilePath.includes('\'')) {
     logger.add({
@@ -1554,22 +1553,15 @@ export async function startConflictResolution(panel: KanbanWebviewPanel, opts: {
  * Pick the profile.json that the *implement-class* cc sessions
  * (handleImplement / handleResumeSession when sessionKind === 'implement' /
  * startConflictResolution) should launch with. Priority:
- *   1. Global `settings.implementProfilePath` (lets the user override every
- *      issue's lock-in from one place).
- *   2. The per-issue `profilePath` recorded in state JSON when the issue
- *      was created (preserves the brainstorm-time choice).
- *   3. The hard-coded `DEFAULT_PROFILE_PATH` fallback.
+ *   1. The per-issue `profilePath` recorded in state JSON (preserves the
+ *      brainstorm-time choice, overridable from the issue detail panel).
+ *   2. The hard-coded `DEFAULT_PROFILE_PATH` fallback.
  *
  * Brainstorm sessions deliberately don't go through this helper — they
  * keep the legacy `profilePath || DEFAULT_PROFILE_PATH` so creators can
- * still pick a profile per issue at brainstorm time without the global
- * override stomping on it.
+ * still pick a profile per issue at brainstorm time.
  */
-export function resolveImplementProfilePath(panel: KanbanWebviewPanel, issueLevelProfilePath: string | undefined): string {
-  const settings = getSettings(panel.context)
-  const global = settings.implementProfilePath?.trim()
-  if (global)
-    return global
+export function resolveImplementProfilePath(_panel: KanbanWebviewPanel, issueLevelProfilePath: string | undefined): string {
   const issueLevel = issueLevelProfilePath?.trim()
   if (issueLevel)
     return issueLevel

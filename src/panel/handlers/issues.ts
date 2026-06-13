@@ -1643,6 +1643,110 @@ export async function handleUpdateAutoReview(panel: KanbanWebviewPanel, issueNum
   }
 }
 
+/**
+ * Persist a per-issue `profilePath` override into the issue's state JSON
+ * comment. The implement / implement-resume / conflict-resolution cc sessions
+ * launch with this profile (see resolveImplementProfilePath); empty falls back
+ * to DEFAULT_PROFILE_PATH. Mirrors handleUpdateAutoReview: optimistic update on
+ * the webview, rolled back via `issue/patch` if the persist fails.
+ */
+export async function handleUpdateProfilePath(panel: KanbanWebviewPanel, issueNumber: number, profilePath: string): Promise<void> {
+  const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+  if (!workspaceRoot) {
+    panel.postMessage({
+      type: 'toast/show',
+      id: makeNonce(),
+      level: 'error',
+      message: '请先打开一个工作区文件夹',
+      dismissOnTimer: 5000,
+    })
+    return
+  }
+
+  const remote = await detectRepo(workspaceRoot)
+  if (!remote) {
+    panel.postMessage({
+      type: 'toast/show',
+      id: makeNonce(),
+      level: 'error',
+      message: '当前工作区没有 Gitea 远程仓库',
+      dismissOnTimer: 5000,
+    })
+    return
+  }
+
+  const token = await getToken(panel.context, remote.host)
+  if (!token) {
+    panel.postMessage({
+      type: 'toast/show',
+      id: makeNonce(),
+      level: 'error',
+      message: '请先完成 Gitea 配置',
+      dismissOnTimer: 5000,
+    })
+    return
+  }
+
+  // Snapshot the previous value so we can roll the webview back on failure
+  // without re-broadcasting the whole issues list.
+  let previousValue: string | undefined
+  try {
+    const existingState = await readStateJsonComment({
+      host: remote.host,
+      owner: remote.owner,
+      repo: remote.repo,
+      token,
+      issueNumber,
+    })
+    previousValue = typeof existingState.profilePath === 'string'
+      ? existingState.profilePath
+      : undefined
+  }
+  catch {
+    // If we can't read the previous state, leave previousValue undefined —
+    // the rollback patch will clear the override, falling back to the default.
+    previousValue = undefined
+  }
+
+  try {
+    await mergeStateJsonComment({
+      host: remote.host,
+      owner: remote.owner,
+      repo: remote.repo,
+      token,
+      issueNumber,
+      extra: { profilePath },
+    })
+    logger.add({
+      level: 'info',
+      source: 'panel',
+      message: `工单 #${issueNumber} profilePath=${profilePath} 已持久化`,
+    })
+  }
+  catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    logger.add({
+      level: 'error',
+      source: 'panel',
+      message: `持久化 profilePath 失败 (issue #${issueNumber})`,
+      details: message,
+    })
+    panel.postMessage({
+      type: 'toast/show',
+      id: makeNonce(),
+      level: 'error',
+      message: `保存工单 #${issueNumber} 配置文件失败: ${message}`,
+      dismissOnTimer: 6000,
+    })
+    // Roll back the optimistic update in the webview.
+    panel.postMessage({
+      type: 'issue/patch',
+      issueNumber,
+      patch: { profilePath: previousValue },
+    })
+  }
+}
+
 export async function handleOpenFile(panel: KanbanWebviewPanel, relPath: string): Promise<void> {
   const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
   if (!workspaceRoot) {

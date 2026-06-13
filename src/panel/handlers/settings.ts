@@ -28,7 +28,6 @@ export async function handleSettingsSave(panel: KanbanWebviewPanel, payload: {
   worktreePreRemoveScript: string
   implTabPreCreateScript: string
   implTabPostCloseScript: string
-  implementProfilePath: string
 }): Promise<void> {
   const trimmedHost = payload.host.trim()
   const trimmedToken = payload.token.trim()
@@ -40,10 +39,6 @@ export async function handleSettingsSave(panel: KanbanWebviewPanel, payload: {
   const trimmedPreRemove = payload.worktreePreRemoveScript.trim()
   const trimmedImplPre = payload.implTabPreCreateScript.trim()
   const trimmedImplPost = payload.implTabPostCloseScript.trim()
-  // implementProfilePath: '' is meaningful (= "fall back to per-issue
-  // profilePath then DEFAULT_PROFILE_PATH"). Just strip whitespace so a
-  // stray space can't make the resolver think it's set.
-  const trimmedImplProfile = payload.implementProfilePath.trim()
   const prev = getSettings(panel.context)
   // Capture the previous token *for this host* before overwriting it, so
   // we can decide below whether the kanban needs a re-fetch. (Only host
@@ -70,7 +65,6 @@ export async function handleSettingsSave(panel: KanbanWebviewPanel, payload: {
       worktreePreRemoveScript: trimmedPreRemove,
       implTabPreCreateScript: trimmedImplPre,
       implTabPostCloseScript: trimmedImplPost,
-      implementProfilePath: trimmedImplProfile,
     })
     return
   }
@@ -89,7 +83,6 @@ export async function handleSettingsSave(panel: KanbanWebviewPanel, payload: {
     worktreePreRemoveScript: trimmedPreRemove,
     implTabPreCreateScript: trimmedImplPre,
     implTabPostCloseScript: trimmedImplPost,
-    implementProfilePath: trimmedImplProfile,
   })
   if (!keepExisting)
     await setToken(panel.context, trimmedHost, trimmedToken)
@@ -154,7 +147,6 @@ export async function handleEditSettingsRequest(panel: KanbanWebviewPanel): Prom
     worktreePreRemoveScript: s.worktreePreRemoveScript,
     implTabPreCreateScript: s.implTabPreCreateScript,
     implTabPostCloseScript: s.implTabPostCloseScript,
-    implementProfilePath: s.implementProfilePath,
   })
 }
 

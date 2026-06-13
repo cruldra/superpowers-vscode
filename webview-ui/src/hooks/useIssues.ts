@@ -37,7 +37,6 @@ export interface SettingsValues {
   worktreePreRemoveScript: string
   implTabPreCreateScript: string
   implTabPostCloseScript: string
-  implementProfilePath: string
 }
 
 export interface SettingsOverlayState {
@@ -56,7 +55,6 @@ export interface SettingsOverlayState {
   worktreePreRemoveScript: string
   implTabPreCreateScript: string
   implTabPostCloseScript: string
-  implementProfilePath: string
 }
 
 export type UseIssuesState =
@@ -117,6 +115,9 @@ export interface UseIssuesResult {
   setDependency: (issueNumber: number, prerequisiteNumber: number) => void
   clearDependency: (issueNumber: number, prerequisiteNumber: number) => void
   updateIssueAutoReview: (issueNumber: number, value: boolean) => void
+  /** 覆盖该工单实施/测试会话使用的 Claude 配置文件，乐观更新本地 state 后
+   * postMessage 持久化到 state JSON。失败时扩展端 push `issue/patch` 回滚。 */
+  updateIssueProfilePath: (issueNumber: number, profilePath: string) => void
   logs: LogEntry[]
   fetchLogs: () => void
   clearLogs: () => void
@@ -229,7 +230,6 @@ export function useIssues(): UseIssuesResult {
       worktreePreRemoveScript: values.worktreePreRemoveScript,
       implTabPreCreateScript: values.implTabPreCreateScript,
       implTabPostCloseScript: values.implTabPostCloseScript,
-      implementProfilePath: values.implementProfilePath,
     })
   }, [])
 
@@ -365,6 +365,23 @@ export function useIssues(): UseIssuesResult {
       }
     })
     postMessage({ type: 'issue/update-auto-review', issueNumber, value })
+  }, [])
+
+  const updateIssueProfilePath = useCallback((issueNumber: number, profilePath: string): void => {
+    // Optimistically update local state so the dropdown reflects immediately
+    // without remounting the issues list / detail panel via a full reload.
+    // On failure, the extension posts `issue/patch` to roll us back.
+    setState((prev) => {
+      if (prev.status !== 'ready')
+        return prev
+      return {
+        status: 'ready',
+        issues: prev.issues.map(i =>
+          i.number === issueNumber ? { ...i, profilePath } : i,
+        ),
+      }
+    })
+    postMessage({ type: 'issue/update-profile-path', issueNumber, profilePath })
   }, [])
 
   const fetchLogs = useCallback((): void => {
@@ -503,7 +520,6 @@ export function useIssues(): UseIssuesResult {
             worktreePreRemoveScript: msg.worktreePreRemoveScript,
             implTabPreCreateScript: msg.implTabPreCreateScript,
             implTabPostCloseScript: msg.implTabPostCloseScript,
-            implementProfilePath: msg.implementProfilePath,
           })
           break
         case 'toast/show': {
@@ -596,5 +612,5 @@ export function useIssues(): UseIssuesResult {
     return cleanup
   }, [clearPrDiffSummaryRunning])
 
-  return { state, settings, globalAutoReview, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, startTestSession, resumeTestSession, focusSession, openFile, implement, generatePrDiffSummary, isPrDiffSummaryRunning, openPr, openWorktree, deleteWorktree, deleteIssue, closeIssue, closeSessionTab, startBrainstormSession, changeColumn, setDependency, clearDependency, updateIssueAutoReview, logs, fetchLogs, clearLogs, pendingSelectId, clearPendingSelect, commitRunning, runCommit, hasChanges, branchSyncBehind, branchSyncRunning, branchSyncDisabled, branchSyncTitle, runBranchSync, envLocked, envFileCount, envLockRunning, envLockTitle, toggleEnvLock }
+  return { state, settings, globalAutoReview, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, startTestSession, resumeTestSession, focusSession, openFile, implement, generatePrDiffSummary, isPrDiffSummaryRunning, openPr, openWorktree, deleteWorktree, deleteIssue, closeIssue, closeSessionTab, startBrainstormSession, changeColumn, setDependency, clearDependency, updateIssueAutoReview, updateIssueProfilePath, logs, fetchLogs, clearLogs, pendingSelectId, clearPendingSelect, commitRunning, runCommit, hasChanges, branchSyncBehind, branchSyncRunning, branchSyncDisabled, branchSyncTitle, runBranchSync, envLocked, envFileCount, envLockRunning, envLockTitle, toggleEnvLock }
 }

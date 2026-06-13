@@ -415,6 +415,10 @@ export class KanbanWebviewPanel {
       void issues.handleUpdateAutoReview(this, msg.issueNumber, msg.value)
       return
     }
+    if (msg.type === 'issue/update-profile-path') {
+      void issues.handleUpdateProfilePath(this, msg.issueNumber, msg.profilePath)
+      return
+    }
     if (msg.type === 'logs/fetch') {
       this.postMessage({ type: 'logs/snapshot', entries: logger.snapshot() })
       return
@@ -798,7 +802,6 @@ export class KanbanWebviewPanel {
         worktreePreRemoveScript: s.worktreePreRemoveScript,
         implTabPreCreateScript: s.implTabPreCreateScript,
         implTabPostCloseScript: s.implTabPostCloseScript,
-        implementProfilePath: s.implementProfilePath,
       })
       return
     }
@@ -837,7 +840,6 @@ export class KanbanWebviewPanel {
           worktreePreRemoveScript: s.worktreePreRemoveScript,
           implTabPreCreateScript: s.implTabPreCreateScript,
           implTabPostCloseScript: s.implTabPostCloseScript,
-          implementProfilePath: s.implementProfilePath,
         })
         return
       }
@@ -851,16 +853,13 @@ export class KanbanWebviewPanel {
    * Pick the profile.json that the *implement-class* cc sessions
    * (handleImplement / handleResumeSession when sessionKind === 'implement' /
    * startConflictResolution) should launch with. Priority:
-   *   1. Global `settings.implementProfilePath` (lets the user override every
-   *      issue's lock-in from one place).
-   *   2. The per-issue `profilePath` recorded in state JSON when the issue
-   *      was created (preserves the brainstorm-time choice).
-   *   3. The hard-coded `DEFAULT_PROFILE_PATH` fallback.
+   *   1. The per-issue `profilePath` recorded in state JSON (preserves the
+   *      brainstorm-time choice, overridable from the issue detail panel).
+   *   2. The hard-coded `DEFAULT_PROFILE_PATH` fallback.
    *
    * Brainstorm sessions deliberately don't go through this helper — they
    * keep the legacy `profilePath || DEFAULT_PROFILE_PATH` so creators can
-   * still pick a profile per issue at brainstorm time without the global
-   * override stomping on it.
+   * still pick a profile per issue at brainstorm time.
    */
   // internal: handler 模块访问
   resolveImplementProfilePath(issueLevelProfilePath: string | undefined): string {

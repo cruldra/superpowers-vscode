@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { useMemo, useRef } from 'react'
 import { CircleSlash, ExternalLink, Play, Terminal, Trash2, X } from 'lucide-react'
+import type { ClaudeProfile } from '../hooks/useIssues'
 import type { Issue, IssueColumn } from '../types'
 import { COLUMN_LABELS, COLUMN_ORDER } from '../types'
 import { isIssueLocked } from '../lib/dependencies'
@@ -53,6 +54,10 @@ interface IssueDetailPanelProps {
   onStartBrainstormSession: (issueNumber: number) => void
   /** Persist a per-issue `autoReview` override into the state JSON. */
   onUpdateAutoReview: (issueNumber: number, value: boolean) => void
+  /** 已知 Claude profile 列表，用于「配置文件」下拉选项。 */
+  profiles: ClaudeProfile[]
+  /** Persist a per-issue `profilePath` override into the state JSON. */
+  onUpdateProfilePath: (issueNumber: number, profilePath: string) => void
   /** Open the in-webview log modal. */
   onOpenLogs: () => void
 }
@@ -86,6 +91,8 @@ export function IssueDetailPanel({
   onCloseSessionTab,
   onStartBrainstormSession,
   onUpdateAutoReview,
+  profiles,
+  onUpdateProfilePath,
   onOpenLogs,
 }: IssueDetailPanelProps) {
   // 前置工单未完成 → 锁定。锁定时禁用"实施"等启动新工作的动作按钮，
@@ -309,9 +316,17 @@ export function IssueDetailPanel({
           {
             key: 'profilePath',
             label: '配置文件',
-            type: 'string',
-            readOnly: true,
-            description: '创建工单时使用的 Claude 配置文件；resume 时会自动带上',
+            type: 'select',
+            options: (() => {
+              const opts = profiles.map(p => ({ label: p.name, value: p.path }))
+              const current = issue?.profilePath
+              // 自定义路径兜底：state JSON 里存的 profile 不在已知列表时，
+              // 额外追加一项以免下拉显示空白、丢失当前选择。
+              if (current && !opts.some(o => o.value === current))
+                opts.push({ label: `自定义：${current}`, value: current })
+              return opts
+            })(),
+            description: '该工单实施/测试会话使用的 Claude 配置文件；下拉切换即覆盖（持久化到 state JSON），未选时回退默认',
           },
           {
             key: 'specFile',
@@ -408,7 +423,7 @@ export function IssueDetailPanel({
         ],
       },
     ],
-    [onResumeSession, onResumeReviewSession, onResumeTestSession, onStartTestSession, onOpenFile, onImplement, onOpenPr, onGeneratePrDiffSummary, onOpenWorktree, onDeleteWorktree, onCloseSessionTab, onStartBrainstormSession, onOpenLogs, issue, locked, lockTitle, globalAutoReview, prDiffSummaryRunning],
+    [onResumeSession, onResumeReviewSession, onResumeTestSession, onStartTestSession, onOpenFile, onImplement, onOpenPr, onGeneratePrDiffSummary, onOpenWorktree, onDeleteWorktree, onCloseSessionTab, onStartBrainstormSession, onOpenLogs, issue, locked, lockTitle, globalAutoReview, prDiffSummaryRunning, profiles],
   )
 
   if (!issue) {
@@ -499,6 +514,8 @@ export function IssueDetailPanel({
           onChange={(key, value) => {
             if (key === 'autoReview' && issue && typeof value === 'boolean')
               onUpdateAutoReview(issue.number, value)
+            if (key === 'profilePath' && issue && typeof value === 'string')
+              onUpdateProfilePath(issue.number, value)
           }}
         />
       </div>

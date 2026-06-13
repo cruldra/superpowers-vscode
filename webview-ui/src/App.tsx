@@ -49,6 +49,7 @@ export function App() {
     setDependency,
     clearDependency,
     updateIssueAutoReview,
+    updateIssueProfilePath,
     logs,
     clearLogs,
     pendingSelectId,
@@ -328,6 +329,7 @@ export function App() {
                 onCloseSessionTab={closeSessionTab}
                 onStartBrainstormSession={startBrainstormSession}
                 onUpdateAutoReview={updateIssueAutoReview}
+                onUpdateProfilePath={updateIssueProfilePath}
                 onOpenLogs={() => setShowLogs(true)}
                 profileData={profileData}
                 onProfileSave={saveProfiles}
@@ -419,8 +421,6 @@ export function App() {
         initialWorktreePreRemoveScript={settings?.worktreePreRemoveScript ?? ''}
         initialImplTabPreCreateScript={settings?.implTabPreCreateScript ?? ''}
         initialImplTabPostCloseScript={settings?.implTabPostCloseScript ?? ''}
-        initialImplementProfilePath={settings?.implementProfilePath ?? ''}
-        profiles={profiles}
         onSubmit={saveSettings}
         onCancel={settings?.canCancel ? dismissSettings : undefined}
       />
