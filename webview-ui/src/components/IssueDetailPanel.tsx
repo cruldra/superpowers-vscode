@@ -321,7 +321,10 @@ export function IssueDetailPanel({
             label: '实施配置文件',
             type: 'select',
             options: (() => {
-              const opts = profiles.map(p => ({ label: p.name, value: p.path }))
+              // 占位项：value='' 对应「未设置」。原生 select 在 value 不匹配任何
+              // option 时会假显示第一项且 selectedIndex=0，导致点第一项不触发
+              // onChange、永远存不进去；占位项让未设置态有真实匹配项。
+              const opts = [{ label: '（默认）', value: '' }, ...profiles.map(p => ({ label: p.name, value: p.path }))]
               const current = issue?.profilePath
               // 自定义路径兜底：state JSON 里存的 profile 不在已知列表时，
               // 额外追加一项以免下拉显示空白、丢失当前选择。
@@ -329,14 +332,17 @@ export function IssueDetailPanel({
                 opts.push({ label: `自定义：${current}`, value: current })
               return opts
             })(),
-            description: '实施会话使用的 Claude 配置文件；下拉切换即覆盖（持久化 state JSON）',
+            description: '实施会话使用的 Claude 配置文件；选「（默认）」用内置默认(offical)，选具体 profile 则覆盖（持久化 state JSON）',
           },
           {
             key: 'testProfilePath',
             label: '测试配置文件',
             type: 'select',
             options: (() => {
-              const opts = profiles.map(p => ({ label: p.name, value: p.path }))
+              // 占位项：value='' 对应「未设置」。原生 select 在 value 不匹配任何
+              // option 时会假显示第一项且 selectedIndex=0，导致点第一项不触发
+              // onChange、永远存不进去；占位项让未设置态有真实匹配项。
+              const opts = [{ label: '（默认）', value: '' }, ...profiles.map(p => ({ label: p.name, value: p.path }))]
               const current = issue?.testProfilePath
               // 自定义路径兜底：state JSON 里存的 profile 不在已知列表时，
               // 额外追加一项以免下拉显示空白、丢失当前选择。
