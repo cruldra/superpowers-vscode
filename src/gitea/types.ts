@@ -20,6 +20,9 @@ export interface Issue {
   /** Absolute path to the Claude settings profile used at creation; passed
    * as --settings on resume. */
   profilePath?: string
+  /** 测试会话专用的 Claude 配置文件，独立于实施会话的 `profilePath`；
+   * 留空时测试会话回退到 `profilePath`，再回退默认。 */
+  testProfilePath?: string
   /** Optional workspace-relative path to the spec file for this issue, as
    * surfaced from the Claude session transcript. Lives under
    * `docs/superpowers/specs/*.md`. */

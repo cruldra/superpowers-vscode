@@ -1070,7 +1070,7 @@ export async function handleStartBrainstormSession(panel: KanbanWebviewPanel, is
  * 与 handleStartBrainstormSession 的差异：
  *   - 首条 prompt 依赖 state JSON 里的 `pr`（合并的 PR 号）；没有 PR 直接 toast 拒绝。
  *   - cwd 优先用 worktree（存在时），否则退回 workspaceRoot——测试本质要读真实代码，
- *     与实施会话同 profile（走 resolveImplementProfilePath）。
+ *     profile 走 resolveTestProfilePath（testProfilePath > profilePath > 默认）。
  *   - 捕获到的 session id 写进 state JSON 的 `testSessionId`。
  *
  * in-flight 锁 key `${issueNumber}:test`，防 createTerminal 期间用户重复点击。
@@ -1121,6 +1121,7 @@ export async function handleStartTestSession(panel: KanbanWebviewPanel, issueNum
     // （prompt 依赖 PR 号），读不到就 toast 拒绝。
     let pr: string | undefined
     let profilePath: string | undefined
+    let testProfilePath: string | undefined
     let worktreePathRel: string | undefined
     try {
       const stateObj = await readStateJsonComment({
@@ -1135,6 +1136,8 @@ export async function handleStartTestSession(panel: KanbanWebviewPanel, issueNum
           pr = stateObj.pr
         if (typeof stateObj.profilePath === 'string' && stateObj.profilePath.length > 0)
           profilePath = stateObj.profilePath
+        if (typeof stateObj.testProfilePath === 'string' && stateObj.testProfilePath.length > 0)
+          testProfilePath = stateObj.testProfilePath
         if (typeof stateObj.worktreePath === 'string' && stateObj.worktreePath.length > 0)
           worktreePathRel = stateObj.worktreePath
       }
@@ -1156,8 +1159,8 @@ export async function handleStartTestSession(panel: KanbanWebviewPanel, issueNum
     // worktree 还在（PR 未合并/未清理）就进 worktree 测，已清理则回退主 worktree（main）。
     const effectiveCwd = await resolveTestSessionCwd(workspaceRoot, worktreePathRel)
 
-    // 测试会话本质要读真实代码，走实施 profile 优先级。
-    const effectiveProfilePath = panel.resolveImplementProfilePath(profilePath)
+    // 测试会话优先用专用 testProfilePath，未设置时回退实施 profile，再回退默认。
+    const effectiveProfilePath = resolveTestProfilePath(panel, testProfilePath, profilePath)
     if (effectiveProfilePath.includes('\'')) {
       void window.showErrorMessage(
         `启动测试失败：profilePath 含单引号，拒绝执行 (${effectiveProfilePath})`,
@@ -1566,6 +1569,15 @@ export function resolveImplementProfilePath(_panel: KanbanWebviewPanel, issueLev
   if (issueLevel)
     return issueLevel
   return DEFAULT_PROFILE_PATH
+}
+
+/**
+ * 测试会话的 profile 解析：专用 `testProfilePath` 优先，未单独设置时回退到
+ * 实施会话的 `profilePath`，再回退默认。让测试会话既能独立锁 profile，
+ * 又默认与实施会话一致。
+ */
+export function resolveTestProfilePath(_panel: KanbanWebviewPanel, testProfilePath: string | undefined, implementProfilePath: string | undefined): string {
+  return testProfilePath?.trim() || implementProfilePath?.trim() || DEFAULT_PROFILE_PATH
 }
 
 /**

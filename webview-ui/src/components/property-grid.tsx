@@ -177,9 +177,14 @@ function PropertyRow({
             value={String(value ?? '')}
             onChange={e => onChange(propDef.key, e.target.value)}
             className={`${inputClass} appearance-none`}
+            style={{ backgroundColor: 'var(--vscode-dropdown-background)', color: 'var(--vscode-dropdown-foreground)' }}
           >
             {(propDef.options ?? []).map(o => (
-              <option key={String(o.value)} value={String(o.value)}>
+              <option
+                key={String(o.value)}
+                value={String(o.value)}
+                style={{ backgroundColor: 'var(--vscode-dropdown-background)', color: 'var(--vscode-dropdown-foreground)' }}
+              >
                 {o.label}
               </option>
             ))}

@@ -58,6 +58,8 @@ interface IssueDetailPanelProps {
   profiles: ClaudeProfile[]
   /** Persist a per-issue `profilePath` override into the state JSON. */
   onUpdateProfilePath: (issueNumber: number, profilePath: string) => void
+  /** Persist a per-issue `testProfilePath` override into the state JSON. */
+  onUpdateTestProfilePath: (issueNumber: number, testProfilePath: string) => void
   /** Open the in-webview log modal. */
   onOpenLogs: () => void
 }
@@ -93,6 +95,7 @@ export function IssueDetailPanel({
   onUpdateAutoReview,
   profiles,
   onUpdateProfilePath,
+  onUpdateTestProfilePath,
   onOpenLogs,
 }: IssueDetailPanelProps) {
   // 前置工单未完成 → 锁定。锁定时禁用"实施"等启动新工作的动作按钮，
@@ -315,7 +318,7 @@ export function IssueDetailPanel({
           },
           {
             key: 'profilePath',
-            label: '配置文件',
+            label: '实施配置文件',
             type: 'select',
             options: (() => {
               const opts = profiles.map(p => ({ label: p.name, value: p.path }))
@@ -326,7 +329,22 @@ export function IssueDetailPanel({
                 opts.push({ label: `自定义：${current}`, value: current })
               return opts
             })(),
-            description: '该工单实施/测试会话使用的 Claude 配置文件；下拉切换即覆盖（持久化到 state JSON），未选时回退默认',
+            description: '实施会话使用的 Claude 配置文件；下拉切换即覆盖（持久化 state JSON）',
+          },
+          {
+            key: 'testProfilePath',
+            label: '测试配置文件',
+            type: 'select',
+            options: (() => {
+              const opts = profiles.map(p => ({ label: p.name, value: p.path }))
+              const current = issue?.testProfilePath
+              // 自定义路径兜底：state JSON 里存的 profile 不在已知列表时，
+              // 额外追加一项以免下拉显示空白、丢失当前选择。
+              if (current && !opts.some(o => o.value === current))
+                opts.push({ label: `自定义：${current}`, value: current })
+              return opts
+            })(),
+            description: '测试会话使用的 Claude 配置文件；留空时回退实施配置文件',
           },
           {
             key: 'specFile',
@@ -443,6 +461,7 @@ export function IssueDetailPanel({
     autoReview: issue.autoReview ?? globalAutoReview,
     color: issue.color ?? null,
     profilePath: issue.profilePath ?? null,
+    testProfilePath: issue.testProfilePath ?? null,
     specFile: issue.specFile ?? null,
     planFile: issue.planFile ?? null,
     prDiffFile: issue.prDiffFile ?? null,
@@ -516,6 +535,8 @@ export function IssueDetailPanel({
               onUpdateAutoReview(issue.number, value)
             if (key === 'profilePath' && issue && typeof value === 'string')
               onUpdateProfilePath(issue.number, value)
+            if (key === 'testProfilePath' && issue && typeof value === 'string')
+              onUpdateTestProfilePath(issue.number, value)
           }}
         />
       </div>

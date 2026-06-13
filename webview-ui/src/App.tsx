@@ -50,6 +50,7 @@ export function App() {
     clearDependency,
     updateIssueAutoReview,
     updateIssueProfilePath,
+    updateIssueTestProfilePath,
     logs,
     clearLogs,
     pendingSelectId,
@@ -330,6 +331,7 @@ export function App() {
                 onStartBrainstormSession={startBrainstormSession}
                 onUpdateAutoReview={updateIssueAutoReview}
                 onUpdateProfilePath={updateIssueProfilePath}
+                onUpdateTestProfilePath={updateIssueTestProfilePath}
                 onOpenLogs={() => setShowLogs(true)}
                 profileData={profileData}
                 onProfileSave={saveProfiles}

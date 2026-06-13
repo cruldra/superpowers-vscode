@@ -72,6 +72,7 @@ function parseColumnFromComments(comments: GiteaComment[]): {
   column: IssueColumn | null
   sessionId?: string
   profilePath?: string
+  testProfilePath?: string
   specFile?: string
   planFile?: string
   prDiffFile?: string
@@ -113,6 +114,7 @@ function parseColumnFromComments(comments: GiteaComment[]): {
       column: unknown
       sessionId?: unknown
       profilePath?: unknown
+      testProfilePath?: unknown
       specFile?: unknown
       planFile?: unknown
       prDiffFile?: unknown
@@ -133,6 +135,9 @@ function parseColumnFromComments(comments: GiteaComment[]): {
         : undefined
       const profilePath = typeof obj.profilePath === 'string' && obj.profilePath.length > 0
         ? obj.profilePath
+        : undefined
+      const testProfilePath = typeof obj.testProfilePath === 'string' && obj.testProfilePath.length > 0
+        ? obj.testProfilePath
         : undefined
       const specFile = isValidSpxFilePath(obj.specFile) ? obj.specFile : undefined
       const planFile = isValidSpxFilePath(obj.planFile) ? obj.planFile : undefined
@@ -169,6 +174,7 @@ function parseColumnFromComments(comments: GiteaComment[]): {
         column: obj.column,
         sessionId,
         profilePath,
+        testProfilePath,
         specFile,
         planFile,
         prDiffFile,
@@ -292,6 +298,7 @@ async function buildIssue(opts: {
     column: fromComment,
     sessionId,
     profilePath,
+    testProfilePath,
     specFile,
     planFile,
     prDiffFile,
@@ -352,6 +359,7 @@ async function buildIssue(opts: {
     column,
     ...(sessionId ? { sessionId } : {}),
     ...(profilePath ? { profilePath } : {}),
+    ...(testProfilePath ? { testProfilePath } : {}),
     ...(specFile ? { specFile } : {}),
     ...(planFile ? { planFile } : {}),
     ...(prDiffFile ? { prDiffFile } : {}),

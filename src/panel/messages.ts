@@ -44,7 +44,7 @@ export type ExtensionToWebview
   = | { type: 'issues/loading' }
     | { type: 'issues/update', issues: Issue[], globalAutoReview: boolean }
     | { type: 'issues/error', message: string }
-    | { type: 'issue/patch', issueNumber: number, patch: { autoReview?: boolean, specFile?: string, planFile?: string, prDiffFile?: string, sessionId?: string, implementSessionId?: string, reviewSessionId?: string, testSessionId?: string, pr?: string, implementStatus?: 'running' | 'done' | 'failed', column?: IssueColumn, worktreePath?: string, prMerged?: boolean, branch?: string, color?: string, worktreeExists?: boolean, brainstormTabOpen?: boolean, implementTabOpen?: boolean, reviewTabOpen?: boolean, testTabOpen?: boolean, profilePath?: string } }
+    | { type: 'issue/patch', issueNumber: number, patch: { autoReview?: boolean, specFile?: string, planFile?: string, prDiffFile?: string, sessionId?: string, implementSessionId?: string, reviewSessionId?: string, testSessionId?: string, pr?: string, implementStatus?: 'running' | 'done' | 'failed', column?: IssueColumn, worktreePath?: string, prMerged?: boolean, branch?: string, color?: string, worktreeExists?: boolean, brainstormTabOpen?: boolean, implementTabOpen?: boolean, reviewTabOpen?: boolean, testTabOpen?: boolean, profilePath?: string, testProfilePath?: string } }
     | { type: 'issue/pr-diff-summary-done', issueNumber: number }
     | { type: 'issue/append', issue: Issue, select?: boolean }
     | { type: 'issue/select-by-number', issueNumber: number }
@@ -135,6 +135,7 @@ export type WebviewToExtension
     | { type: 'dependency/clear', issueNumber: number, prerequisiteNumber: number }
     | { type: 'issue/update-auto-review', issueNumber: number, value: boolean }
     | { type: 'issue/update-profile-path', issueNumber: number, profilePath: string }
+    | { type: 'issue/update-test-profile-path', issueNumber: number, testProfilePath: string }
     | { type: 'logs/fetch' }
     | { type: 'logs/clear' }
     | { type: 'commit/run' }

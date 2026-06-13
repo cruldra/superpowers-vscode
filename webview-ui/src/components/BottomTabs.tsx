@@ -42,6 +42,7 @@ interface BottomTabsProps {
   onStartBrainstormSession: (issueNumber: number) => void
   onUpdateAutoReview: (issueNumber: number, value: boolean) => void
   onUpdateProfilePath: (issueNumber: number, profilePath: string) => void
+  onUpdateTestProfilePath: (issueNumber: number, testProfilePath: string) => void
   onOpenLogs: () => void
 
   // Profile tab props
@@ -117,6 +118,7 @@ export function BottomTabs(props: BottomTabsProps) {
             onStartBrainstormSession={props.onStartBrainstormSession}
             onUpdateAutoReview={props.onUpdateAutoReview}
             onUpdateProfilePath={props.onUpdateProfilePath}
+            onUpdateTestProfilePath={props.onUpdateTestProfilePath}
             profiles={props.profiles}
             onOpenLogs={props.onOpenLogs}
           />

@@ -419,6 +419,10 @@ export class KanbanWebviewPanel {
       void issues.handleUpdateProfilePath(this, msg.issueNumber, msg.profilePath)
       return
     }
+    if (msg.type === 'issue/update-test-profile-path') {
+      void issues.handleUpdateTestProfilePath(this, msg.issueNumber, msg.testProfilePath)
+      return
+    }
     if (msg.type === 'logs/fetch') {
       this.postMessage({ type: 'logs/snapshot', entries: logger.snapshot() })
       return
