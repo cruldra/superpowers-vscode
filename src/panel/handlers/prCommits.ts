@@ -13,7 +13,7 @@ import { getToken } from '../../auth/secrets'
 import { detectRepo } from '../../git/remote'
 import { getGitCommit, getRawFile, listPullRequestCommits } from '../../gitea/api'
 import { readStateJsonComment } from '../../gitea/stateJson'
-import { readConfirmed, writeConfirmed } from '../../sessions/prReviewStore'
+import { readConfirmed, readConfirmedCommits, writeConfirmed, writeConfirmedCommits } from '../../sessions/prReviewStore'
 
 /** diff 文件内容走的虚拟文档 scheme。 */
 const SPX_GITEA_SCHEME = 'spx-gitea'
@@ -48,7 +48,7 @@ export async function handleGetPrCommits(panel: KanbanWebviewPanel, issueNumber:
   try {
     const ctx = await resolveRepoContext(panel)
     if (!ctx) {
-      panel.postMessage({ type: 'pr-commits/show', issueNumber, commits: [] })
+      panel.postMessage({ type: 'pr-commits/show', issueNumber, commits: [], confirmedCommits: [] })
       return
     }
 
@@ -61,7 +61,7 @@ export async function handleGetPrCommits(panel: KanbanWebviewPanel, issueNumber:
     })
     const pr = typeof stateObj?.pr === 'string' && stateObj.pr.length > 0 ? stateObj.pr : undefined
     if (!pr) {
-      panel.postMessage({ type: 'pr-commits/show', issueNumber, commits: [] })
+      panel.postMessage({ type: 'pr-commits/show', issueNumber, commits: [], confirmedCommits: [] })
       return
     }
 
@@ -72,13 +72,18 @@ export async function handleGetPrCommits(panel: KanbanWebviewPanel, issueNumber:
       token: ctx.token,
       index: Number(pr),
     })
-    panel.postMessage({ type: 'pr-commits/show', issueNumber, commits })
+    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    const confirmedCommits = workspaceRoot
+      ? await readConfirmedCommits(workspaceRoot, issueNumber)
+      : []
+    panel.postMessage({ type: 'pr-commits/show', issueNumber, commits, confirmedCommits })
   }
   catch (err) {
     panel.postMessage({
       type: 'pr-commits/show',
       issueNumber,
       commits: [],
+      confirmedCommits: [],
       error: err instanceof Error ? err.message : String(err),
     })
   }
@@ -148,6 +153,25 @@ export async function handleSetPrReviewConfirmed(
   }
   catch (err) {
     console.warn('handleSetPrReviewConfirmed 写盘失败', err)
+  }
+}
+
+/**
+ * 持久化某工单已确认（已审阅）的提交 sha 集合到 `.spx/pr-review-confirmed.json`。
+ * 拿不到工作区根则静默跳过；写盘失败兜底打日志、不抛——确认态丢失不该中断 UI。
+ */
+export async function handleSetPrReviewConfirmedCommits(
+  panel: KanbanWebviewPanel,
+  args: { issueNumber: number, confirmed: string[] },
+): Promise<void> {
+  try {
+    const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+    if (!workspaceRoot)
+      return
+    await writeConfirmedCommits(workspaceRoot, args.issueNumber, args.confirmed)
+  }
+  catch (err) {
+    console.warn('handleSetPrReviewConfirmedCommits 写盘失败', err)
   }
 }
 

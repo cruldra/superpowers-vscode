@@ -21,9 +21,11 @@ export interface UsePrCommitsResult {
   parentShaBySha: Record<string, string | undefined>
   filesErrorBySha: Record<string, string | undefined>
   confirmedBySha: Record<string, string[]>
+  confirmedCommits: string[]
   getFiles: (sha: string) => void
   openDiff: (sha: string, parentSha: string | undefined, path: string, status: string) => void
   setConfirmed: (sha: string, paths: string[]) => void
+  markCommitsConfirmed: (shas: string[]) => void
 }
 
 export function usePrCommits(issueNumber: number | undefined): UsePrCommitsResult {
@@ -34,6 +36,7 @@ export function usePrCommits(issueNumber: number | undefined): UsePrCommitsResul
   const [parentShaBySha, setParentShaBySha] = useState<Record<string, string | undefined>>({})
   const [filesErrorBySha, setFilesErrorBySha] = useState<Record<string, string | undefined>>({})
   const [confirmedBySha, setConfirmedBySha] = useState<Record<string, string[]>>({})
+  const [confirmedCommits, setConfirmedCommits] = useState<string[]>([])
 
   // issueNumber 装进 ref，让订阅闭包始终读到当前值（订阅只在 mount 挂一次）。
   const issueRef = useRef<number | undefined>(issueNumber)
@@ -49,6 +52,7 @@ export function usePrCommits(issueNumber: number | undefined): UsePrCommitsResul
           return
         setCommits(msg.commits)
         setCommitsError(msg.error)
+        setConfirmedCommits(msg.confirmedCommits ?? [])
         setLoadingCommits(false)
         return
       }
@@ -72,6 +76,7 @@ export function usePrCommits(issueNumber: number | undefined): UsePrCommitsResul
     setParentShaBySha({})
     setFilesErrorBySha({})
     setConfirmedBySha({})
+    setConfirmedCommits([])
     requestedRef.current = new Set()
     if (issueNumber === undefined) {
       setLoadingCommits(false)
@@ -110,6 +115,15 @@ export function usePrCommits(issueNumber: number | undefined): UsePrCommitsResul
     postMessage({ type: 'pr-review/set', issueNumber: num, sha, confirmed: paths })
   }, [])
 
+  // 乐观更新本地已确认提交集并落盘；下次拉提交列表回包会以持久化值校正。
+  const markCommitsConfirmed = useCallback((shas: string[]): void => {
+    const num = issueRef.current
+    if (num === undefined)
+      return
+    setConfirmedCommits(shas)
+    postMessage({ type: 'pr-review/set-commits', issueNumber: num, confirmed: shas })
+  }, [])
+
   return {
     commits,
     commitsError,
@@ -118,8 +132,10 @@ export function usePrCommits(issueNumber: number | undefined): UsePrCommitsResul
     parentShaBySha,
     filesErrorBySha,
     confirmedBySha,
+    confirmedCommits,
     getFiles,
     openDiff,
     setConfirmed,
+    markCommitsConfirmed,
   }
 }

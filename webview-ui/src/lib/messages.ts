@@ -109,7 +109,7 @@ export type ExtensionToWebview
     | { type: 'issue/remove', issueNumber: number }
     | { type: 'profiles/show', data: ProfilesData }
     | { type: 'managed-sessions/show', data: ManagedSessionsData }
-    | { type: 'pr-commits/show', issueNumber: number, commits: PrCommit[], error?: string }
+    | { type: 'pr-commits/show', issueNumber: number, commits: PrCommit[], confirmedCommits: string[], error?: string }
     | { type: 'pr-commit-files/show', issueNumber: number, sha: string, parentSha?: string, files: PrCommitFile[], confirmed: string[], error?: string }
 
 export type WebviewToExtension
@@ -175,3 +175,4 @@ export type WebviewToExtension
     | { type: 'pr-commit-files/get', issueNumber: number, sha: string }
     | { type: 'pr-commit-diff/open', issueNumber: number, sha: string, parentSha?: string, path: string, status: string }
     | { type: 'pr-review/set', issueNumber: number, sha: string, confirmed: string[] }
+    | { type: 'pr-review/set-commits', issueNumber: number, confirmed: string[] }

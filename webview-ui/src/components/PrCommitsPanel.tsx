@@ -184,9 +184,11 @@ export function PrCommitsPanel({ issue }: PrCommitsPanelProps) {
     parentShaBySha,
     filesErrorBySha,
     confirmedBySha,
+    confirmedCommits,
     getFiles,
     openDiff,
     setConfirmed,
+    markCommitsConfirmed,
   } = usePrCommits(issueNumber)
 
   const [selectedSha, setSelectedSha] = useState<string | undefined>(undefined)
@@ -195,6 +197,8 @@ export function PrCommitsPanel({ issue }: PrCommitsPanelProps) {
   // JS 驱动的悬停态：Tailwind v4 把 group-hover 包进 @media(hover:hover)，
   // Wayland 下的 VS Code webview 不满足该条件，故改用鼠标事件控制按钮显隐。
   const [hoveredPath, setHoveredPath] = useState<string | null>(null)
+  // 提交行的悬停态（与文件行的 hoveredPath 分开），同样 JS 驱动确认按钮显隐。
+  const [hoveredCommit, setHoveredCommit] = useState<string | null>(null)
   // 提交列表 <ul>，用于方向键切换后把选中项滚进可视区。
   const commitListRef = useRef<HTMLUListElement | null>(null)
 
@@ -263,6 +267,9 @@ export function PrCommitsPanel({ issue }: PrCommitsPanelProps) {
     [confirmedBySha, selectedSha],
   )
 
+  // 当前工单已确认的提交 sha 集合（提交行勾标记 + 行淡化用）。
+  const confirmedCommitSet = useMemo(() => new Set(confirmedCommits), [confirmedCommits])
+
   // 提交列表方向键切换：未选中时 ArrowDown 选首、ArrowUp 选末；已选中则按下标夹取边界移动。
   const onCommitListKeyDown = (e: ReactKeyboardEvent<HTMLUListElement>) => {
     if (commits.length === 0)
@@ -318,36 +325,61 @@ export function PrCommitsPanel({ issue }: PrCommitsPanelProps) {
                       onKeyDown={onCommitListKeyDown}
                       className="flex flex-col outline-none"
                     >
-                      {commits.map(c => (
-                        <li
-                          key={c.sha}
-                          data-sha={c.sha}
-                          role="option"
-                          aria-selected={selectedSha === c.sha}
-                          onClick={() => {
-                            setSelectedSha(c.sha)
-                            // 选中后把焦点给列表，方向键即时可用（不被看板抢走）。
-                            commitListRef.current?.focus()
-                          }}
-                          className={`flex cursor-pointer flex-col gap-0.5 border-b border-[var(--vscode-panel-border)] px-2 py-1.5 ${
-                            selectedSha === c.sha
-                              ? 'bg-[var(--vscode-list-activeSelectionBackground)] text-[var(--vscode-list-activeSelectionForeground)]'
-                              : 'hover:bg-[var(--vscode-list-hoverBackground)]'
-                          }`}
-                        >
-                          <div className="flex min-w-0 items-center gap-2">
-                            <span className="shrink-0 font-mono text-[10px] text-[var(--vscode-descriptionForeground)]">
-                              {c.sha.slice(0, 7)}
-                            </span>
-                            <span className="min-w-0 flex-1 truncate text-xs" title={c.message}>
-                              {c.message}
-                            </span>
-                          </div>
-                          <div className="truncate text-[10px] text-[var(--vscode-descriptionForeground)]">
-                            {[c.authorName, formatDate(c.date)].filter(Boolean).join(' · ')}
-                          </div>
-                        </li>
-                      ))}
+                      {commits.map((c) => {
+                        const isConfirmed = confirmedCommitSet.has(c.sha)
+                        return (
+                          <li
+                            key={c.sha}
+                            data-sha={c.sha}
+                            role="option"
+                            aria-selected={selectedSha === c.sha}
+                            onMouseEnter={() => setHoveredCommit(c.sha)}
+                            onMouseLeave={() => setHoveredCommit(p => (p === c.sha ? null : p))}
+                            onClick={() => {
+                              setSelectedSha(c.sha)
+                              // 选中后把焦点给列表，方向键即时可用（不被看板抢走）。
+                              commitListRef.current?.focus()
+                            }}
+                            className={`flex cursor-pointer flex-col gap-0.5 border-b border-[var(--vscode-panel-border)] px-2 py-1.5 ${
+                              selectedSha === c.sha
+                                ? 'bg-[var(--vscode-list-activeSelectionBackground)] text-[var(--vscode-list-activeSelectionForeground)]'
+                                : 'hover:bg-[var(--vscode-list-hoverBackground)]'
+                            } ${isConfirmed ? 'opacity-60' : ''}`}
+                          >
+                            <div className="flex min-w-0 items-center gap-2">
+                              <span className="shrink-0 font-mono text-[10px] text-[var(--vscode-descriptionForeground)]">
+                                {c.sha.slice(0, 7)}
+                              </span>
+                              <span className="min-w-0 truncate text-xs" title={c.message}>
+                                {c.message}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  const next = isConfirmed
+                                    ? confirmedCommits.filter(s => s !== c.sha)
+                                    : [...confirmedCommits, c.sha]
+                                  markCommitsConfirmed(next)
+                                }}
+                                title={isConfirmed ? '已确认，点击取消' : '标记为已确认'}
+                                className="shrink-0 transition-opacity"
+                                style={{
+                                  opacity: isConfirmed || hoveredCommit === c.sha ? 1 : 0,
+                                  color: isConfirmed
+                                    ? 'var(--vscode-gitDecoration-addedResourceForeground)'
+                                    : 'var(--vscode-descriptionForeground)',
+                                }}
+                              >
+                                <Check className="size-3.5" />
+                              </button>
+                            </div>
+                            <div className="truncate text-[10px] text-[var(--vscode-descriptionForeground)]">
+                              {[c.authorName, formatDate(c.date)].filter(Boolean).join(' · ')}
+                            </div>
+                          </li>
+                        )
+                      })}
                     </ul>
                   )}
         </div>

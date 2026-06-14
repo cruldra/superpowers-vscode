@@ -79,3 +79,36 @@ export async function writeConfirmed(
   await fsp.mkdir(dir, { recursive: true })
   await fsp.writeFile(confirmedFile(workspaceRoot), `${JSON.stringify(map, null, 2)}\n`, 'utf8')
 }
+
+/**
+ * 读取某工单已确认（已审阅）的提交 sha 数组。key = `${issueNumber}:commits`
+ * （`commits` 非合法 sha，不与文件确认的 `${issueNumber}:${sha}` key 冲突）。
+ * 文件缺失、解析失败或无该 key 时返回 `[]`。
+ */
+export async function readConfirmedCommits(
+  workspaceRoot: string,
+  issueNumber: number,
+): Promise<string[]> {
+  const map = await readMap(workspaceRoot)
+  return map[`${issueNumber}:commits`] ?? []
+}
+
+/**
+ * 写入某工单已确认的提交 sha 数组。空数组则删除该 key；非空则设值。父目录不存在
+ * 会自动创建。
+ */
+export async function writeConfirmedCommits(
+  workspaceRoot: string,
+  issueNumber: number,
+  shas: string[],
+): Promise<void> {
+  const map = await readMap(workspaceRoot)
+  const key = `${issueNumber}:commits`
+  if (shas.length > 0)
+    map[key] = shas
+  else
+    delete map[key]
+  const dir = path.join(workspaceRoot, '.spx')
+  await fsp.mkdir(dir, { recursive: true })
+  await fsp.writeFile(confirmedFile(workspaceRoot), `${JSON.stringify(map, null, 2)}\n`, 'utf8')
+}

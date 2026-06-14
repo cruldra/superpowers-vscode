@@ -526,6 +526,10 @@ export class KanbanWebviewPanel {
       void prCommits.handleSetPrReviewConfirmed(this, msg)
       return
     }
+    if (msg.type === 'pr-review/set-commits') {
+      void prCommits.handleSetPrReviewConfirmedCommits(this, msg)
+      return
+    }
   }
 
   // internal: handler 模块访问
