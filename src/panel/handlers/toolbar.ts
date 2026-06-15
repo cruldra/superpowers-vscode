@@ -55,7 +55,7 @@ export async function handleCommitRun(panel: KanbanWebviewPanel): Promise<void> 
   }
 
   const profiles = await listClaudeProfiles()
-  const deepseek = profiles.find(p => p.name === 'deepseek')
+  const deepseek = profiles.find(p => p.name === 'deepseek-v4-pro')
   if (!deepseek) {
     panel.postMessage({
       type: 'toast/show',
