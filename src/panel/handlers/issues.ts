@@ -103,6 +103,7 @@ export async function handleColumnChange(panel: KanbanWebviewPanel, issueNumber:
   let worktreePath: string | undefined
   let fromColumn: IssueColumn | undefined
   let implementSessionId: string | undefined
+  let testSessionId: string | undefined
   let featureBranch: string | undefined
   let profilePath: string | undefined
   try {
@@ -132,6 +133,8 @@ export async function handleColumnChange(panel: KanbanWebviewPanel, issueNumber:
             }
             if (typeof obj.implementSessionId === 'string' && obj.implementSessionId.length > 0)
               implementSessionId = obj.implementSessionId
+            if (typeof obj.testSessionId === 'string' && obj.testSessionId.length > 0)
+              testSessionId = obj.testSessionId
             if (typeof obj.branch === 'string' && obj.branch.length > 0)
               featureBranch = obj.branch
             if (typeof obj.profilePath === 'string' && obj.profilePath.length > 0)
@@ -398,29 +401,34 @@ export async function handleColumnChange(panel: KanbanWebviewPanel, issueNumber:
     issueNumber,
   })
 
-  // Before removing the worktree, copy the impl-session jsonl into the
-  // workspace-root projects dir so `claude --resume` can still find it
+  // Before removing the worktree, copy the impl- and test-session jsonl into
+  // the workspace-root projects dir so `claude --resume` can still find them
   // after the worktree (and its projects dir) are gone.
-  if (implementSessionId && worktreePath) {
+  if ((implementSessionId || testSessionId) && worktreePath) {
     try {
       const worktreeAbs = path.isAbsolute(worktreePath)
         ? worktreePath
         : path.join(workspaceRoot, worktreePath)
       const srcProjectsDir = projectsDirFor(worktreeAbs)
       const dstProjectsDir = projectsDirFor(workspaceRoot)
-      const srcJsonl = path.join(srcProjectsDir, `${implementSessionId}.jsonl`)
-      const dstJsonl = path.join(dstProjectsDir, `${implementSessionId}.jsonl`)
-      if (fs.existsSync(srcJsonl)) {
-        if (!fs.existsSync(dstProjectsDir))
-          fs.mkdirSync(dstProjectsDir, { recursive: true })
-        if (!fs.existsSync(dstJsonl)) {
-          fs.copyFileSync(srcJsonl, dstJsonl)
-          logger.add({
-            level: 'info',
-            source: 'panel',
-            message: `已复制 cc session jsonl 到主 workspace projects 目录 (issue #${issueNumber})`,
-            details: `${srcJsonl} → ${dstJsonl}`,
-          })
+      const sessionIds = [implementSessionId, testSessionId].filter(
+        (id): id is string => typeof id === 'string' && id.length > 0,
+      )
+      for (const sessionId of sessionIds) {
+        const srcJsonl = path.join(srcProjectsDir, `${sessionId}.jsonl`)
+        const dstJsonl = path.join(dstProjectsDir, `${sessionId}.jsonl`)
+        if (fs.existsSync(srcJsonl)) {
+          if (!fs.existsSync(dstProjectsDir))
+            fs.mkdirSync(dstProjectsDir, { recursive: true })
+          if (!fs.existsSync(dstJsonl)) {
+            fs.copyFileSync(srcJsonl, dstJsonl)
+            logger.add({
+              level: 'info',
+              source: 'panel',
+              message: `已复制 cc session jsonl 到主 workspace projects 目录 (issue #${issueNumber})`,
+              details: `${srcJsonl} → ${dstJsonl}`,
+            })
+          }
         }
       }
     }
