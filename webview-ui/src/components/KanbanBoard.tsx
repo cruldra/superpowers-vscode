@@ -33,7 +33,7 @@ interface KanbanBoardProps {
    * to the optimistic `onIssuesChange`. Currently only invoked for moves
    * targeting `done`; other column changes remain client-visual-only.
    */
-  onColumnChange?: (issueNumber: number, toColumn: IssueColumn) => void
+  onColumnChange?: (issueNumber: number, toColumn: IssueColumn, source?: 'gitea' | 'youtrack', externalId?: string) => void
   /**
    * Called when a drag gesture establishes a new prerequisite relationship
    * (drop onto another todo card's middle 1/3) or moves to a sibling whose
@@ -245,7 +245,7 @@ export function KanbanBoard({
       next.splice(activeIndex, 1)
       next.push({ ...activeItem, column: overIdStr })
       onIssuesChange(next)
-      onColumnChange?.(activeItem.number, overIdStr)
+      onColumnChange?.(activeItem.number, overIdStr, activeItem.source, activeItem.externalId)
       return
     }
 
@@ -268,7 +268,7 @@ export function KanbanBoard({
       const insertAt = newOverIndex < 0 ? next.length : newOverIndex
       next.splice(insertAt, 0, { ...activeItem, column: overItem.column })
       onIssuesChange(next)
-      onColumnChange?.(activeItem.number, overItem.column)
+      onColumnChange?.(activeItem.number, overItem.column, activeItem.source, activeItem.externalId)
       return
     }
 

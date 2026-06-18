@@ -13,7 +13,6 @@ import { getBrainstormContinuePrompt, getImplementPlanPrompt } from '../../cc/pr
 import { projectsDirFor, watchForNewSession } from '../../cc/sessionWatcher'
 import { detectRepo } from '../../git/remote'
 import { createWorktree } from '../../git/worktree'
-import { mergeStateJsonComment, readStateJsonComment } from '../../gitea/stateJson'
 import { logger } from '../../logging/logger'
 import { getSettings } from '../../settings/store'
 import { webhookCoordinator } from '../../webhook/coordinator'
@@ -149,13 +148,7 @@ export async function handleResumeSession(panel: KanbanWebviewPanel, sessionId: 
         if (remote) {
           const token = await getToken(panel.context, remote.host)
           if (token) {
-            const stateObj = await readStateJsonComment({
-              host: remote.host,
-              owner: remote.owner,
-              repo: remote.repo,
-              token,
-              issueNumber,
-            })
+            const stateObj = await panel.readIssueState(issueNumber)
             if (stateObj && typeof stateObj.branch === 'string')
               branchForHook = stateObj.branch
           }
@@ -365,13 +358,7 @@ export async function triggerAutoReviewTab(panel: KanbanWebviewPanel, opts: {
     if (remote) {
       const token = await getToken(panel.context, remote.host)
       if (token) {
-        const state = await readStateJsonComment({
-          host: remote.host,
-          token,
-          owner: remote.owner,
-          repo: remote.repo,
-          issueNumber: opts.issueNumber,
-        })
+        const state = await panel.readIssueState(opts.issueNumber)
         const sid = state?.reviewSessionId
         if (typeof sid === 'string' && sid.length > 0)
           existingSessionId = sid
@@ -544,14 +531,7 @@ export async function triggerAutoReviewTab(panel: KanbanWebviewPanel, opts: {
       const token = await getToken(panel.context, remote.host)
       if (!token)
         return
-      await mergeStateJsonComment({
-        host: remote.host,
-        token,
-        owner: remote.owner,
-        repo: remote.repo,
-        issueNumber: opts.issueNumber,
-        extra: { reviewSessionId: threadId },
-      })
+      await panel.mergeIssueState(opts.issueNumber, { reviewSessionId: threadId })
       panel.postMessage({
         type: 'issue/patch',
         issueNumber: opts.issueNumber,
@@ -776,18 +756,11 @@ export async function handleImplement(
   // Merge into the latest state-JSON comment so we don't clobber spec/plan/
   // sessionId etc that earlier steps wrote.
   try {
-    await mergeStateJsonComment({
-      host: remote.host,
-      owner: remote.owner,
-      repo: remote.repo,
-      token,
-      issueNumber,
-      extra: {
-        column: 'in-progress',
-        branch,
-        worktreePath: relativeWorktreePath,
-        implementStatus: 'running',
-      },
+    await panel.mergeIssueState(issueNumber, {
+      column: 'in-progress',
+      branch,
+      worktreePath: relativeWorktreePath,
+      implementStatus: 'running',
     })
     panel.postMessage({
       type: 'issue/patch',
@@ -811,7 +784,7 @@ export async function handleImplement(
   // Build the prompt. The extension already created the worktree, so cc
   // just implements the plan. `$pr_no` is left as-is for cc to fill in
   // via tool calls.
-  const prompt = getImplementPlanPrompt(panel.context, { planFile, issueNumber })
+  const prompt = getImplementPlanPrompt(panel.context, { planFile, issueNumber, issueRef: panel.refFor(issueNumber).externalId })
   if (prompt.includes('\'')) {
     void window.showErrorMessage('实施失败：prompt 含单引号，拒绝执行')
     return
@@ -876,14 +849,7 @@ export async function handleImplement(
       message: `已捕获实施会话 ${sid}`,
     })
     try {
-      await mergeStateJsonComment({
-        host: remote.host,
-        owner: remote.owner,
-        repo: remote.repo,
-        token,
-        issueNumber,
-        extra: { implementSessionId: sid },
-      })
+      await panel.mergeIssueState(issueNumber, { implementSessionId: sid })
       panel.postMessage({
         type: 'issue/patch',
         issueNumber,
@@ -950,13 +916,7 @@ export async function handleStartBrainstormSession(panel: KanbanWebviewPanel, is
   // Tolerated: missing/unparseable comment falls back to DEFAULT_PROFILE_PATH.
   let profilePath: string | undefined
   try {
-    const stateObj = await readStateJsonComment({
-      host: remote.host,
-      owner: remote.owner,
-      repo: remote.repo,
-      token,
-      issueNumber,
-    })
+    const stateObj = await panel.readIssueState(issueNumber)
     if (stateObj && typeof stateObj.profilePath === 'string' && stateObj.profilePath.length > 0)
       profilePath = stateObj.profilePath
   }
@@ -978,7 +938,7 @@ export async function handleStartBrainstormSession(panel: KanbanWebviewPanel, is
     return
   }
 
-  const prompt = getBrainstormContinuePrompt(panel.context, { issueNumber })
+  const prompt = getBrainstormContinuePrompt(panel.context, { issueNumber, issueRef: panel.refFor(issueNumber).externalId })
   if (prompt.includes('\'')) {
     void window.showErrorMessage('启动规划失败：prompt 含单引号，拒绝执行')
     return
@@ -1039,14 +999,7 @@ export async function handleStartBrainstormSession(panel: KanbanWebviewPanel, is
       message: `已捕获规划会话 ${sid}`,
     })
     try {
-      await mergeStateJsonComment({
-        host: remote.host,
-        owner: remote.owner,
-        repo: remote.repo,
-        token,
-        issueNumber,
-        extra: { sessionId: sid },
-      })
+      await panel.mergeIssueState(issueNumber, { sessionId: sid })
       panel.postMessage({
         type: 'issue/patch',
         issueNumber,
@@ -1125,13 +1078,7 @@ export async function handleStartTestSession(panel: KanbanWebviewPanel, issueNum
     let testProfilePath: string | undefined
     let worktreePathRel: string | undefined
     try {
-      const stateObj = await readStateJsonComment({
-        host: remote.host,
-        owner: remote.owner,
-        repo: remote.repo,
-        token,
-        issueNumber,
-      })
+      const stateObj = await panel.readIssueState(issueNumber)
       if (stateObj) {
         if (typeof stateObj.pr === 'string' && stateObj.pr.length > 0)
           pr = stateObj.pr
@@ -1236,14 +1183,7 @@ export async function handleStartTestSession(panel: KanbanWebviewPanel, issueNum
         message: `已捕获测试会话 ${sid}`,
       })
       try {
-        await mergeStateJsonComment({
-          host: remote.host,
-          owner: remote.owner,
-          repo: remote.repo,
-          token,
-          issueNumber,
-          extra: { testSessionId: sid },
-        })
+        await panel.mergeIssueState(issueNumber, { testSessionId: sid })
         panel.postMessage({
           type: 'issue/patch',
           issueNumber,
@@ -1304,13 +1244,7 @@ export async function handleResumeTestSession(panel: KanbanWebviewPanel, session
       const token = remote ? await getToken(panel.context, remote.host) : undefined
       if (remote && token) {
         try {
-          const stateObj = await readStateJsonComment({
-            host: remote.host,
-            owner: remote.owner,
-            repo: remote.repo,
-            token,
-            issueNumber,
-          })
+          const stateObj = await panel.readIssueState(issueNumber)
           const worktreePathRel = typeof stateObj?.worktreePath === 'string' ? stateObj.worktreePath : undefined
           effectiveCwd = await resolveTestSessionCwd(workspaceRoot, worktreePathRel)
         }

@@ -18,10 +18,12 @@ import {
   postIssueComment,
 } from '../gitea/api'
 import { loadIssues } from '../gitea/issueLoader'
-import { mergeStateJsonComment, readStateJsonComment } from '../gitea/stateJson'
+import type { IssueRef } from '../issues/stateRouter'
+import { closeIssueByRef, mergeIssueState, readIssueState } from '../issues/stateRouter'
 import { logger } from '../logging/logger'
 import { getSettings } from '../settings/store'
 import { webhookCoordinator } from '../webhook/coordinator'
+import { loadYouTrackIssues } from '../youtrack/issueLoader'
 import * as issues from './handlers/issues'
 import * as managedSessions from './handlers/managedSessions'
 import * as prCommits from './handlers/prCommits'
@@ -30,6 +32,7 @@ import * as settings from './handlers/settings'
 import * as terminals from './handlers/terminals'
 import * as toolbar from './handlers/toolbar'
 import * as worktree from './handlers/worktree'
+import * as youtrackIssues from './handlers/youtrackIssues'
 import { PALETTE, resolveIssueColor, themeColorIdToIconUri } from './issueColor'
 
 export const DEFAULT_PROFILE_PATH = '/home/cruldra/Sources/cruldra-profile/claude-config/profiles/offical.json'
@@ -45,6 +48,14 @@ export class KanbanWebviewPanel {
 
   private readonly panel: WebviewPanel
   private readonly disposables: { dispose: () => void }[] = []
+  /**
+   * `issue.number` → its source identity, rebuilt on every `loadAndPush`.
+   * Lets the workflow handlers (which only receive a number from the webview)
+   * route state persistence to the right tracker. YouTrack numbers are
+   * synthetic and collision-free (see `youtrack/issueLoader`), so the number
+   * alone is an unambiguous key.
+   */
+  private issueRefs = new Map<number, { source: 'gitea' | 'youtrack', externalId?: string }>()
   /**
    * sessionId → its dedicated terminal in the editor area. Populated when the
    * user presses Enter on a card; entry is removed when the terminal is
@@ -400,7 +411,14 @@ export class KanbanWebviewPanel {
       return
     }
     if (msg.type === 'column/change') {
-      void issues.handleColumnChange(this, msg.issueNumber, msg.toColumn)
+      if (msg.source === 'youtrack' && msg.externalId)
+        void youtrackIssues.handleYouTrackColumnChange(this, msg.externalId, msg.toColumn)
+      else
+        void issues.handleColumnChange(this, msg.issueNumber, msg.toColumn)
+      return
+    }
+    if (msg.type === 'youtrack/list-projects') {
+      void youtrackIssues.handleListProjects(this, msg.baseUrl, msg.token)
       return
     }
     if (msg.type === 'dependency/set') {
@@ -571,13 +589,7 @@ export class KanbanWebviewPanel {
 
     let stored: string | undefined
     try {
-      const state = await readStateJsonComment({
-        host: remote.host,
-        owner: remote.owner,
-        repo: remote.repo,
-        token,
-        issueNumber,
-      })
+      const state = await this.readIssueState(issueNumber)
       if (typeof state.color === 'string' && state.color.length > 0)
         stored = state.color
     }
@@ -589,14 +601,7 @@ export class KanbanWebviewPanel {
     if (isNew) {
       // Fire-and-forget: don't block terminal creation on the network round
       // trip. Failures are non-fatal — the next session just picks again.
-      void mergeStateJsonComment({
-        host: remote.host,
-        owner: remote.owner,
-        repo: remote.repo,
-        token,
-        issueNumber,
-        extra: { color: id },
-      })
+      void this.mergeIssueState(issueNumber, { color: id })
         .then(() => {
           this.postMessage({
             type: 'issue/patch',
@@ -820,8 +825,27 @@ export class KanbanWebviewPanel {
     }
 
     try {
-      const issues = this.withLiveTerminalTabState(
-        await loadIssues({ host, token, owner, repo, workspaceRoot }),
+      const giteaIssues = await loadIssues({ host, token, owner, repo, workspaceRoot })
+      // YouTrack is a best-effort second source: a failure here must never
+      // break the gitea board, so swallow it into a toast + log.
+      let youtrackList: Issue[] = []
+      try {
+        youtrackList = await loadYouTrackIssues(this.context)
+      }
+      catch (ytErr) {
+        const message = ytErr instanceof Error ? ytErr.message : String(ytErr)
+        logger.add({ level: 'error', source: 'youtrack', message: '加载 YouTrack 问题失败', details: message })
+        this.postMessage({
+          type: 'toast/show',
+          id: makeNonce(),
+          level: 'error',
+          message: `YouTrack 同步失败：${message}`,
+          dismissOnTimer: 6000,
+        })
+      }
+      const issues = this.withLiveTerminalTabState([...giteaIssues, ...youtrackList])
+      this.issueRefs = new Map(
+        issues.map(i => [i.number, { source: i.source ?? 'gitea', externalId: i.externalId }] as const),
       )
       this.postMessage({
         type: 'issues/update',
@@ -874,6 +898,41 @@ export class KanbanWebviewPanel {
    * keep the legacy `profilePath || DEFAULT_PROFILE_PATH` so creators can
    * still pick a profile per issue at brainstorm time.
    */
+  /**
+   * Resolve an issue number to its source identity, for routing state
+   * persistence. Unknown numbers default to gitea (back-compat / pre-load).
+   */
+  // internal: handler 模块访问
+  refFor(issueNumber: number): IssueRef {
+    const entry = this.issueRefs.get(issueNumber)
+    return { source: entry?.source ?? 'gitea', number: issueNumber, externalId: entry?.externalId }
+  }
+
+  /** True when the board number belongs to a YouTrack-sourced card. */
+  // internal: handler 模块访问
+  isYouTrackIssue(issueNumber: number): boolean {
+    return this.issueRefs.get(issueNumber)?.source === 'youtrack'
+  }
+
+  /** Read workflow state from the issue's tracker (gitea or youtrack). */
+  // internal: handler 模块访问
+  readIssueState(issueNumber: number): Promise<Record<string, unknown>> {
+    return readIssueState(this.context, this.refFor(issueNumber))
+  }
+
+  /** Merge workflow state into the issue's tracker (gitea or youtrack). */
+  // internal: handler 模块访问
+  mergeIssueState(issueNumber: number, extra: Record<string, unknown>): Promise<void> {
+    return mergeIssueState(this.context, this.refFor(issueNumber), extra)
+  }
+
+  /** Resolve/close the issue in its tracker. Returns false when a youtrack
+   * close command can't be determined. */
+  // internal: handler 模块访问
+  closeIssueByNumber(issueNumber: number): Promise<boolean> {
+    return closeIssueByRef(this.context, this.refFor(issueNumber))
+  }
+
   // internal: handler 模块访问
   resolveImplementProfilePath(issueLevelProfilePath: string | undefined): string {
     return sessions.resolveImplementProfilePath(this, issueLevelProfilePath)

@@ -126,6 +126,23 @@ export interface Settings {
    * Same env vars as the worktree hooks.
    */
   implTabPostCloseScript: string
+  /**
+   * YouTrack instance base URL (e.g. `https://ziwuxian.youtrack.cloud`). Empty
+   * string means "YouTrack source disabled" — the loader returns no issues.
+   */
+  youtrackBaseUrl: string
+  /**
+   * Short name of the YouTrack project to mirror into the board (e.g. `LXF`).
+   * Empty string means "disabled". The token lives in SecretStorage keyed by
+   * the base URL's host.
+   */
+  youtrackProjectShortName: string
+  /**
+   * Optional YouTrack command applied when a youtrack card is dropped in the
+   * 完成 column (e.g. `State Fixed`). Empty string means "auto-detect" — the
+   * extension finds the project's first `isResolved` state value and uses that.
+   */
+  youtrackCloseCommand: string
 }
 
 export const SETTINGS_KEY = 'superpowers.settings'
@@ -144,6 +161,9 @@ function defaults(ctx: ExtensionContext): Settings {
     worktreePreRemoveScript: '',
     implTabPreCreateScript: '',
     implTabPostCloseScript: '',
+    youtrackBaseUrl: '',
+    youtrackProjectShortName: '',
+    youtrackCloseCommand: '',
   }
 }
 
@@ -197,6 +217,17 @@ export function getSettings(ctx: ExtensionContext): Settings {
   const implTabPostCloseScript = typeof stored.implTabPostCloseScript === 'string'
     ? stored.implTabPostCloseScript
     : base.implTabPostCloseScript
+  // YouTrack config: '' is meaningful (= "source disabled" / "auto-detect close
+  // command"), so don't coerce. Non-string legacy values collapse to ''.
+  const youtrackBaseUrl = typeof stored.youtrackBaseUrl === 'string'
+    ? stored.youtrackBaseUrl
+    : base.youtrackBaseUrl
+  const youtrackProjectShortName = typeof stored.youtrackProjectShortName === 'string'
+    ? stored.youtrackProjectShortName
+    : base.youtrackProjectShortName
+  const youtrackCloseCommand = typeof stored.youtrackCloseCommand === 'string'
+    ? stored.youtrackCloseCommand
+    : base.youtrackCloseCommand
 
   return {
     webhookPort,
@@ -211,6 +242,9 @@ export function getSettings(ctx: ExtensionContext): Settings {
     worktreePreRemoveScript,
     implTabPreCreateScript,
     implTabPostCloseScript,
+    youtrackBaseUrl,
+    youtrackProjectShortName,
+    youtrackCloseCommand,
   }
 }
 

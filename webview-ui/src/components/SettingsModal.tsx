@@ -11,7 +11,7 @@ import type { ReactElement } from 'react'
 import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 
-type GroupKey = 'auth' | 'network' | 'prompts' | 'hooks'
+type GroupKey = 'auth' | 'network' | 'youtrack' | 'prompts' | 'hooks'
 
 interface SubmitValues {
   host: string
@@ -27,6 +27,23 @@ interface SubmitValues {
   worktreePreRemoveScript: string
   implTabPreCreateScript: string
   implTabPostCloseScript: string
+  youtrackBaseUrl: string
+  youtrackProjectShortName: string
+  youtrackCloseCommand: string
+  youtrackToken: string
+}
+
+/** Project option for the YouTrack project dropdown. */
+export interface YouTrackProjectOption {
+  id: string
+  name: string
+  shortName: string
+}
+
+export interface YouTrackProjectsState {
+  status: 'idle' | 'loading' | 'ready' | 'error'
+  projects: YouTrackProjectOption[]
+  error?: string
 }
 
 export interface SettingsModalProps {
@@ -46,6 +63,12 @@ export interface SettingsModalProps {
   initialWorktreePreRemoveScript: string
   initialImplTabPreCreateScript: string
   initialImplTabPostCloseScript: string
+  initialYoutrackBaseUrl: string
+  initialYoutrackProjectShortName: string
+  initialYoutrackCloseCommand: string
+  initialYoutrackTokenSaved: boolean
+  youtrackProjects: YouTrackProjectsState
+  onListYouTrackProjects: (baseUrl: string, token: string) => void
   onSubmit: (values: SubmitValues) => void
   onCancel?: () => void
 }
@@ -77,6 +100,7 @@ function Field({ label, hint, error, children }: FieldProps) {
 const GROUPS: Array<{ key: GroupKey, label: string }> = [
   { key: 'auth', label: '认证' },
   { key: 'network', label: '网络' },
+  { key: 'youtrack', label: 'YouTrack' },
   { key: 'prompts', label: '提示词' },
   { key: 'hooks', label: '钩子' },
 ]
@@ -108,6 +132,12 @@ export function SettingsModal({
   initialWorktreePreRemoveScript,
   initialImplTabPreCreateScript,
   initialImplTabPostCloseScript,
+  initialYoutrackBaseUrl,
+  initialYoutrackProjectShortName,
+  initialYoutrackCloseCommand,
+  initialYoutrackTokenSaved,
+  youtrackProjects,
+  onListYouTrackProjects,
   onSubmit,
   onCancel,
 }: SettingsModalProps): ReactElement | null {
@@ -125,6 +155,10 @@ export function SettingsModal({
   const [worktreePreRemoveScript, setWorktreePreRemoveScript] = useState(initialWorktreePreRemoveScript)
   const [implTabPreCreateScript, setImplTabPreCreateScript] = useState(initialImplTabPreCreateScript)
   const [implTabPostCloseScript, setImplTabPostCloseScript] = useState(initialImplTabPostCloseScript)
+  const [youtrackBaseUrl, setYoutrackBaseUrl] = useState(initialYoutrackBaseUrl)
+  const [youtrackProjectShortName, setYoutrackProjectShortName] = useState(initialYoutrackProjectShortName)
+  const [youtrackCloseCommand, setYoutrackCloseCommand] = useState(initialYoutrackCloseCommand)
+  const [youtrackToken, setYoutrackToken] = useState('')
   const [errors, setErrors] = useState<Partial<Record<ErrorKey, string>>>({})
 
   // Reset local state whenever the modal opens with fresh server values.
@@ -147,6 +181,10 @@ export function SettingsModal({
     setWorktreePreRemoveScript(initialWorktreePreRemoveScript)
     setImplTabPreCreateScript(initialImplTabPreCreateScript)
     setImplTabPostCloseScript(initialImplTabPostCloseScript)
+    setYoutrackBaseUrl(initialYoutrackBaseUrl)
+    setYoutrackProjectShortName(initialYoutrackProjectShortName)
+    setYoutrackCloseCommand(initialYoutrackCloseCommand)
+    setYoutrackToken('')
     setErrors({})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
@@ -219,6 +257,11 @@ export function SettingsModal({
       worktreePreRemoveScript: worktreePreRemoveScript.trim(),
       implTabPreCreateScript: implTabPreCreateScript.trim(),
       implTabPostCloseScript: implTabPostCloseScript.trim(),
+      youtrackBaseUrl: youtrackBaseUrl.trim(),
+      youtrackProjectShortName: youtrackProjectShortName.trim(),
+      youtrackCloseCommand: youtrackCloseCommand.trim(),
+      // Raw (may be empty = keep existing), mirroring the gitea token rule.
+      youtrackToken: youtrackToken.trim(),
     })
   }
 
@@ -403,6 +446,103 @@ export function SettingsModal({
                     />
                     <span className="opacity-80">启用</span>
                   </label>
+                </Field>
+              </>
+            )}
+
+            {activeGroup === 'youtrack' && (
+              <>
+                <Field
+                  label="YouTrack Base URL"
+                  hint="例如 https://ziwuxian.youtrack.cloud。留空 = 关闭 YouTrack 源。"
+                >
+                  <input
+                    type="text"
+                    value={youtrackBaseUrl}
+                    onChange={e => setYoutrackBaseUrl(e.target.value)}
+                    placeholder="https://xxx.youtrack.cloud"
+                    className={inputClass}
+                  />
+                </Field>
+
+                <Field
+                  label="Permanent Token"
+                  hint={(
+                    <>
+                      在 YouTrack「个人资料 → Account Security → New Token」生成。
+                      {initialYoutrackTokenSaved && (
+                        <>
+                          <br />
+                          已保存，留空则保留
+                        </>
+                      )}
+                    </>
+                  )}
+                >
+                  <input
+                    type="password"
+                    value={youtrackToken}
+                    onChange={e => setYoutrackToken(e.target.value)}
+                    placeholder={initialYoutrackTokenSaved ? '••••••••' : 'perm-xxxx…'}
+                    className={inputClass}
+                  />
+                </Field>
+
+                <Field
+                  label="关联项目"
+                  hint="填 shortName（如 LXF），或点「加载项目」从下拉选择。"
+                >
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={youtrackProjectShortName}
+                      onChange={e => setYoutrackProjectShortName(e.target.value)}
+                      placeholder="LXF"
+                      className={inputClass}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => onListYouTrackProjects(youtrackBaseUrl.trim(), youtrackToken.trim())}
+                      className="shrink-0 rounded border border-[var(--vscode-button-border,transparent)] bg-[var(--vscode-button-secondaryBackground)] px-2 py-1 text-xs text-[var(--vscode-button-secondaryForeground)] hover:opacity-90"
+                    >
+                      {youtrackProjects.status === 'loading' ? '加载中…' : '加载项目'}
+                    </button>
+                  </div>
+                  {youtrackProjects.status === 'ready' && youtrackProjects.projects.length > 0 && (
+                    <select
+                      value={youtrackProjectShortName}
+                      onChange={e => setYoutrackProjectShortName(e.target.value)}
+                      className={`${inputClass} mt-2`}
+                    >
+                      <option value="">— 选择项目 —</option>
+                      {youtrackProjects.projects.map(p => (
+                        <option key={p.id} value={p.shortName}>
+                          {p.shortName}
+                          {' · '}
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {youtrackProjects.status === 'error' && (
+                    <span className="mt-1 block text-[10px] text-state-red">
+                      加载失败：
+                      {youtrackProjects.error}
+                    </span>
+                  )}
+                </Field>
+
+                <Field
+                  label="关闭命令（可选）"
+                  hint="卡片拖到「完成」时对 YouTrack 工单执行的命令，如 State Fixed。留空 = 自动探测项目里第一个「已解决」状态。"
+                >
+                  <input
+                    type="text"
+                    value={youtrackCloseCommand}
+                    onChange={e => setYoutrackCloseCommand(e.target.value)}
+                    placeholder="留空 = 自动探测"
+                    className={inputClass}
+                  />
                 </Field>
               </>
             )}

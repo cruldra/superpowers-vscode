@@ -5,13 +5,14 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { commands, env, Uri, workspace } from 'vscode'
-import { getToken, setToken } from '../../auth/secrets'
+import { getToken, getYouTrackToken, setToken, setYouTrackToken } from '../../auth/secrets'
 import { listClaudeProfiles } from '../../cc/profiles'
 import { detectRepo } from '../../git/remote'
 import { logger } from '../../logging/logger'
 import { readProfiles, writeProfiles } from '../../profiles/store'
 import { getSettings, saveSettings } from '../../settings/store'
 import { webhookCoordinator } from '../../webhook/coordinator'
+import { youtrackHost } from '../../youtrack/issueLoader'
 import { makeNonce } from '../KanbanPanel'
 
 export async function handleSettingsSave(panel: KanbanWebviewPanel, payload: {
@@ -28,9 +29,18 @@ export async function handleSettingsSave(panel: KanbanWebviewPanel, payload: {
   worktreePreRemoveScript: string
   implTabPreCreateScript: string
   implTabPostCloseScript: string
+  youtrackBaseUrl: string
+  youtrackProjectShortName: string
+  youtrackCloseCommand: string
+  /** Empty string = keep the existing stored YouTrack token (placeholder). */
+  youtrackToken: string
 }): Promise<void> {
   const trimmedHost = payload.host.trim()
   const trimmedToken = payload.token.trim()
+  const trimmedYtBase = payload.youtrackBaseUrl.trim()
+  const trimmedYtProject = payload.youtrackProjectShortName.trim()
+  const trimmedYtClose = payload.youtrackCloseCommand.trim()
+  const trimmedYtToken = payload.youtrackToken.trim()
   const trimmedDevBranch = payload.devBranch.trim()
   const trimmedAutoBuildBranch = payload.autoBuildBranch.trim()
   // Hook script paths: keep '' meaningful (= "use default
@@ -83,9 +93,16 @@ export async function handleSettingsSave(panel: KanbanWebviewPanel, payload: {
     worktreePreRemoveScript: trimmedPreRemove,
     implTabPreCreateScript: trimmedImplPre,
     implTabPostCloseScript: trimmedImplPost,
+    youtrackBaseUrl: trimmedYtBase,
+    youtrackProjectShortName: trimmedYtProject,
+    youtrackCloseCommand: trimmedYtClose,
   })
   if (!keepExisting)
     await setToken(panel.context, trimmedHost, trimmedToken)
+  // YouTrack token: stored under the base URL's host. Empty input keeps the
+  // existing token (placeholder semantics), matching the gitea flow above.
+  if (trimmedYtBase && trimmedYtToken)
+    await setYouTrackToken(panel.context, youtrackHost(trimmedYtBase), trimmedYtToken)
   // Honor a port change without requiring a window reload. Restart the
   // listener and emit a log entry when the port actually changed so the
   // user can see it in the log modal.
@@ -113,7 +130,12 @@ export async function handleSettingsSave(panel: KanbanWebviewPanel, payload: {
   // actually changed. Saves a round-trip + visible loading flash when the
   // user just tweaked prompts or webhook settings. `keepExisting` already
   // guarantees no auth change.
-  if (!keepExisting && oldToken !== trimmedToken)
+  // Re-fetch when the gitea credential OR any YouTrack config changed (base
+  // URL / project / a freshly entered token) so newly-mirrored issues appear.
+  const youtrackChanged = prev.youtrackBaseUrl !== trimmedYtBase
+    || prev.youtrackProjectShortName !== trimmedYtProject
+    || trimmedYtToken !== ''
+  if ((!keepExisting && oldToken !== trimmedToken) || youtrackChanged)
     await panel.loadAndPush()
   // Branch-sync inputs may have changed — refresh the toolbar button.
   void panel.handleBranchSyncCheck()
@@ -130,6 +152,9 @@ export async function handleEditSettingsRequest(panel: KanbanWebviewPanel): Prom
   const s = getSettings(panel.context)
   const tok = host ? await getToken(panel.context, host) : undefined
   const tokenSaved = !!tok && tok.length > 0
+  const ytTok = s.youtrackBaseUrl.trim()
+    ? await getYouTrackToken(panel.context, youtrackHost(s.youtrackBaseUrl.trim()))
+    : undefined
   // User clicked the gear themselves — let them back out without saving.
   panel.postMessage({
     type: 'settings/show',
@@ -147,6 +172,10 @@ export async function handleEditSettingsRequest(panel: KanbanWebviewPanel): Prom
     worktreePreRemoveScript: s.worktreePreRemoveScript,
     implTabPreCreateScript: s.implTabPreCreateScript,
     implTabPostCloseScript: s.implTabPostCloseScript,
+    youtrackBaseUrl: s.youtrackBaseUrl,
+    youtrackProjectShortName: s.youtrackProjectShortName,
+    youtrackCloseCommand: s.youtrackCloseCommand,
+    youtrackTokenSaved: !!ytTok && ytTok.length > 0,
   })
 }
 

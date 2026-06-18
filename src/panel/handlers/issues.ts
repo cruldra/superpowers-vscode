@@ -1414,6 +1414,10 @@ export async function resolveLockedReason(
 }
 
 export async function handleSetDependency(panel: KanbanWebviewPanel, issueNumber: number, prerequisiteNumber: number): Promise<void> {
+  // Gitea-only: dependency links don't map to YouTrack. Ignore for youtrack
+  // cards rather than calling the gitea API with a synthetic number.
+  if (panel.isYouTrackIssue(issueNumber) || panel.isYouTrackIssue(prerequisiteNumber))
+    return
   const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
   if (!workspaceRoot) {
     panel.postMessage({
@@ -1481,6 +1485,8 @@ export async function handleSetDependency(panel: KanbanWebviewPanel, issueNumber
 }
 
 export async function handleClearDependency(panel: KanbanWebviewPanel, issueNumber: number, prerequisiteNumber: number): Promise<void> {
+  if (panel.isYouTrackIssue(issueNumber) || panel.isYouTrackIssue(prerequisiteNumber))
+    return
   const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
   if (!workspaceRoot) {
     panel.postMessage({
@@ -1594,13 +1600,7 @@ export async function handleUpdateAutoReview(panel: KanbanWebviewPanel, issueNum
   // without re-broadcasting the whole issues list.
   let previousValue: boolean | undefined
   try {
-    const existingState = await readStateJsonComment({
-      host: remote.host,
-      owner: remote.owner,
-      repo: remote.repo,
-      token,
-      issueNumber,
-    })
+    const existingState = await panel.readIssueState(issueNumber)
     previousValue = typeof existingState.autoReview === 'boolean'
       ? existingState.autoReview
       : undefined
@@ -1613,14 +1613,7 @@ export async function handleUpdateAutoReview(panel: KanbanWebviewPanel, issueNum
   }
 
   try {
-    await mergeStateJsonComment({
-      host: remote.host,
-      owner: remote.owner,
-      repo: remote.repo,
-      token,
-      issueNumber,
-      extra: { autoReview: value },
-    })
+    await panel.mergeIssueState(issueNumber, { autoReview: value })
     logger.add({
       level: 'info',
       source: 'panel',
@@ -1699,13 +1692,7 @@ export async function handleUpdateProfilePath(panel: KanbanWebviewPanel, issueNu
   // without re-broadcasting the whole issues list.
   let previousValue: string | undefined
   try {
-    const existingState = await readStateJsonComment({
-      host: remote.host,
-      owner: remote.owner,
-      repo: remote.repo,
-      token,
-      issueNumber,
-    })
+    const existingState = await panel.readIssueState(issueNumber)
     previousValue = typeof existingState.profilePath === 'string'
       ? existingState.profilePath
       : undefined
@@ -1717,14 +1704,7 @@ export async function handleUpdateProfilePath(panel: KanbanWebviewPanel, issueNu
   }
 
   try {
-    await mergeStateJsonComment({
-      host: remote.host,
-      owner: remote.owner,
-      repo: remote.repo,
-      token,
-      issueNumber,
-      extra: { profilePath },
-    })
+    await panel.mergeIssueState(issueNumber, { profilePath })
     logger.add({
       level: 'info',
       source: 'panel',
@@ -1803,13 +1783,7 @@ export async function handleUpdateTestProfilePath(panel: KanbanWebviewPanel, iss
   // without re-broadcasting the whole issues list.
   let previousValue: string | undefined
   try {
-    const existingState = await readStateJsonComment({
-      host: remote.host,
-      owner: remote.owner,
-      repo: remote.repo,
-      token,
-      issueNumber,
-    })
+    const existingState = await panel.readIssueState(issueNumber)
     previousValue = typeof existingState.testProfilePath === 'string'
       ? existingState.testProfilePath
       : undefined
@@ -1821,14 +1795,7 @@ export async function handleUpdateTestProfilePath(panel: KanbanWebviewPanel, iss
   }
 
   try {
-    await mergeStateJsonComment({
-      host: remote.host,
-      owner: remote.owner,
-      repo: remote.repo,
-      token,
-      issueNumber,
-      extra: { testProfilePath },
-    })
+    await panel.mergeIssueState(issueNumber, { testProfilePath })
     logger.add({
       level: 'info',
       source: 'panel',

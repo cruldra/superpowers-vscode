@@ -69,8 +69,7 @@ export const IssueCard = forwardRef<HTMLDivElement, IssueCardProps>(
           : null}
         <div className={cn('truncate', locked && 'pr-5')}>
           <span className="font-mono opacity-60">
-            #
-            {issue.number}
+            {issue.source === 'youtrack' ? issue.externalId : `#${issue.number}`}
           </span>
           {' '}
           <span>{issue.title}</span>

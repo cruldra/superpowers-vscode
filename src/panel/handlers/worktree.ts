@@ -11,7 +11,6 @@ import {
   runPostCreateHook,
   runPreRemoveHook,
 } from '../../git/worktreeHooks'
-import { mergeStateJsonComment, readStateJsonComment } from '../../gitea/stateJson'
 import { logger } from '../../logging/logger'
 import { getSettings } from '../../settings/store'
 import { makeNonce } from '../KanbanPanel'
@@ -99,20 +98,7 @@ export async function handleDeleteWorktree(panel: KanbanWebviewPanel, issueNumbe
   // detail panel reflects reality on the next refresh. Failures here are
   // non-fatal (worktree is already gone on disk).
   try {
-    const remote = await detectRepo(workspaceRoot)
-    if (remote) {
-      const token = await getToken(panel.context, remote.host)
-      if (token) {
-        await mergeStateJsonComment({
-          host: remote.host,
-          owner: remote.owner,
-          repo: remote.repo,
-          token,
-          issueNumber,
-          extra: { worktreePath: '', branch: '' },
-        })
-      }
-    }
+    await panel.mergeIssueState(issueNumber, { worktreePath: '', branch: '' })
   }
   catch (err) {
     console.warn('[superpowers] failed to clear worktree state JSON:', err)
@@ -213,13 +199,7 @@ export async function dispatchImplTabPostCloseAsync(panel: KanbanWebviewPanel, i
     const token = await getToken(panel.context, remote.host)
     if (!token)
       return
-    const stateObj = await readStateJsonComment({
-      host: remote.host,
-      owner: remote.owner,
-      repo: remote.repo,
-      token,
-      issueNumber,
-    })
+    const stateObj = await panel.readIssueState(issueNumber)
     const branch = typeof stateObj.branch === 'string' ? stateObj.branch : ''
     const wt = typeof stateObj.worktreePath === 'string' ? stateObj.worktreePath : ''
     if (!wt)

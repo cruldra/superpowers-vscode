@@ -483,9 +483,16 @@ export function IssueDetailPanel({
       <div className="flex items-center gap-3">
         <h3 className="flex-1 truncate text-sm font-medium">
           <span className="font-mono opacity-60">
-            #
-            {issue.number}
+            {issue.source === 'youtrack' ? issue.externalId : `#${issue.number}`}
           </span>
+          {issue.source === 'youtrack' && (
+            <span
+              className="ml-2 inline-flex items-center rounded border border-purple-400/50 bg-purple-400/10 px-1.5 py-0.5 align-middle text-[10px] font-normal text-purple-400"
+              title="此工单来自 YouTrack"
+            >
+              YouTrack
+            </span>
+          )}
           {' '}
           {issue.title}
           {locked && prerequisiteNumber != null
@@ -508,27 +515,53 @@ export function IssueDetailPanel({
           className="inline-flex shrink-0 items-center gap-1 rounded border border-[var(--vscode-panel-border)] px-2 py-1 text-xs hover:bg-black/10 dark:hover:bg-white/10"
         >
           <ExternalLink className="size-3.5" />
-          在 Gitea 打开
+          {issue.source === 'youtrack' ? '在 YouTrack 打开' : '在 Gitea 打开'}
         </button>
-        <button
-          type="button"
-          onClick={() => onCloseIssue(issue.number)}
-          title="关闭工单"
-          aria-label="关闭工单"
-          className="inline-flex shrink-0 items-center justify-center rounded border border-[var(--vscode-panel-border)] p-1 text-xs text-[var(--vscode-foreground)] hover:border-yellow-500/60 hover:bg-yellow-500/10 hover:text-yellow-500"
-        >
-          <CircleSlash className="size-3.5" />
-        </button>
-        <button
-          type="button"
-          onClick={() => issue && onDeleteIssue?.(issue.number)}
-          title="删除工单（不可撤销）"
-          aria-label="删除工单"
-          className="inline-flex shrink-0 items-center justify-center rounded border border-[var(--vscode-panel-border)] p-1 text-xs text-[var(--vscode-foreground)] hover:border-red-500/60 hover:bg-red-500/10 hover:text-red-500"
-        >
-          <Trash2 className="size-3.5" />
-        </button>
+        {/* Close/delete write to gitea by number — hide for youtrack cards to
+            avoid acting on a gitea issue of the same number. */}
+        {issue.source !== 'youtrack' && (
+          <>
+            <button
+              type="button"
+              onClick={() => onCloseIssue(issue.number)}
+              title="关闭工单"
+              aria-label="关闭工单"
+              className="inline-flex shrink-0 items-center justify-center rounded border border-[var(--vscode-panel-border)] p-1 text-xs text-[var(--vscode-foreground)] hover:border-yellow-500/60 hover:bg-yellow-500/10 hover:text-yellow-500"
+            >
+              <CircleSlash className="size-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => issue && onDeleteIssue?.(issue.number)}
+              title="删除工单（不可撤销）"
+              aria-label="删除工单"
+              className="inline-flex shrink-0 items-center justify-center rounded border border-[var(--vscode-panel-border)] p-1 text-xs text-[var(--vscode-foreground)] hover:border-red-500/60 hover:bg-red-500/10 hover:text-red-500"
+            >
+              <Trash2 className="size-3.5" />
+            </button>
+          </>
+        )}
       </div>
+
+      {issue.source === 'youtrack' && issue.attachments && issue.attachments.length > 0 && (
+        <div className="flex flex-col gap-1 text-xs">
+          <span className="opacity-60">附件（{issue.attachments.length}）</span>
+          <div className="flex flex-wrap gap-2">
+            {issue.attachments.map(att => (
+              <button
+                key={att.url}
+                type="button"
+                onClick={() => onOpenInBrowser(att.url)}
+                title={att.name}
+                className="inline-flex max-w-[200px] items-center gap-1 truncate rounded border border-[var(--vscode-panel-border)] px-2 py-1 hover:bg-black/10 dark:hover:bg-white/10"
+              >
+                <ExternalLink className="size-3 shrink-0" />
+                <span className="truncate">{att.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="min-h-0 flex-1">
         <PropertyGrid

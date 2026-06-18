@@ -29,18 +29,21 @@ export function getBrainstormPrompt(
   return out
 }
 
-export function getBrainstormContinuePrompt(ctx: ExtensionContext, vars: { issueNumber: number }): string {
+export function getBrainstormContinuePrompt(ctx: ExtensionContext, vars: { issueNumber: number, issueRef?: string }): string {
   const tpl = getSettings(ctx).brainstormContinuePrompt
-  return tpl.split('{issueNumber}').join(String(vars.issueNumber))
+  // For youtrack cards the board number is synthetic; substitute the readable
+  // id (e.g. LXF-12) so the cc agent references the real issue (readable via
+  // `opencli yt issues show <id>`), not a non-existent gitea number.
+  return tpl.split('{issueNumber}').join(vars.issueRef ?? String(vars.issueNumber))
 }
 
-export function getImplementPlanPrompt(ctx: ExtensionContext, vars: { planFile: string, issueNumber: number }): string {
+export function getImplementPlanPrompt(ctx: ExtensionContext, vars: { planFile: string, issueNumber: number, issueRef?: string }): string {
   const tpl = getSettings(ctx).implementPlanPrompt
   return tpl
     .split('{planFile}')
     .join(vars.planFile)
     .split('{issueNumber}')
-    .join(String(vars.issueNumber))
+    .join(vars.issueRef ?? String(vars.issueNumber))
 }
 
 export function getReviewPrompt(ctx: ExtensionContext, vars: { prNumber: string }): string {

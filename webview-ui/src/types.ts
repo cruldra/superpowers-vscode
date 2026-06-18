@@ -2,9 +2,15 @@ export type IssueColumn = 'todo' | 'in-progress' | 'review' | 'done'
 
 export interface Issue {
   id: string
+  /** Which tracker this issue came from. Absent = gitea (back-compat). */
+  source?: 'gitea' | 'youtrack'
+  /** YouTrack readable id (`LXF-12`); present only on youtrack issues. */
+  externalId?: string
   number: number
   title: string
   column: IssueColumn
+  /** YouTrack attachments (name + absolute URL); links only. */
+  attachments?: Array<{ name: string, url: string }>
   /** Optional Claude Code session id stored alongside the column marker in
    * the issue's state-JSON comment. Used to resume the conversation. */
   sessionId?: string

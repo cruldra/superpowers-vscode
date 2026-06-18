@@ -37,6 +37,10 @@ export interface SettingsValues {
   worktreePreRemoveScript: string
   implTabPreCreateScript: string
   implTabPostCloseScript: string
+  youtrackBaseUrl: string
+  youtrackProjectShortName: string
+  youtrackCloseCommand: string
+  youtrackToken: string
 }
 
 export interface SettingsOverlayState {
@@ -55,6 +59,24 @@ export interface SettingsOverlayState {
   worktreePreRemoveScript: string
   implTabPreCreateScript: string
   implTabPostCloseScript: string
+  youtrackBaseUrl: string
+  youtrackProjectShortName: string
+  youtrackCloseCommand: string
+  youtrackTokenSaved: boolean
+}
+
+/** A YouTrack project option for the settings dropdown. */
+export interface YouTrackProjectOption {
+  id: string
+  name: string
+  shortName: string
+}
+
+/** State of the settings modal's "load projects" action. */
+export interface YouTrackProjectsState {
+  status: 'idle' | 'loading' | 'ready' | 'error'
+  projects: YouTrackProjectOption[]
+  error?: string
 }
 
 export type UseIssuesState =
@@ -80,6 +102,11 @@ export interface UseIssuesResult {
   setIssues: (issues: Issue[]) => void
   refresh: () => void
   saveSettings: (values: SettingsValues) => void
+  /** Fetch the YouTrack project list for the settings dropdown using the
+   * in-form base URL + token (so the user can pick before saving). */
+  listYouTrackProjects: (baseUrl: string, token: string) => void
+  /** Result of the most recent `listYouTrackProjects` call. */
+  youtrackProjects: YouTrackProjectsState
   dismissSettings: () => void
   requestEditAuth: () => void
   createIssue: (userRequest: string, images?: Array<{ mediaType: string, base64: string }>, profilePath?: string) => void
@@ -111,7 +138,7 @@ export interface UseIssuesResult {
    * JSON, watches `~/.claude/projects/<encoded-workspaceRoot>` for the new
    * session jsonl, then writes the id back as `sessionId`. */
   startBrainstormSession: (issueNumber: number) => void
-  changeColumn: (issueNumber: number, toColumn: IssueColumn) => void
+  changeColumn: (issueNumber: number, toColumn: IssueColumn, source?: 'gitea' | 'youtrack', externalId?: string) => void
   setDependency: (issueNumber: number, prerequisiteNumber: number) => void
   clearDependency: (issueNumber: number, prerequisiteNumber: number) => void
   updateIssueAutoReview: (issueNumber: number, value: boolean) => void
@@ -176,6 +203,7 @@ export interface UseIssuesResult {
 export function useIssues(): UseIssuesResult {
   const [state, setState] = useState<UseIssuesState>({ status: 'loading' })
   const [settings, setSettings] = useState<SettingsOverlayState | null>(null)
+  const [youtrackProjects, setYoutrackProjects] = useState<YouTrackProjectsState>({ status: 'idle', projects: [] })
   const [globalAutoReview, setGlobalAutoReview] = useState<boolean>(true)
   const [toasts, setToasts] = useState<ToastItem[]>([])
   const [profiles, setProfiles] = useState<ClaudeProfile[]>([])
@@ -233,7 +261,16 @@ export function useIssues(): UseIssuesResult {
       worktreePreRemoveScript: values.worktreePreRemoveScript,
       implTabPreCreateScript: values.implTabPreCreateScript,
       implTabPostCloseScript: values.implTabPostCloseScript,
+      youtrackBaseUrl: values.youtrackBaseUrl,
+      youtrackProjectShortName: values.youtrackProjectShortName,
+      youtrackCloseCommand: values.youtrackCloseCommand,
+      youtrackToken: values.youtrackToken,
     })
+  }, [])
+
+  const listYouTrackProjects = useCallback((baseUrl: string, token: string): void => {
+    setYoutrackProjects({ status: 'loading', projects: [] })
+    postMessage({ type: 'youtrack/list-projects', baseUrl, token })
   }, [])
 
   const dismissSettings = useCallback((): void => {
@@ -341,8 +378,8 @@ export function useIssues(): UseIssuesResult {
     postMessage({ type: 'brainstorm/start', issueNumber })
   }, [])
 
-  const changeColumn = useCallback((issueNumber: number, toColumn: IssueColumn): void => {
-    postMessage({ type: 'column/change', issueNumber, toColumn })
+  const changeColumn = useCallback((issueNumber: number, toColumn: IssueColumn, source?: 'gitea' | 'youtrack', externalId?: string): void => {
+    postMessage({ type: 'column/change', issueNumber, toColumn, source, externalId })
   }, [])
 
   const setDependency = useCallback((issueNumber: number, prerequisiteNumber: number): void => {
@@ -540,7 +577,18 @@ export function useIssues(): UseIssuesResult {
             worktreePreRemoveScript: msg.worktreePreRemoveScript,
             implTabPreCreateScript: msg.implTabPreCreateScript,
             implTabPostCloseScript: msg.implTabPostCloseScript,
+            youtrackBaseUrl: msg.youtrackBaseUrl ?? '',
+            youtrackProjectShortName: msg.youtrackProjectShortName ?? '',
+            youtrackCloseCommand: msg.youtrackCloseCommand ?? '',
+            youtrackTokenSaved: msg.youtrackTokenSaved === true,
           })
+          // Reset the project dropdown each time the modal opens.
+          setYoutrackProjects({ status: 'idle', projects: [] })
+          break
+        case 'youtrack/projects':
+          setYoutrackProjects(msg.error
+            ? { status: 'error', projects: [], error: msg.error }
+            : { status: 'ready', projects: msg.projects })
           break
         case 'toast/show': {
           const toast: ToastItem = {
@@ -632,5 +680,5 @@ export function useIssues(): UseIssuesResult {
     return cleanup
   }, [clearPrDiffSummaryRunning])
 
-  return { state, settings, globalAutoReview, toasts, profiles, setIssues, refresh, saveSettings, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, startTestSession, resumeTestSession, focusSession, openFile, implement, generatePrDiffSummary, isPrDiffSummaryRunning, openPr, openWorktree, deleteWorktree, deleteIssue, closeIssue, closeSessionTab, startBrainstormSession, changeColumn, setDependency, clearDependency, updateIssueAutoReview, updateIssueProfilePath, updateIssueTestProfilePath, logs, fetchLogs, clearLogs, pendingSelectId, clearPendingSelect, commitRunning, runCommit, hasChanges, branchSyncBehind, branchSyncRunning, branchSyncDisabled, branchSyncTitle, runBranchSync, envLocked, envFileCount, envLockRunning, envLockTitle, toggleEnvLock }
+  return { state, settings, globalAutoReview, toasts, profiles, setIssues, refresh, saveSettings, listYouTrackProjects, youtrackProjects, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, startTestSession, resumeTestSession, focusSession, openFile, implement, generatePrDiffSummary, isPrDiffSummaryRunning, openPr, openWorktree, deleteWorktree, deleteIssue, closeIssue, closeSessionTab, startBrainstormSession, changeColumn, setDependency, clearDependency, updateIssueAutoReview, updateIssueProfilePath, updateIssueTestProfilePath, logs, fetchLogs, clearLogs, pendingSelectId, clearPendingSelect, commitRunning, runCommit, hasChanges, branchSyncBehind, branchSyncRunning, branchSyncDisabled, branchSyncTitle, runBranchSync, envLocked, envFileCount, envLockRunning, envLockTitle, toggleEnvLock }
 }

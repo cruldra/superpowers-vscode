@@ -24,6 +24,8 @@ export function App() {
     setIssues,
     refresh,
     saveSettings,
+    listYouTrackProjects,
+    youtrackProjects,
     dismissSettings,
     requestEditAuth,
     createIssue,
@@ -426,6 +428,12 @@ export function App() {
         initialWorktreePreRemoveScript={settings?.worktreePreRemoveScript ?? ''}
         initialImplTabPreCreateScript={settings?.implTabPreCreateScript ?? ''}
         initialImplTabPostCloseScript={settings?.implTabPostCloseScript ?? ''}
+        initialYoutrackBaseUrl={settings?.youtrackBaseUrl ?? ''}
+        initialYoutrackProjectShortName={settings?.youtrackProjectShortName ?? ''}
+        initialYoutrackCloseCommand={settings?.youtrackCloseCommand ?? ''}
+        initialYoutrackTokenSaved={settings?.youtrackTokenSaved ?? false}
+        youtrackProjects={youtrackProjects}
+        onListYouTrackProjects={listYouTrackProjects}
         onSubmit={saveSettings}
         onCancel={settings?.canCancel ? dismissSettings : undefined}
       />

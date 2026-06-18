@@ -80,7 +80,12 @@ export type ExtensionToWebview
       worktreePreRemoveScript: string
       implTabPreCreateScript: string
       implTabPostCloseScript: string
+      youtrackBaseUrl?: string
+      youtrackProjectShortName?: string
+      youtrackCloseCommand?: string
+      youtrackTokenSaved?: boolean
     }
+    | { type: 'youtrack/projects', projects: Array<{ id: string, name: string, shortName: string }>, error?: string }
     | {
       type: 'toast/show'
       id: string
@@ -129,8 +134,13 @@ export type WebviewToExtension
       worktreePreRemoveScript: string
       implTabPreCreateScript: string
       implTabPostCloseScript: string
+      youtrackBaseUrl: string
+      youtrackProjectShortName: string
+      youtrackCloseCommand: string
+      youtrackToken: string
     }
     | { type: 'settings/edit-request' }
+    | { type: 'youtrack/list-projects', baseUrl: string, token: string }
     | { type: 'issue/create', userRequest: string, images?: Array<{ mediaType: string, base64: string }>, profilePath?: string }
     | { type: 'toast/open-url', url: string }
     | { type: 'session/resume', sessionId: string, profilePath?: string, cwd?: string, issueNumber?: number }
@@ -145,7 +155,7 @@ export type WebviewToExtension
     | { type: 'pr/open', pr: string }
     | { type: 'worktree/open', path: string }
     | { type: 'worktree/delete', issueNumber: number, path: string }
-    | { type: 'column/change', issueNumber: number, toColumn: 'todo' | 'in-progress' | 'review' | 'done' }
+    | { type: 'column/change', issueNumber: number, toColumn: 'todo' | 'in-progress' | 'review' | 'done', source?: 'gitea' | 'youtrack', externalId?: string }
     | { type: 'dependency/set', issueNumber: number, prerequisiteNumber: number }
     | { type: 'dependency/clear', issueNumber: number, prerequisiteNumber: number }
     | { type: 'issue/update-auto-review', issueNumber: number, value: boolean }

@@ -8,12 +8,24 @@
 export type IssueColumn = 'todo' | 'in-progress' | 'review' | 'done'
 
 export interface Issue {
-  /** Stable identifier: `${owner}/${repo}#${index}` */
+  /** Stable identifier: `${owner}/${repo}#${index}` (gitea) or
+   * `youtrack:${idReadable}` (youtrack). Used to route mutations to the right
+   * source when both kinds of cards share the board. */
   id: string
-  /** Equals the Gitea issue number / tea's `index` field. */
+  /** Which tracker this issue came from. Absent is treated as `'gitea'` for
+   * backward compatibility with state written before the second source. */
+  source?: 'gitea' | 'youtrack'
+  /** YouTrack readable id (`LXF-12`) — present only on youtrack issues; needed
+   * for REST calls that key by readable id. */
+  externalId?: string
+  /** Equals the Gitea issue number / tea's `index` field; for youtrack it's the
+   * numeric tail of `externalId` (collides across sources — never use alone as
+   * a key, pair with `source`). */
   number: number
   title: string
   column: IssueColumn
+  /** YouTrack attachments (name + absolute URL). Links only; not downloaded. */
+  attachments?: Array<{ name: string, url: string }>
   /** Optional Claude Code session id stored alongside the column marker in
    * the issue's state-JSON comment. Used to resume the conversation. */
   sessionId?: string
