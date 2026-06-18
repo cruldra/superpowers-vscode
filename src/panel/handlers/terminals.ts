@@ -45,6 +45,17 @@ export function injectIntoImplTerminal(panel: KanbanWebviewPanel, issueNumber: n
       }
     }
   }
+  if (!terminal) {
+    // 实施会话未开但测试会话开着时，审查反馈交给测试会话。
+    // 临时使用，不写进 implTerminals（那是实施终端专属的 map）。
+    const testPrefix = `issue-${issueNumber}-测试`
+    for (const t of window.terminals) {
+      if (t.exitStatus === undefined && t.name.startsWith(testPrefix)) {
+        terminal = t
+        break
+      }
+    }
+  }
   if (!terminal)
     return false
   // cc 的 TUI 在 raw 模式下，LF (\n) 只算输入框内的换行，CR (\r)

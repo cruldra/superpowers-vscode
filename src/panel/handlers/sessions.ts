@@ -1077,6 +1077,7 @@ export async function handleStartTestSession(panel: KanbanWebviewPanel, issueNum
     let profilePath: string | undefined
     let testProfilePath: string | undefined
     let worktreePathRel: string | undefined
+    let branch: string | undefined
     try {
       const stateObj = await panel.readIssueState(issueNumber)
       if (stateObj) {
@@ -1088,6 +1089,8 @@ export async function handleStartTestSession(panel: KanbanWebviewPanel, issueNum
           testProfilePath = stateObj.testProfilePath
         if (typeof stateObj.worktreePath === 'string' && stateObj.worktreePath.length > 0)
           worktreePathRel = stateObj.worktreePath
+        if (typeof stateObj.branch === 'string' && stateObj.branch.length > 0)
+          branch = stateObj.branch
       }
     }
     catch (err) {
@@ -1141,6 +1144,18 @@ export async function handleStartTestSession(panel: KanbanWebviewPanel, issueNum
 
     // Kick off the watcher before spawning the terminal so we don't race.
     const watchPromise = watchForNewSession({ projectsDir: projDir, timeoutMs: 120_000 })
+
+    // 测试 cc tab 创建前钩子，与实施会话共用同一钩子（impl-tab-pre-create）。
+    // 顶部"复用已有测试终端"的 fast path 已早 return，复用不会执行到这里。
+    const settings = getSettings(panel.context)
+    await panel.dispatchWorktreeHook('impl-tab-pre-create', {
+      workspaceRoot,
+      worktreePath: effectiveCwd,
+      branch: branch ?? '',
+      issueNumber,
+      mainBranch: settings.devBranch || 'main',
+      customScriptPath: settings.implTabPreCreateScript,
+    })
 
     const { themeColor, iconUri } = await panel.resolveIssueIcon(issueNumber)
     const terminal = window.createTerminal({

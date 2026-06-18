@@ -269,13 +269,13 @@ export class KanbanWebviewPanel {
           }
         }
         // 先抓 origin 再 untrack（untrackClosedTerminal 会从 map 里删 entry）。
-        // 仅对 implement tab 触发 post-close 钩子，fire-and-forget 不阻塞 listener。
+        // 实施/测试 tab 关闭均触发 post-close 钩子，fire-and-forget 不阻塞 listener。
         const origin = this.terminalOrigin.get(closed)
         // 反查 terminalOrigin 给详情面板推 *TabOpen: false，让关闭按钮消失。
         this.untrackClosedTerminal(closed)
         if (closed === this.lastActiveTerminalRef)
           this.lastActiveTerminalRef = undefined
-        if (origin?.kind === 'implement')
+        if (origin?.kind === 'implement' || origin?.kind === 'test')
           void this.dispatchImplTabPostCloseAsync(origin.issueNumber)
       }),
       // 用户在 column 2 切换终端 tab 时，反向选中看板上对应的工单卡片。
