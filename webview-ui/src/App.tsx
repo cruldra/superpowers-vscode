@@ -19,6 +19,8 @@ export function App() {
     state,
     settings,
     globalAutoReview,
+    youtrackConfigured,
+    importYouTrack,
     toasts,
     profiles,
     setIssues,
@@ -274,6 +276,8 @@ export function App() {
             envLockTitle={envLockTitle}
             onToggleEnvLock={toggleEnvLock}
             onSyncBranch={runBranchSync}
+            youtrackConfigured={youtrackConfigured}
+            onImportYouTrack={importYouTrack}
           />
           <div className="flex h-full w-full items-center justify-center text-sm opacity-70">
             {blockedBySetup ? '请先完成设置' : '加载中…'}
@@ -299,6 +303,8 @@ export function App() {
             envLockTitle={envLockTitle}
             onToggleEnvLock={toggleEnvLock}
             onSyncBranch={runBranchSync}
+            youtrackConfigured={youtrackConfigured}
+            onImportYouTrack={importYouTrack}
           />
           <div className="flex min-h-0 flex-1 flex-col">
             <div className="min-h-0 flex-1 overflow-hidden">
@@ -372,6 +378,8 @@ export function App() {
             envLockTitle={envLockTitle}
             onToggleEnvLock={toggleEnvLock}
             onSyncBranch={runBranchSync}
+            youtrackConfigured={youtrackConfigured}
+            onImportYouTrack={importYouTrack}
           />
           <div className="flex flex-1 items-center justify-center p-6">
             <div className="max-w-md rounded-md border border-state-red/40 bg-state-red/10 p-4 text-sm">

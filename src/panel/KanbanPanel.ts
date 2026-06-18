@@ -421,6 +421,10 @@ export class KanbanWebviewPanel {
       void youtrackIssues.handleListProjects(this, msg.baseUrl, msg.token)
       return
     }
+    if (msg.type === 'youtrack/import') {
+      void youtrackIssues.handleYouTrackImport(this)
+      return
+    }
     if (msg.type === 'dependency/set') {
       void issues.handleSetDependency(this, msg.issueNumber, msg.prerequisiteNumber)
       return
@@ -847,10 +851,12 @@ export class KanbanWebviewPanel {
       this.issueRefs = new Map(
         issues.map(i => [i.number, { source: i.source ?? 'gitea', externalId: i.externalId }] as const),
       )
+      const ytSettings = getSettings(this.context)
       this.postMessage({
         type: 'issues/update',
         issues,
-        globalAutoReview: getSettings(this.context).autoReview,
+        globalAutoReview: ytSettings.autoReview,
+        youtrackConfigured: ytSettings.youtrackBaseUrl.trim() !== '' && ytSettings.youtrackProjectShortName.trim() !== '',
       })
       // Re-publish the cached git state so a slow webview boot (or a
       // refresh after git events already fired) still picks up the latest

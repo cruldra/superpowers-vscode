@@ -97,6 +97,12 @@ export interface UseIssuesResult {
    * Used by the detail panel to display the fallback value when an issue has
    * no per-issue override. */
   globalAutoReview: boolean
+  /** Whether YouTrack is configured (base URL + project set), pushed alongside
+   * `issues/update`. Drives whether the「导入 YouTrack 工单」toolbar button shows. */
+  youtrackConfigured: boolean
+  /** Open the native multi-select dialog to pick which YouTrack issues to
+   * mirror onto the board. */
+  importYouTrack: () => void
   toasts: ToastItem[]
   profiles: ClaudeProfile[]
   setIssues: (issues: Issue[]) => void
@@ -205,6 +211,7 @@ export function useIssues(): UseIssuesResult {
   const [settings, setSettings] = useState<SettingsOverlayState | null>(null)
   const [youtrackProjects, setYoutrackProjects] = useState<YouTrackProjectsState>({ status: 'idle', projects: [] })
   const [globalAutoReview, setGlobalAutoReview] = useState<boolean>(true)
+  const [youtrackConfigured, setYoutrackConfigured] = useState<boolean>(false)
   const [toasts, setToasts] = useState<ToastItem[]>([])
   const [profiles, setProfiles] = useState<ClaudeProfile[]>([])
   const [logs, setLogs] = useState<LogEntry[]>([])
@@ -271,6 +278,10 @@ export function useIssues(): UseIssuesResult {
   const listYouTrackProjects = useCallback((baseUrl: string, token: string): void => {
     setYoutrackProjects({ status: 'loading', projects: [] })
     postMessage({ type: 'youtrack/list-projects', baseUrl, token })
+  }, [])
+
+  const importYouTrack = useCallback((): void => {
+    postMessage({ type: 'youtrack/import' })
   }, [])
 
   const dismissSettings = useCallback((): void => {
@@ -488,6 +499,7 @@ export function useIssues(): UseIssuesResult {
         case 'issues/update':
           setState({ status: 'ready', issues: msg.issues })
           setGlobalAutoReview(msg.globalAutoReview)
+          setYoutrackConfigured(msg.youtrackConfigured)
           break
         case 'issues/error':
           setState({ status: 'error', message: msg.message })
@@ -680,5 +692,5 @@ export function useIssues(): UseIssuesResult {
     return cleanup
   }, [clearPrDiffSummaryRunning])
 
-  return { state, settings, globalAutoReview, toasts, profiles, setIssues, refresh, saveSettings, listYouTrackProjects, youtrackProjects, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, startTestSession, resumeTestSession, focusSession, openFile, implement, generatePrDiffSummary, isPrDiffSummaryRunning, openPr, openWorktree, deleteWorktree, deleteIssue, closeIssue, closeSessionTab, startBrainstormSession, changeColumn, setDependency, clearDependency, updateIssueAutoReview, updateIssueProfilePath, updateIssueTestProfilePath, logs, fetchLogs, clearLogs, pendingSelectId, clearPendingSelect, commitRunning, runCommit, hasChanges, branchSyncBehind, branchSyncRunning, branchSyncDisabled, branchSyncTitle, runBranchSync, envLocked, envFileCount, envLockRunning, envLockTitle, toggleEnvLock }
+  return { state, settings, globalAutoReview, youtrackConfigured, importYouTrack, toasts, profiles, setIssues, refresh, saveSettings, listYouTrackProjects, youtrackProjects, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, startTestSession, resumeTestSession, focusSession, openFile, implement, generatePrDiffSummary, isPrDiffSummaryRunning, openPr, openWorktree, deleteWorktree, deleteIssue, closeIssue, closeSessionTab, startBrainstormSession, changeColumn, setDependency, clearDependency, updateIssueAutoReview, updateIssueProfilePath, updateIssueTestProfilePath, logs, fetchLogs, clearLogs, pendingSelectId, clearPendingSelect, commitRunning, runCommit, hasChanges, branchSyncBehind, branchSyncRunning, branchSyncDisabled, branchSyncTitle, runBranchSync, envLocked, envFileCount, envLockRunning, envLockTitle, toggleEnvLock }
 }

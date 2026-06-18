@@ -57,7 +57,7 @@ export interface ProfilesData {
 
 export type ExtensionToWebview
   = | { type: 'issues/loading' }
-    | { type: 'issues/update', issues: Issue[], globalAutoReview: boolean }
+    | { type: 'issues/update', issues: Issue[], globalAutoReview: boolean, youtrackConfigured: boolean }
     | { type: 'issues/error', message: string }
     | { type: 'issue/patch', issueNumber: number, patch: { autoReview?: boolean, specFile?: string, planFile?: string, prDiffFile?: string, sessionId?: string, implementSessionId?: string, reviewSessionId?: string, testSessionId?: string, pr?: string, implementStatus?: 'running' | 'done' | 'failed', column?: IssueColumn, worktreePath?: string, prMerged?: boolean, prMergedAt?: string, branch?: string, color?: string, worktreeExists?: boolean, brainstormTabOpen?: boolean, implementTabOpen?: boolean, reviewTabOpen?: boolean, testTabOpen?: boolean, profilePath?: string, testProfilePath?: string } }
     | { type: 'issue/pr-diff-summary-done', issueNumber: number }
@@ -141,6 +141,7 @@ export type WebviewToExtension
     }
     | { type: 'settings/edit-request' }
     | { type: 'youtrack/list-projects', baseUrl: string, token: string }
+    | { type: 'youtrack/import' }
     | { type: 'issue/create', userRequest: string, images?: Array<{ mediaType: string, base64: string }>, profilePath?: string }
     | { type: 'toast/open-url', url: string }
     | { type: 'session/resume', sessionId: string, profilePath?: string, cwd?: string, issueNumber?: number }

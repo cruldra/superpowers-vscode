@@ -7,11 +7,13 @@
  */
 
 import type { ExtensionContext } from 'vscode'
+import { workspace } from 'vscode'
 import type { Issue, IssueColumn } from '../gitea/types'
 import { getYouTrackToken } from '../auth/secrets'
 import { getSettings } from '../settings/store'
 import type { YouTrackIssue } from './api'
 import { issueHtmlUrl, listIssues } from './api'
+import { readImportedIds } from './importStore'
 import { findLatestState } from './stateComment'
 
 const VALID_COLUMNS = new Set<IssueColumn>(['todo', 'in-progress', 'review', 'done'])
@@ -91,6 +93,16 @@ export async function loadYouTrackIssues(ctx: ExtensionContext): Promise<Issue[]
   const token = await getYouTrackToken(ctx, youtrackHost(baseUrl))
   if (!token)
     return []
+  const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+  if (!workspaceRoot)
+    return []
+  // 只镜像用户主动勾选导入的工单（见 importStore），不再加载即全量同步。
+  // import 集为空 ⇒ 返回 []。
+  const importedSet = new Set(await readImportedIds(workspaceRoot, project))
+  if (importedSet.size === 0)
+    return []
   const raw = await listIssues({ baseUrl, token }, project)
-  return raw.map(it => toIssue(baseUrl, it))
+  return raw
+    .filter(it => importedSet.has(it.idReadable))
+    .map(it => toIssue(baseUrl, it))
 }

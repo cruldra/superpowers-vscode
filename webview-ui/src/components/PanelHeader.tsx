@@ -1,4 +1,4 @@
-import { GitCommit, GitMerge, Loader2, Lock, RefreshCw, Settings, Unlock } from 'lucide-react'
+import { GitCommit, GitMerge, ListPlus, Loader2, Lock, RefreshCw, Settings, Unlock } from 'lucide-react'
 
 interface Props {
   onRefresh: () => void
@@ -34,6 +34,12 @@ interface Props {
   /** Hover tooltip, already includes file count + current lock state. */
   envLockTitle: string
   onToggleEnvLock: () => void
+  /** Whether YouTrack is configured. The「导入 YouTrack 工单」button is only
+   * rendered when true. */
+  youtrackConfigured: boolean
+  /** Open the native multi-select dialog to pick which YouTrack issues to
+   * mirror onto the board. */
+  onImportYouTrack: () => void
 }
 
 export function PanelHeader({
@@ -52,6 +58,8 @@ export function PanelHeader({
   envLockRunning,
   envLockTitle,
   onToggleEnvLock,
+  youtrackConfigured,
+  onImportYouTrack,
 }: Props) {
   const showCommit = hasChanges || commitRunning
   // Sync button is *always* rendered so the user can see status (vs the
@@ -101,6 +109,17 @@ export function PanelHeader({
           {commitRunning
             ? <Loader2 size={14} className="animate-spin" />
             : <GitCommit size={14} />}
+        </button>
+      )}
+      {youtrackConfigured && (
+        <button
+          type="button"
+          onClick={onImportYouTrack}
+          title="导入 YouTrack 工单"
+          aria-label="导入 YouTrack 工单"
+          className="flex h-6 w-6 items-center justify-center rounded hover:bg-[var(--vscode-toolbar-hoverBackground)]"
+        >
+          <ListPlus size={14} />
         </button>
       )}
       <button
