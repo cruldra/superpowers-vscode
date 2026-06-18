@@ -452,6 +452,24 @@ export async function handleColumnChange(panel: KanbanWebviewPanel, issueNumber:
       ? worktreePath
       : path.join(workspaceRoot, worktreePath)
     if (fs.existsSync(abs)) {
+      // worktree 还被占用时（实施/测试会话终端 cwd 在里面、cc/codex 持有 git
+      // 锁或打开文件）git worktree remove 会失败。先 dispose 该工单的全部会话
+      // 终端，再等一小会让进程退出释放占用，然后再删。
+      let disposedAny = false
+      for (const [terminal, origin] of panel.terminalOrigin) {
+        if (origin.issueNumber === issueNumber) {
+          try {
+            terminal.dispose()
+            disposedAny = true
+          }
+          catch {
+            // dispose 失败无所谓，VS Code 会清掉关闭事件
+          }
+        }
+      }
+      if (disposedAny)
+        await new Promise<void>(r => setTimeout(r, 600))
+
       // Pre-remove hook — same best-effort contract as the other call
       // sites. Run before the actual remove so user scripts can still
       // touch the worktree dir.
