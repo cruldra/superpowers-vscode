@@ -1447,6 +1447,16 @@ export async function startConflictResolution(panel: KanbanWebviewPanel, opts: {
   // 单引号 shell 转义：把每个 ' 转成 '\''
   const prompt = promptRaw.replace(/'/g, '\'\\\'\'')
 
+  // 与实施/测试会话一致：建终端前触发 impl-tab-pre-create 钩子（开 pycharm 等）。
+  await panel.dispatchWorktreeHook('impl-tab-pre-create', {
+    workspaceRoot,
+    worktreePath: worktreeAbs,
+    branch: featureBranch,
+    issueNumber,
+    mainBranch: devBranch,
+    customScriptPath: settings.implTabPreCreateScript,
+  })
+
   let terminal: Terminal
   try {
     terminal = window.createTerminal({

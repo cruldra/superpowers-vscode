@@ -277,6 +277,10 @@ export class KanbanWebviewPanel {
           this.lastActiveTerminalRef = undefined
         if (origin?.kind === 'implement' || origin?.kind === 'test')
           void this.dispatchImplTabPostCloseAsync(origin.issueNumber)
+        // 冲突解决会话不进 terminalOrigin，按终端名触发 post-close 钩子。
+        const conflictMatch = closed.name.match(/^issue-(\d+)-冲突解决/)
+        if (conflictMatch)
+          void this.dispatchImplTabPostCloseAsync(Number(conflictMatch[1]))
       }),
       // 用户在 column 2 切换终端 tab 时，反向选中看板上对应的工单卡片。
       window.onDidChangeActiveTerminal((terminal) => {
