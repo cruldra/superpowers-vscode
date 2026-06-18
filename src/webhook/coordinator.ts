@@ -328,6 +328,19 @@ class WebhookCoordinator {
       return
     }
 
+    if (event.kind === 'push') {
+      const s = getSettings(this.ctx)
+      const autoBuild = s.autoBuildBranch.trim() || s.devBranch
+      logger.add({
+        level: 'info',
+        source: 'webhook',
+        message: `收到 push 事件 branch=${event.branch}`,
+      })
+      if (event.branch === s.devBranch || event.branch === autoBuild)
+        void this.activePanel?.handleBranchSyncCheck()
+      return
+    }
+
     if (event.kind === 'issue') {
       logger.add({
         level: 'info',

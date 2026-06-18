@@ -28,7 +28,7 @@ import { createServer } from 'node:http'
 import { EventEmitter } from 'vscode'
 import { logger } from '../logging/logger'
 
-export type WebhookEvent = PrWebhookEvent | IssueWebhookEvent | IssueCommentWebhookEvent
+export type WebhookEvent = PrWebhookEvent | IssueWebhookEvent | IssueCommentWebhookEvent | PushWebhookEvent
 
 export interface PrWebhookEvent {
   /** Discriminator: this event came from a `pull_request` payload. */
@@ -98,6 +98,13 @@ export interface IssueCommentWebhookEvent {
   /** Browser URL to the comment. */
   commentHtmlUrl: string
   /** Raw JSON payload. */
+  raw: unknown
+}
+
+export interface PushWebhookEvent {
+  kind: 'push'
+  /** 被推送的分支名（从 ref `refs/heads/<branch>` 提取）。 */
+  branch: string
   raw: unknown
 }
 
@@ -255,6 +262,13 @@ export class WebhookServer {
                 message: `匹配 issue_comment action=${event.action} issue=#${event.issueNumber} pr=${event.prNumber ? `#${event.prNumber}` : '<no>'} (event=${eventHeader})`,
               })
             }
+            else if (event.kind === 'push') {
+              logger.add({
+                level: 'info',
+                source: 'webhook',
+                message: `推送分支 ${event.branch} (event=${eventHeader})`,
+              })
+            }
             else {
               logger.add({
                 level: 'info',
@@ -312,7 +326,19 @@ function parseEvent(
     pull_request?: unknown
     issue?: unknown
     comment?: unknown
+    ref?: unknown
   }
+
+  if (eventHeader === 'push') {
+    // gitea push 事件无 `action`，顶层带 `ref: "refs/heads/<branch>"`。
+    if (typeof obj.ref !== 'string')
+      return null
+    const branch = obj.ref.replace(/^refs\/heads\//, '')
+    if (!branch)
+      return null
+    return { kind: 'push', branch, raw }
+  }
+
   if (typeof obj.action !== 'string')
     return null
 
