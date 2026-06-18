@@ -366,7 +366,7 @@ export async function handleColumnChange(panel: KanbanWebviewPanel, issueNumber:
       repo: remote.repo,
       token,
       issueNumber,
-      extra: { column: 'done', worktreePath: '', prMerged: true },
+      extra: { column: 'done', worktreePath: '', prMerged: true, prMergedAt: pullRequest.merged_at ?? new Date().toISOString() },
     })
     logger.add({
       level: 'info',
@@ -586,6 +586,7 @@ export async function handleColumnChange(panel: KanbanWebviewPanel, issueNumber:
       column: 'done',
       worktreePath: undefined,
       prMerged: true,
+      prMergedAt: pullRequest.merged_at ?? new Date().toISOString(),
     },
   })
   panel.postMessage({

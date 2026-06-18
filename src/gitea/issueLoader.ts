@@ -78,6 +78,7 @@ function parseColumnFromComments(comments: GiteaComment[]): {
   prDiffFile?: string
   pr?: string
   prMerged?: boolean
+  prMergedAt?: string
   branch?: string
   worktreePath?: string
   implementStatus?: 'running' | 'done' | 'failed'
@@ -120,6 +121,7 @@ function parseColumnFromComments(comments: GiteaComment[]): {
       prDiffFile?: unknown
       pr?: unknown
       prMerged?: unknown
+      prMergedAt?: unknown
       branch?: unknown
       worktreePath?: unknown
       implementStatus?: unknown
@@ -146,6 +148,9 @@ function parseColumnFromComments(comments: GiteaComment[]): {
         ? obj.pr
         : undefined
       const prMerged = typeof obj.prMerged === 'boolean' ? obj.prMerged : undefined
+      const prMergedAt = typeof obj.prMergedAt === 'string' && obj.prMergedAt.length > 0
+        ? obj.prMergedAt
+        : undefined
       const branch = typeof obj.branch === 'string' && obj.branch.length > 0
         ? obj.branch
         : undefined
@@ -180,6 +185,7 @@ function parseColumnFromComments(comments: GiteaComment[]): {
         prDiffFile,
         pr,
         prMerged,
+        prMergedAt,
         branch,
         worktreePath,
         implementStatus,
@@ -304,6 +310,7 @@ async function buildIssue(opts: {
     prDiffFile,
     pr,
     prMerged: persistedMerged,
+    prMergedAt: persistedMergedAt,
     branch,
     worktreePath,
     implementStatus,
@@ -315,6 +322,8 @@ async function buildIssue(opts: {
   } = parseColumnFromComments(comments)
   // 优先用 PR API 实时结果；失败时退回 state JSON 持久化值。
   const prMerged = liveMerged !== undefined ? liveMerged : persistedMerged
+  // 完成列排序用的 merged_at：实时查询优先，否则用持久化值（完成工单不再实时拉 PR）。
+  const mergedAt = liveMergedAt ?? persistedMergedAt
   let column: IssueColumn
   if (fromComment) {
     column = fromComment
@@ -365,7 +374,7 @@ async function buildIssue(opts: {
     ...(prDiffFile ? { prDiffFile } : {}),
     ...(pr ? { pr } : {}),
     ...(prMerged !== undefined ? { prMerged } : {}),
-    ...(liveMergedAt ? { prMergedAt: liveMergedAt } : {}),
+    ...(mergedAt ? { prMergedAt: mergedAt } : {}),
     ...(branch ? { branch } : {}),
     ...(worktreePath ? { worktreePath } : {}),
     ...(worktreeExists !== undefined ? { worktreeExists } : {}),
@@ -407,13 +416,26 @@ export async function loadIssues(opts: {
   const merged = mergeIssues(assigned, created)
   const buckets = groupCommentsByIssue(allComments)
 
+  // 先用各工单评论 bucket 算出 column，决定是否需要 per-issue 远程拉取。
+  // 完成（done）工单的依赖（前置阻塞）无意义、PR 状态永久不变（已合并），
+  // 跳过它们的 getDependencies + getPullRequest 往返是面板加载提速的核心：
+  // 完成列动辄上百工单，原先每个都发 2 次远程请求。
+  // column 计算与 buildIssue 的判断保持一致：state comment 优先，缺失时按 issue.state 默认。
+  const columns: IssueColumn[] = merged.map((issue) => {
+    const bucket = buckets.get(issue.number) ?? []
+    return parseColumnFromComments(bucket).column ?? defaultColumnForState(issue.state)
+  })
+
   // Concurrently fetch each issue's dependencies + live PR merged state.
   // Per product rule we keep at most one prerequisite — the first entry in
   // the array (Gitea orders by creation time). Failures (412 dependencies
   // disabled, network, etc.) are silently swallowed so one bad issue can't
   // take down the whole loader. PR merged 查询同样以失败兜底 undefined。
+  // done 工单两者都跳过：prerequisite 直接 undefined，PR 状态由 state JSON 兜底。
   const [prerequisites, liveMergedList] = await Promise.all([
-    Promise.all(merged.map(async (issue) => {
+    Promise.all(merged.map(async (issue, i) => {
+      if (columns[i] === 'done')
+        return undefined
       try {
         const deps = await getDependencies({ host, token, owner, repo, index: issue.number })
         return deps.length > 0 ? deps[0].number : undefined
@@ -422,7 +444,9 @@ export async function loadIssues(opts: {
         return undefined
       }
     })),
-    Promise.all(merged.map(async (issue) => {
+    Promise.all(merged.map(async (issue, i) => {
+      if (columns[i] === 'done')
+        return {}
       const bucket = buckets.get(issue.number) ?? []
       const { pr } = parseColumnFromComments(bucket)
       return fetchPrStatus({ host, token, owner, repo, pr })

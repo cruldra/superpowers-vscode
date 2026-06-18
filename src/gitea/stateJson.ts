@@ -19,7 +19,7 @@ import { listIssueComments, postIssueComment } from './api'
  * 普通文本评论、审查评论、Gitea 自动关联评论都不含这些字段，因此从尾往前
  * 扫描时会被跳过，避免它们插队后下一次 merge 从空状态开始丢历史。
  */
-const KNOWN_STATE_FIELDS = ['column', 'sessionId', 'implementSessionId', 'reviewSessionId', 'testSessionId', 'profilePath', 'testProfilePath', 'specFile', 'planFile', 'prDiffFile', 'pr', 'prMerged', 'branch', 'worktreePath', 'implementStatus', 'color', 'autoReview'] as const
+const KNOWN_STATE_FIELDS = ['column', 'sessionId', 'implementSessionId', 'reviewSessionId', 'testSessionId', 'profilePath', 'testProfilePath', 'specFile', 'planFile', 'prDiffFile', 'pr', 'prMerged', 'prMergedAt', 'branch', 'worktreePath', 'implementStatus', 'color', 'autoReview'] as const
 
 /**
  * body 能 parse 成 object 且含至少一个已知 state 字段 → 认为是 state JSON。

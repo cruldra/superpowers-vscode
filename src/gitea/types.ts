@@ -51,7 +51,7 @@ export interface Issue {
    * the 完成 列 (扩展代为合并) or when a `pull_request.closed` webhook arrives
    * with `merged === true`. Persisted in the state JSON. */
   prMerged?: boolean
-  /** PR 合并时间（ISO 8601，来自 PR API 的 merged_at）。完成列按它降序排序，未合并/查询失败为 undefined。不持久化进 state JSON，每次加载实时取。 */
+  /** PR 合并时间（ISO 8601，来自 PR API 的 merged_at）。完成列按它降序排序，未合并为 undefined。合并时持久化进 state JSON；完成工单加载时不再实时拉 PR，直接读持久化值（缺失则按工单号回退排序）。 */
   prMergedAt?: string
   /** Branch name created for implementation, e.g. `feature/<hash>`. */
   branch?: string

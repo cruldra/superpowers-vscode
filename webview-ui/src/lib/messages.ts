@@ -59,7 +59,7 @@ export type ExtensionToWebview
   = | { type: 'issues/loading' }
     | { type: 'issues/update', issues: Issue[], globalAutoReview: boolean }
     | { type: 'issues/error', message: string }
-    | { type: 'issue/patch', issueNumber: number, patch: { autoReview?: boolean, specFile?: string, planFile?: string, prDiffFile?: string, sessionId?: string, implementSessionId?: string, reviewSessionId?: string, testSessionId?: string, pr?: string, implementStatus?: 'running' | 'done' | 'failed', column?: IssueColumn, worktreePath?: string, prMerged?: boolean, branch?: string, color?: string, worktreeExists?: boolean, brainstormTabOpen?: boolean, implementTabOpen?: boolean, reviewTabOpen?: boolean, testTabOpen?: boolean, profilePath?: string, testProfilePath?: string } }
+    | { type: 'issue/patch', issueNumber: number, patch: { autoReview?: boolean, specFile?: string, planFile?: string, prDiffFile?: string, sessionId?: string, implementSessionId?: string, reviewSessionId?: string, testSessionId?: string, pr?: string, implementStatus?: 'running' | 'done' | 'failed', column?: IssueColumn, worktreePath?: string, prMerged?: boolean, prMergedAt?: string, branch?: string, color?: string, worktreeExists?: boolean, brainstormTabOpen?: boolean, implementTabOpen?: boolean, reviewTabOpen?: boolean, testTabOpen?: boolean, profilePath?: string, testProfilePath?: string } }
     | { type: 'issue/pr-diff-summary-done', issueNumber: number }
     | { type: 'issue/append', issue: Issue, select?: boolean }
     | { type: 'issue/select-by-number', issueNumber: number }

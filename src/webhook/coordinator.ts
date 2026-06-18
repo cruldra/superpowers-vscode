@@ -935,6 +935,7 @@ class WebhookCoordinator {
       return
 
     let merged = false
+    let mergedAt: string | null = null
     try {
       const pr = await getPullRequest({
         host: ctx.host,
@@ -944,6 +945,7 @@ class WebhookCoordinator {
         index: prIndex,
       })
       merged = pr.merged
+      mergedAt = pr.merged_at ?? null
     }
     catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -966,7 +968,7 @@ class WebhookCoordinator {
         repo: ctx.repo,
         token: ctx.token,
         issueNumber: event.issueNumber,
-        extra: { prMerged: true },
+        extra: { prMerged: true, prMergedAt: mergedAt ?? new Date().toISOString() },
       })
     }
     catch (err) {
