@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { BottomTabs } from './components/BottomTabs'
 import { KanbanBoard } from './components/KanbanBoard'
 import { LogModal } from './components/LogModal'
@@ -85,6 +85,9 @@ export function App() {
   const [showNewIssueModal, setShowNewIssueModal] = useState(false)
   const [showLogs, setShowLogs] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  // 程序化设置的选中（反向选中 / pendingSelectId）记在这里，让下面的自动聚焦
+  // effect 跳过它——否则 选中→聚焦→终端激活→反向选中 会死循环、CPU 飙升。
+  const lastProgrammaticSelectRef = useRef<string | null>(null)
 
   function handleSubmitNewIssue(userRequest: string, images: PastedImage[], profilePath?: string): void {
     const payload = images.map(({ mediaType, base64 }) => ({ mediaType, base64 }))
@@ -111,6 +114,7 @@ export function App() {
       return
     if (!readyIssues.some(i => i.id === pendingSelectId))
       return
+    lastProgrammaticSelectRef.current = pendingSelectId
     setSelectedId(pendingSelectId)
     clearPendingSelect()
   }, [pendingSelectId, readyIssues, clearPendingSelect])
@@ -138,6 +142,13 @@ export function App() {
   useEffect(() => {
     if (!selectedIssue)
       return
+    // 这次选中是程序化设置的（反向选中等）→ 不聚焦终端，打断死循环。仅用户主动
+    // 点卡片/方向键切换才走聚焦。按 id 匹配，避免同一工单反向选中后残留的标记
+    // 误压制后续的用户选中。
+    if (selectedIssue.id === lastProgrammaticSelectRef.current) {
+      lastProgrammaticSelectRef.current = null
+      return
+    }
     if (selectedIssue.implementSessionId || selectedIssue.sessionId)
       focusSession(selectedIssue.number)
   }, [selectedIssue?.implementSessionId, selectedIssue?.sessionId, selectedIssue?.number, focusSession])
