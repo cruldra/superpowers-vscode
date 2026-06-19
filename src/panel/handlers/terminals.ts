@@ -119,7 +119,10 @@ export function handleSessionFocus(panel: KanbanWebviewPanel, issueNumber: numbe
   // side-map is the only way to find it by issueNumber.
   const newIssueTerm = panel.newIssueTerminals.get(issueNumber)
   if (newIssueTerm && newIssueTerm.exitStatus === undefined) {
-    newIssueTerm.show(true)
+    if (newIssueTerm !== window.activeTerminal) {
+      panel.programmaticTabReveal = newIssueTerm
+      newIssueTerm.show(true)
+    }
     return
   }
   // Priority 1-4: 实施 > 规划 > 审查 > 测试. Match by terminal.name since we know
@@ -133,7 +136,12 @@ export function handleSessionFocus(panel: KanbanWebviewPanel, issueNumber: numbe
   for (const name of namePriority) {
     const term = findExistingTerminal(panel, name)
     if (term) {
-      term.show(true)
+      // 已经是 active terminal 就不重复 show（避免无谓的回声事件）；
+      // 否则记下程序化 reveal，让随后的 active 变更被吞掉，不回环。
+      if (term !== window.activeTerminal) {
+        panel.programmaticTabReveal = term
+        term.show(true)
+      }
       return
     }
   }
@@ -151,6 +159,14 @@ export function handleActiveTerminalChanged(panel: KanbanWebviewPanel, terminal:
   // Dedupe by reference: OSC title rewrites / shell prompt updates fire
   // onDidChangeTabs repeatedly for the same terminal. Skip if it's the
   // same reference we just handled.
+  // 吞掉「我们自己 show() 引发的」active 变更回声：handleSessionFocus 在程序化
+  // show 前把目标终端记到 programmaticTabReveal，这里命中就 return，不反向选中，
+  // 从根上打断 选中→聚焦→选中 的死循环（基于引用，不依赖脆弱的时间窗）。
+  // 每次调用都清空，因此只压制紧随其后的那一次回声，用户真实点 tab 不受影响。
+  const reveal = panel.programmaticTabReveal
+  panel.programmaticTabReveal = undefined
+  if (terminal === reveal)
+    return
   if (terminal === panel.lastActiveTerminalRef)
     return
   panel.lastActiveTerminalRef = terminal

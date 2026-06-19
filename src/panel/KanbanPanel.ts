@@ -210,6 +210,15 @@ export class KanbanWebviewPanel {
   // internal: handler 模块访问
   lastActiveTerminalRef: Terminal | undefined
 
+  /**
+   * 我们自己 `show()` 引发的 active terminal 变更会回声到
+   * `handleActiveTerminalChanged`，若再反向选中工单就会和正向(选中→聚焦)
+   * 形成死循环、CPU 飙升。handleSessionFocus show 前把目标终端记在这里，
+   * handleActiveTerminalChanged 命中即吞掉这一次回声（基于引用、不靠时间窗）。
+   */
+  // internal: handler 模块访问
+  programmaticTabReveal: Terminal | undefined
+
   // internal: context 供 handler 模块访问
   private constructor(public readonly context: ExtensionContext, panel: WebviewPanel) {
     this.panel = panel
@@ -295,7 +304,10 @@ export class KanbanWebviewPanel {
       // `handleActiveTerminalChanged` 内的 `lastReverseSelectAt` 时间窗
       // 已能去重，不会回环放大。
       window.tabGroups.onDidChangeTabs((e) => {
-        for (const tab of e.changed) {
+        // e.opened 也要处理：新开的终端 tab（如双击会话 id 打开）走 opened，
+        // 不在 changed 里，且 show(preserveFocus) 不一定触发 onDidChangeActiveTerminal，
+        // 否则新 tab 不会反向选中对应工单。
+        for (const tab of [...e.opened, ...e.changed]) {
           if (!tab.isActive)
             continue
           if (!(tab.input instanceof TabInputTerminal))
