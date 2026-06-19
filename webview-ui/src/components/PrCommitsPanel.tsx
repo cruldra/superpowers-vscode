@@ -233,22 +233,6 @@ export function PrCommitsPanel({ issue }: PrCommitsPanelProps) {
     }
   }, [selectedSha])
 
-  if (!issue) {
-    return (
-      <div className="flex h-full w-full items-center justify-center p-4 text-xs text-[var(--vscode-descriptionForeground)]">
-        未选中工单
-      </div>
-    )
-  }
-
-  if (!issue.pr) {
-    return (
-      <div className="flex h-full w-full items-center justify-center p-4 text-xs text-[var(--vscode-descriptionForeground)]">
-        该工单还没有 PR
-      </div>
-    )
-  }
-
   const selectedFiles = selectedSha ? filesBySha[selectedSha] : undefined
   const selectedFilesError = selectedSha ? filesErrorBySha[selectedSha] : undefined
   const selectedParentSha = selectedSha ? parentShaBySha[selectedSha] : undefined
@@ -269,6 +253,24 @@ export function PrCommitsPanel({ issue }: PrCommitsPanelProps) {
 
   // 当前工单已确认的提交 sha 集合（提交行勾标记 + 行淡化用）。
   const confirmedCommitSet = useMemo(() => new Set(confirmedCommits), [confirmedCommits])
+
+  // 所有 hook 必须在任何 early return 之前调用完。否则工单空/有无 PR 之间切换时
+  // hook 数量变化，触发 React #300（表现为面板空白 / 渲染出错）。
+  if (!issue) {
+    return (
+      <div className="flex h-full w-full items-center justify-center p-4 text-xs text-[var(--vscode-descriptionForeground)]">
+        未选中工单
+      </div>
+    )
+  }
+
+  if (!issue.pr) {
+    return (
+      <div className="flex h-full w-full items-center justify-center p-4 text-xs text-[var(--vscode-descriptionForeground)]">
+        该工单还没有 PR
+      </div>
+    )
+  }
 
   // 提交列表方向键切换：未选中时 ArrowDown 选首、ArrowUp 选末；已选中则按下标夹取边界移动。
   const onCommitListKeyDown = (e: ReactKeyboardEvent<HTMLUListElement>) => {
