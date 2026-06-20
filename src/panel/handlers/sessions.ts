@@ -1254,6 +1254,9 @@ export async function handleResumeTestSession(panel: KanbanWebviewPanel, session
     // resume 也必须在 worktree 才找得到这条会话；worktree 已清理才回退主 worktree（main）。
     const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
     let effectiveCwd = workspaceRoot
+    // 顺带读出 branch 给 impl-tab-pre-create 钩子用，避免下面再发一轮
+    // detectRepo/getToken/readIssueState 请求；读不到就空字符串。
+    let branchForHook = ''
     if (workspaceRoot) {
       const remote = await detectRepo(workspaceRoot)
       const token = remote ? await getToken(panel.context, remote.host) : undefined
@@ -1261,6 +1264,8 @@ export async function handleResumeTestSession(panel: KanbanWebviewPanel, session
         try {
           const stateObj = await panel.readIssueState(issueNumber)
           const worktreePathRel = typeof stateObj?.worktreePath === 'string' ? stateObj.worktreePath : undefined
+          if (stateObj && typeof stateObj.branch === 'string')
+            branchForHook = stateObj.branch
           effectiveCwd = await resolveTestSessionCwd(workspaceRoot, worktreePathRel)
         }
         catch (err) {
@@ -1282,6 +1287,22 @@ export async function handleResumeTestSession(panel: KanbanWebviewPanel, session
       return
     }
 
+    // 测试会话 resume 新建终端时也要触发 pre-create，与实施 resume / 首次
+    // startTestSession 对称（开 pycharm 等）；复用已有终端的 fast path 已在
+    // 上面早 return，故不会重复触发；回退主 worktree（已合并）时不触发——
+    // 主 worktree 不该被 pycharm 指向，与实施 resume 一致。
+    if (effectiveCwd !== workspaceRoot && workspaceRoot) {
+      const settings = getSettings(panel.context)
+      await panel.dispatchWorktreeHook('impl-tab-pre-create', {
+        workspaceRoot,
+        worktreePath: effectiveCwd!,
+        branch: branchForHook,
+        issueNumber,
+        mainBranch: settings.devBranch || 'main',
+        customScriptPath: settings.implTabPreCreateScript,
+      })
+    }
+
     const { themeColor, iconUri } = await panel.resolveIssueIcon(issueNumber)
     const terminal = window.createTerminal({
       name: terminalName,
@@ -1298,7 +1319,7 @@ export async function handleResumeTestSession(panel: KanbanWebviewPanel, session
       message: `已创建测试会话终端 #${issueNumber} cwd=${effectiveCwd}`,
     })
 
-    const cmd = `claude --dangerously-skip-permissions --settings '${effectiveProfilePath}' --system-prompt="$(serena prompts print-cc-system-prompt-override)" --resume ${sessionId}`
+    const cmd = `claude --dangerously-skip-permissions --settings '${effectiveProfilePath}' --system-prompt=\"$(serena prompts print-cc-system-prompt-override)\" --resume ${sessionId}`
     terminal.sendText(cmd)
   }
   finally {
