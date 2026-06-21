@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { useMemo, useRef } from 'react'
-import { CircleSlash, ExternalLink, Play, Terminal, Trash2, X } from 'lucide-react'
+import { CircleSlash, ExternalLink, GitMerge, Play, Terminal, Trash2, X } from 'lucide-react'
 import type { ClaudeProfile } from '../hooks/useIssues'
 import type { Issue, IssueColumn } from '../types'
 import { COLUMN_LABELS, COLUMN_ORDER } from '../types'
@@ -39,6 +39,9 @@ interface IssueDetailPanelProps {
   onOpenWorktree: (path: string) => void
   /** Delete the worktree (`git worktree remove`) and clear it from state. */
   onDeleteWorktree: (issueNumber: number, path: string) => void
+  /** Pre-merge the issue's feature branch into the main worktree's current branch
+   * (`git merge --no-commit --no-ff <branch>`) so the user can inspect locally. */
+  onMergeBranch: (issueNumber: number, branch: string) => void
   /** 硬删整个工单 + 关联资源（worktree / PR / feature branch / cc tabs）。
    * 顶部垃圾桶按钮触发，扩展端做 modal confirm，可选。 */
   onDeleteIssue?: (issueNumber: number) => void
@@ -88,6 +91,7 @@ export function IssueDetailPanel({
   isPrDiffSummaryRunning,
   onOpenWorktree,
   onDeleteWorktree,
+  onMergeBranch,
   onDeleteIssue,
   onCloseIssue,
   onCloseSessionTab,
@@ -425,6 +429,12 @@ export function IssueDetailPanel({
             type: 'string',
             readOnly: true,
             description: '实施流程创建的分支名',
+            secondaryActionIcon: issue?.branch ? <GitMerge className="size-3.5" /> : undefined,
+            secondaryActionTitle: '本地预合并 (git merge --no-commit --no-ff)',
+            onSecondaryAction: () => {
+              if (issue?.branch)
+                onMergeBranch(issue.number, issue.branch)
+            },
           },
           issue?.worktreeExists
             ? {
@@ -447,7 +457,7 @@ export function IssueDetailPanel({
         ],
       },
     ],
-    [onResumeSession, onResumeReviewSession, onResumeTestSession, onStartTestSession, onOpenFile, onImplement, onOpenPr, onGeneratePrDiffSummary, onOpenWorktree, onDeleteWorktree, onCloseSessionTab, onStartBrainstormSession, onOpenLogs, issue, locked, lockTitle, globalAutoReview, prDiffSummaryRunning, profiles],
+    [onResumeSession, onResumeReviewSession, onResumeTestSession, onStartTestSession, onOpenFile, onImplement, onOpenPr, onGeneratePrDiffSummary, onOpenWorktree, onDeleteWorktree, onMergeBranch, onCloseSessionTab, onStartBrainstormSession, onOpenLogs, issue, locked, lockTitle, globalAutoReview, prDiffSummaryRunning, profiles],
   )
 
   if (!issue) {

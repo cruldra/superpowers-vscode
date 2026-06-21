@@ -117,6 +117,67 @@ export async function handleDeleteWorktree(panel: KanbanWebviewPanel, issueNumbe
 }
 
 /**
+ * Pre-merge a feature branch into the **main worktree** (workspace root) so the
+ * user can inspect/test the merge result locally before committing. Runs
+ * `git merge --no-commit --no-ff <branch>`, which never auto-commits and always
+ * forces a merge commit structure. Feedback is surfaced via notifications.
+ */
+export async function handleMergePreview(panel: KanbanWebviewPanel, issueNumber: number, branch: string): Promise<void> {
+  const workspaceRoot = workspace.workspaceFolders?.[0]?.uri.fsPath
+  if (!workspaceRoot) {
+    void window.showErrorMessage('请先打开一个工作区文件夹')
+    return
+  }
+  if (!branch) {
+    void window.showWarningMessage('该工单没有分支')
+    return
+  }
+
+  // Best-effort: figure out the branch currently checked out in the main
+  // worktree so the success message can warn about merging into the wrong
+  // place. Never blocks the merge.
+  const currentBranch = await new Promise<string>((resolve) => {
+    execFile(
+      'git',
+      ['-C', workspaceRoot, 'rev-parse', '--abbrev-ref', 'HEAD'],
+      { timeout: 10_000 },
+      (err, stdout) => {
+        resolve(err ? '?' : (stdout ?? '').trim() || '?')
+      },
+    )
+  })
+
+  // `git merge` reports conflicts on stdout ("CONFLICT ...") and the
+  // "Automatic merge failed" line on stderr with a non-zero exit code, so we
+  // judge success solely by `err == null`.
+  const result = await new Promise<{ err: Error | null, output: string }>((resolve) => {
+    execFile(
+      'git',
+      ['-C', workspaceRoot, 'merge', '--no-commit', '--no-ff', branch],
+      { timeout: 60_000 },
+      (err, stdout, stderr) => {
+        const output = `${stdout ?? ''}${stderr ?? ''}`.trim()
+        resolve({ err: err ?? null, output })
+      },
+    )
+  })
+
+  if (result.err == null) {
+    void window.showInformationMessage(`已把 ${branch} 预合并到当前分支 ${currentBranch}(未提交)。检查无误后自行 commit,或执行 git merge --abort 撤销。`)
+    return
+  }
+
+  const detail = result.output || result.err.message
+  logger.add({
+    level: 'warn',
+    source: 'panel',
+    message: `git merge --no-commit --no-ff ${branch} 未完成(issue #${issueNumber})`,
+    details: detail,
+  })
+  void window.showWarningMessage(`git merge 未完成(冲突或出错): ${detail}。如需撤销执行 git merge --abort`)
+}
+
+/**
  * Run a user-provided shell script (post-create / pre-remove) and surface
  * the outcome via logger + a toast. Always returns — failures of any
  * kind never abort the calling flow, per the lifecycle-hook contract:

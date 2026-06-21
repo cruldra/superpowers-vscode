@@ -141,6 +141,7 @@ export type WebviewToExtension
     | { type: 'pr/open', pr: string }
     | { type: 'worktree/open', path: string }
     | { type: 'worktree/delete', issueNumber: number, path: string }
+    | { type: 'git/merge-preview', issueNumber: number, branch: string }
     | { type: 'column/change', issueNumber: number, toColumn: IssueColumn, source?: 'gitea' | 'youtrack', externalId?: string }
     | { type: 'dependency/set', issueNumber: number, prerequisiteNumber: number }
     | { type: 'dependency/clear', issueNumber: number, prerequisiteNumber: number }

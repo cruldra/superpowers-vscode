@@ -426,6 +426,10 @@ export class KanbanWebviewPanel {
       void worktree.handleDeleteWorktree(this, msg.issueNumber, msg.path)
       return
     }
+    if (msg.type === 'git/merge-preview') {
+      void worktree.handleMergePreview(this, msg.issueNumber, msg.branch)
+      return
+    }
     if (msg.type === 'column/change') {
       if (msg.source === 'youtrack' && msg.externalId)
         void youtrackIssues.handleYouTrackColumnChange(this, msg.externalId, msg.toColumn)

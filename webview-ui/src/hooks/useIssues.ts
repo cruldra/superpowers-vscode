@@ -130,6 +130,7 @@ export interface UseIssuesResult {
   openPr: (pr: string) => void
   openWorktree: (path: string) => void
   deleteWorktree: (issueNumber: number, path: string) => void
+  mergeBranch: (issueNumber: number, branch: string) => void
   /** 硬删 Gitea 工单及关联资源（worktree / PR / feature branch / cc tabs）。
    * 用户在详情面板顶部点垃圾桶按钮触发。扩展端做 modal confirm + 串行清理，
    * 全部成功后 push `issue/remove`，webview 将该 issue 从 issues 数组移除。 */
@@ -368,6 +369,10 @@ export function useIssues(): UseIssuesResult {
 
   const deleteWorktree = useCallback((issueNumber: number, path: string): void => {
     postMessage({ type: 'worktree/delete', issueNumber, path })
+  }, [])
+
+  const mergeBranch = useCallback((issueNumber: number, branch: string): void => {
+    postMessage({ type: 'git/merge-preview', issueNumber, branch })
   }, [])
 
   const deleteIssue = useCallback((issueNumber: number): void => {
@@ -692,5 +697,5 @@ export function useIssues(): UseIssuesResult {
     return cleanup
   }, [clearPrDiffSummaryRunning])
 
-  return { state, settings, globalAutoReview, youtrackConfigured, importYouTrack, toasts, profiles, setIssues, refresh, saveSettings, listYouTrackProjects, youtrackProjects, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, startTestSession, resumeTestSession, focusSession, openFile, implement, generatePrDiffSummary, isPrDiffSummaryRunning, openPr, openWorktree, deleteWorktree, deleteIssue, closeIssue, closeSessionTab, startBrainstormSession, changeColumn, setDependency, clearDependency, updateIssueAutoReview, updateIssueProfilePath, updateIssueTestProfilePath, logs, fetchLogs, clearLogs, pendingSelectId, clearPendingSelect, commitRunning, runCommit, hasChanges, branchSyncBehind, branchSyncRunning, branchSyncDisabled, branchSyncTitle, runBranchSync, envLocked, envFileCount, envLockRunning, envLockTitle, toggleEnvLock }
+  return { state, settings, globalAutoReview, youtrackConfigured, importYouTrack, toasts, profiles, setIssues, refresh, saveSettings, listYouTrackProjects, youtrackProjects, dismissSettings, requestEditAuth, createIssue, dismissToast, openUrl, resumeSession, resumeReviewSession, startTestSession, resumeTestSession, focusSession, openFile, implement, generatePrDiffSummary, isPrDiffSummaryRunning, openPr, openWorktree, deleteWorktree, mergeBranch, deleteIssue, closeIssue, closeSessionTab, startBrainstormSession, changeColumn, setDependency, clearDependency, updateIssueAutoReview, updateIssueProfilePath, updateIssueTestProfilePath, logs, fetchLogs, clearLogs, pendingSelectId, clearPendingSelect, commitRunning, runCommit, hasChanges, branchSyncBehind, branchSyncRunning, branchSyncDisabled, branchSyncTitle, runBranchSync, envLocked, envFileCount, envLockRunning, envLockTitle, toggleEnvLock }
 }

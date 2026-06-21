@@ -45,6 +45,7 @@ export function App() {
     openPr,
     openWorktree,
     deleteWorktree,
+    mergeBranch,
     deleteIssue,
     closeIssue,
     closeSessionTab,
@@ -347,6 +348,7 @@ export function App() {
                 isPrDiffSummaryRunning={isPrDiffSummaryRunning}
                 onOpenWorktree={openWorktree}
                 onDeleteWorktree={deleteWorktree}
+                onMergeBranch={mergeBranch}
                 onDeleteIssue={deleteIssue}
                 onCloseIssue={closeIssue}
                 onCloseSessionTab={closeSessionTab}

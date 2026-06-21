@@ -441,6 +441,33 @@ function PropertyRow({
       case 'string':
       default:
         if (ro) {
+          const hasSecondary = propDef.secondaryActionIcon != null
+          const secondaryDisabled = !!propDef.secondaryDisabled
+          if (hasSecondary) {
+            return (
+              <div className="flex w-full items-center gap-1.5 px-2 py-1.5">
+                <span className="min-w-0 flex-1 truncate text-xs">{String(value ?? '')}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (secondaryDisabled)
+                      return
+                    propDef.onSecondaryAction?.()
+                  }}
+                  disabled={secondaryDisabled}
+                  title={propDef.secondaryActionTitle}
+                  aria-label={propDef.secondaryActionTitle ?? '次要操作'}
+                  className={`grid size-5 shrink-0 place-items-center ${
+                    secondaryDisabled
+                      ? 'cursor-not-allowed opacity-30'
+                      : 'opacity-60 hover:opacity-100'
+                  }`}
+                >
+                  {propDef.secondaryActionIcon}
+                </button>
+              </div>
+            )
+          }
           return <span className="block truncate px-2 py-1.5 text-xs">{String(value ?? '')}</span>
         }
         return (

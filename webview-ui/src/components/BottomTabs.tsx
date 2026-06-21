@@ -36,6 +36,7 @@ interface BottomTabsProps {
   isPrDiffSummaryRunning: (issueNumber: number) => boolean
   onOpenWorktree: (path: string) => void
   onDeleteWorktree: (issueNumber: number, path: string) => void
+  onMergeBranch: (issueNumber: number, branch: string) => void
   onDeleteIssue?: (issueNumber: number) => void
   onCloseIssue: (issueNumber: number) => void
   onCloseSessionTab: (issueNumber: number, kind: 'brainstorm' | 'implement' | 'review' | 'test') => void
@@ -112,6 +113,7 @@ export function BottomTabs(props: BottomTabsProps) {
             isPrDiffSummaryRunning={props.isPrDiffSummaryRunning}
             onOpenWorktree={props.onOpenWorktree}
             onDeleteWorktree={props.onDeleteWorktree}
+            onMergeBranch={props.onMergeBranch}
             onDeleteIssue={props.onDeleteIssue}
             onCloseIssue={props.onCloseIssue}
             onCloseSessionTab={props.onCloseSessionTab}
