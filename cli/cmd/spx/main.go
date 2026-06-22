@@ -168,6 +168,12 @@ func buildIssueCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// --body-file is a one-shot handoff. Remove it now that the issue
+			// exists, so a stale file can't mislead a later brainstorm session
+			// into the wrong topic.
+			if icBodyFile != "" {
+				_ = os.Remove(icBodyFile)
+			}
 			var statePayload any
 			if hasState {
 				mergedBytes, err := json.Marshal(mergedState)
